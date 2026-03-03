@@ -1,0 +1,160 @@
+import { useState, FormEvent } from 'react';
+import { Layout } from '../components/layout/Layout';
+import { Input, Button, Card, Toast, ToastType } from '../components/ui';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigation } from '../contexts/NavigationContext';
+import { supabase } from '../lib/supabase';
+import { User, Lock } from 'lucide-react';
+
+export function LoginScreen() {
+  const { signIn } = useAuth();
+  const { navigate } = useNavigation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ message, type });
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      await signIn(email.trim().toLowerCase(), password);
+      navigate({ name: 'home' });
+    } catch (err: any) {
+      const msg = err?.message ?? '';
+      const status = err?.status ?? err?.code;
+      const hint =
+        msg.includes('invalid') || msg.includes('credentials')
+          ? ' (email ou palavra-passe errados)'
+          : msg.includes('email')
+            ? ' (verifica o email)'
+            : msg.includes('password')
+              ? ' (verifica a palavra-passe)'
+              : '';
+      setError('Email ou palavra-passe incorretos');
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[Login] Falha no login — detalhe para diagnóstico:', {
+          message: msg,
+          status,
+          email_tentado: email ? `${email.slice(0, 3)}***@${(email.split('@')[1] || '')}` : '(vazio)',
+          hint,
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Layout showNav={false}>
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-10">
+            <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <User className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">🎾 Equipa M6 APC TRABLISA</h1>
+            <p className="text-lg text-gray-600">Gestão da equipa e dos jogos</p>
+          </div>
+
+          <Card>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    <span>Email</span>
+                  </div>
+                </label>
+                <Input
+                  type="email"
+                  placeholder="exemplo@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  className="text-base"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4" />
+                    <span>Palavra-passe</span>
+                  </div>
+                </label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="text-base"
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+
+              <Button type="submit" fullWidth disabled={loading} size="lg">
+                {loading ? 'A entrar...' : 'Entrar'}
+              </Button>
+
+              <div className="pt-4 space-y-2 text-center border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => navigate({ name: 'register' })}
+                  className="block w-full text-sm text-gray-600 hover:text-blue-600 transition-colors"
+                >
+                  Criar conta
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const e = email.trim().toLowerCase();
+                    if (!e) {
+                      showToast('Introduz o teu email acima e clica novamente.', 'info');
+                      return;
+                    }
+                    try {
+                      const { error } = await supabase.auth.resetPasswordForEmail(e, {
+                        redirectTo: `${window.location.origin}/reset-password`,
+                      });
+                      if (error) throw error;
+                      showToast('Email enviado! Verifica a caixa de entrada e clica no link para redefinir a palavra-passe.', 'success');
+                    } catch (err: any) {
+                      showToast(err?.message ?? 'Erro ao enviar email. Tenta novamente.', 'error');
+                    }
+                  }}
+                  className="block w-full text-sm text-gray-500 hover:text-blue-600 transition-colors"
+                >
+                  Esqueci-me da palavra-passe
+                </button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      </div>
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+    </Layout>
+  );
+}

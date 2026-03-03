@@ -1,0 +1,26 @@
+═══════════════════════════════════════════════════════════════
+  PROMOVER UTILIZADOR ACTUAL A CAPITÃO - COPIAR E COLAR
+═══════════════════════════════════════════════════════════════
+
+1. Abrir DevTools (F12)
+2. Ir para Console
+3. Copiar TODO o código abaixo
+4. Colar no console
+5. Pressionar Enter
+
+───────────────────────────────────────────────────────────────
+
+const { supabase } = await import('./src/lib/supabase.ts');
+const { data: { user } } = await supabase.auth.getUser();
+await supabase.from('players').update({ is_captain: true }).eq('user_id', user.id);
+console.log('✅ PROMOVIDO! A recarregar...');
+setTimeout(() => window.location.reload(), 1000);
+
+───────────────────────────────────────────────────────────────
+
+RESULTADO ESPERADO:
+✅ Mensagem "PROMOVIDO!"
+✅ Página recarrega automaticamente
+✅ Menu inferior mostra 4 itens (com "Admin")
+
+═══════════════════════════════════════════════════════════════
