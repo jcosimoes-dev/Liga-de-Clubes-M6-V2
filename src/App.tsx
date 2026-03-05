@@ -15,6 +15,7 @@ import { BootstrapScreen } from './screens/BootstrapScreen';
 import { ResetPasswordScreen } from './screens/ResetPasswordScreen';
 
 import InstallAppPrompt from './components/InstallAppPrompt';
+import OfflineBanner from './components/OfflineBanner';
 
 function AppContent() {
   const { session } = useAuth();
@@ -39,7 +40,8 @@ function AppContent() {
         initialRouteName="home"
       />
 
-      {/* Mostrar prompt apenas se estiver logado */}
+      {/* Mostrar banner e prompt apenas se estiver logado */}
+      {session && <OfflineBanner />}
       {session && <InstallAppPrompt />}
     </div>
   );

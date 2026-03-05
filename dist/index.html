@@ -2,17 +2,107 @@
 <html lang="pt">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/pwa-192.png" />
-    <link rel="apple-touch-icon" href="/pwa-512.png" />
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Liga de Clubes M6</title>
-    <meta property="og:image" content="/pwa-512.png" />
+
+    <title>Equipa M6 Trablisa</title>
+
+    <!-- PWA icons -->
+    <link rel="icon" type="image/png" href="/pwa192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- iOS PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Equipa M6 Trablisa" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- theme -->
+    <meta name="theme-color" content="#000000" />
+
+    <!-- social -->
+    <meta property="og:title" content="Equipa M6 Trablisa" />
+    <meta property="og:image" content="/pwa512.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="/pwa-512.png" />
-    <script type="module" crossorigin src="/assets/index-DpdBVOt5.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-D-SAEge1.css">
+    <meta name="twitter:image" content="/pwa512.png" />
+
+    <style>
+      /* loader */
+      #preloader {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #000;
+        z-index: 9999;
+        transition: opacity 0.35s ease;
+      }
+
+      #preloader.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #preloader img {
+        width: 140px;
+        height: 140px;
+        border-radius: 28px;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          transform: scale(0.95);
+          opacity: 0.85;
+        }
+        50% {
+          transform: scale(1.05);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(0.95);
+          opacity: 0.85;
+        }
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index--YEltPhu.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DCBKiTJx.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
+
   <body>
+    <!-- Loader -->
+    <div id="preloader">
+      <img src="/apple-touch-icon.png" alt="Equipa M6 Trablisa" />
+    </div>
+
     <div id="root"></div>
+
+
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        const pre = document.getElementById("preloader");
+        const root = document.getElementById("root");
+        const start = Date.now();
+        const minTime = 700;
+
+        const stop = () => {
+          const elapsed = Date.now() - start;
+          const wait = Math.max(0, minTime - elapsed);
+
+          setTimeout(() => {
+            pre.classList.add("fade-out");
+            setTimeout(() => pre.remove(), 300);
+          }, wait);
+        };
+
+        const obs = new MutationObserver(() => {
+          if (root.childNodes.length > 0) {
+            obs.disconnect();
+            stop();
+          }
+        });
+
+        obs.observe(root, { childList: true });
+      });
+    </script>
   </body>
 </html>
