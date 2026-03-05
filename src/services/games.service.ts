@@ -23,20 +23,22 @@ export const GamesService = {
 
   /**
    * Obter jogos com convocatória aberta (para Início e Gestão de Convocatórias).
-   * Colunas mínimas para evitar 400. Filtra status e data no cliente.
+   * Colunas mínimas para evitar 400. Filtra por status; opcionalmente por data.
+   * @param includePast - Se true (gestão Admin/Coordenador), inclui jogos com data já passada; os jogos só saem da lista ao serem concluídos ou fechados.
    */
-  async getOpenGames() {
+  async getOpenGames(includePast = false) {
     const { data, error } = await supabase
       .from('games')
       .select('id, status, opponent, starts_at, location, phase, round_number')
       .order('starts_at', { ascending: true });
     if (error) throw error;
-    const now = new Date();
-    return (data ?? []).filter(
-      (g) =>
-        ['convocatoria_aberta', 'open', 'agendado', 'scheduled'].includes(g.status ?? '') &&
-        new Date(g.starts_at) >= now
+    const openStatuses = ['convocatoria_aberta', 'open', 'agendado', 'scheduled'];
+    const filtered = (data ?? []).filter((g) =>
+      openStatuses.includes(g.status ?? '')
     );
+    if (includePast) return filtered;
+    const now = new Date();
+    return filtered.filter((g) => new Date(g.starts_at) >= now);
   },
 
   /**
@@ -151,6 +153,17 @@ export const GamesService = {
       return res.data as Game & { id: string };
     }
     throw new Error('Resposta inválida ao criar jogo.');
+  },
+
+  /**
+   * Atualizar data/hora e localização do jogo (apenas capitão/gestor).
+   * Usado pelo modal Editar Jogo (adiamentos, mudança de recinto).
+   */
+  async updateGame(
+    id: string,
+    data: { starts_at?: string; location?: string }
+  ) {
+    return this.update(id, data);
   },
 
   /**

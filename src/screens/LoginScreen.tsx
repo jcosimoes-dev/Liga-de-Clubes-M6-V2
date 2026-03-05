@@ -9,10 +9,13 @@ import { User, Lock } from 'lucide-react';
 export function LoginScreen() {
   const { signIn } = useAuth();
   const { navigate } = useNavigation();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
   const showToast = (message: string, type: ToastType = 'info') => {
@@ -22,6 +25,14 @@ export function LoginScreen() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // ✅ OFFLINE: não tenta autenticar (evita Failed to fetch + refresh token requests)
+    if (!navigator.onLine) {
+      showToast('Sem internet. Liga-te para iniciar sessão.', 'error');
+      setError('Sem internet. Liga-te para iniciar sessão.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -30,25 +41,63 @@ export function LoginScreen() {
     } catch (err: any) {
       const msg = err?.message ?? '';
       const status = err?.status ?? err?.code;
-      const hint =
-        msg.includes('invalid') || msg.includes('credentials')
-          ? ' (email ou palavra-passe errados)'
-          : msg.includes('email')
-            ? ' (verifica o email)'
-            : msg.includes('password')
-              ? ' (verifica a palavra-passe)'
-              : '';
+
+      // Se falhou por rede (às vezes navigator.onLine ainda diz true)
+      if (
+        msg.toLowerCase().includes('failed to fetch') ||
+        msg.toLowerCase().includes('network') ||
+        status === 0
+      ) {
+        showToast('Falha de ligação. Verifica a internet e tenta novamente.', 'error');
+        setError('Falha de ligação. Verifica a internet e tenta novamente.');
+        return;
+      }
+
       setError('Email ou palavra-passe incorretos');
+
       if (typeof console !== 'undefined' && console.warn) {
         console.warn('[Login] Falha no login — detalhe para diagnóstico:', {
           message: msg,
           status,
           email_tentado: email ? `${email.slice(0, 3)}***@${(email.split('@')[1] || '')}` : '(vazio)',
-          hint,
         });
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    const e = email.trim().toLowerCase();
+
+    if (!e) {
+      showToast('Introduz o teu email acima e clica novamente.', 'info');
+      return;
+    }
+
+    // ✅ OFFLINE: não tenta chamar supabase
+    if (!navigator.onLine) {
+      showToast('Sem internet. Liga-te para pedir a reposição da palavra-passe.', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(e, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+
+      showToast(
+        'Email enviado! Verifica a caixa de entrada e clica no link para redefinir a palavra-passe.',
+        'success'
+      );
+    } catch (err: any) {
+      const msg = err?.message ?? '';
+      if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('network')) {
+        showToast('Falha de ligação. Verifica a internet e tenta novamente.', 'error');
+      } else {
+        showToast(msg || 'Erro ao enviar email. Tenta novamente.', 'error');
+      }
     }
   };
 
@@ -62,6 +111,13 @@ export function LoginScreen() {
             </div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">🎾 Equipa M6 APC TRABLISA</h1>
             <p className="text-lg text-gray-600">Gestão da equipa e dos jogos</p>
+
+            {/* ✅ Informação suave de offline (sem assustar) */}
+            {!navigator.onLine && (
+              <p className="mt-3 text-sm text-red-600">
+                Estás offline — para entrar tens de ligar a internet.
+              </p>
+            )}
           </div>
 
           <Card>
@@ -120,24 +176,10 @@ export function LoginScreen() {
                 >
                   Criar conta
                 </button>
+
                 <button
                   type="button"
-                  onClick={async () => {
-                    const e = email.trim().toLowerCase();
-                    if (!e) {
-                      showToast('Introduz o teu email acima e clica novamente.', 'info');
-                      return;
-                    }
-                    try {
-                      const { error } = await supabase.auth.resetPasswordForEmail(e, {
-                        redirectTo: `${window.location.origin}/reset-password`,
-                      });
-                      if (error) throw error;
-                      showToast('Email enviado! Verifica a caixa de entrada e clica no link para redefinir a palavra-passe.', 'success');
-                    } catch (err: any) {
-                      showToast(err?.message ?? 'Erro ao enviar email. Tenta novamente.', 'error');
-                    }
-                  }}
+                  onClick={handleResetPassword}
                   className="block w-full text-sm text-gray-500 hover:text-blue-600 transition-colors"
                 >
                   Esqueci-me da palavra-passe
@@ -148,13 +190,7 @@ export function LoginScreen() {
         </div>
       </div>
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </Layout>
   );
 }

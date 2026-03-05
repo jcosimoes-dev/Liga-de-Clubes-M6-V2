@@ -4,15 +4,14 @@ export default function OfflineBanner() {
   const [online, setOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
+    const update = () => setOnline(navigator.onLine);
 
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
 
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
     };
   }, []);
 
@@ -22,19 +21,29 @@ export default function OfflineBanner() {
     <div
       style={{
         position: "fixed",
-        top: 10,
-        left: 10,
-        right: 10,
+        top: 14,
+        left: "50%",
+        transform: "translateX(-50%)",
         zIndex: 9999,
-        background: "rgba(0,0,0,0.85)",
-        color: "white",
-        padding: "10px",
-        borderRadius: "10px",
+
+        width: "min(520px, calc(100vw - 24px))",
+        padding: "10px 14px",
+        borderRadius: 999,
+
+        background: "rgba(0, 200, 120, 0.18)", // verde suave
+        border: "1px solid rgba(0, 255, 160, 0.35)",
+        backdropFilter: "blur(8px)",
+
+        color: "#eafff3",
         textAlign: "center",
-        fontSize: "14px"
+        fontWeight: 800,
+        fontSize: 13,
+        letterSpacing: "0.6px",
+        textTransform: "uppercase",
+        boxShadow: "0 10px 26px rgba(0,0,0,0.25)",
       }}
     >
-      ⚠️ Estás offline — a mostrar dados guardados
+      ⚠️ ESTÁS OFFLINE — A MOSTRAR DADOS GUARDADOS
     </div>
   );
 }

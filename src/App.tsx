@@ -14,14 +14,39 @@ import { TeamScreen } from './screens/TeamScreen';
 import { BootstrapScreen } from './screens/BootstrapScreen';
 import { ResetPasswordScreen } from './screens/ResetPasswordScreen';
 
-import InstallAppPrompt from './components/InstallAppPrompt';
+import { OfflineScreen } from './screens/OfflineScreen';
+
 import OfflineBanner from './components/OfflineBanner';
+import InstallAppPrompt from './components/InstallAppPrompt';
+import ConnectionRestoredToast from './components/ConnectionRestoredToast';
+
+import { useEffect, useState } from "react";
 
 function AppContent() {
   const { session } = useAuth();
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const update = () => setIsOffline(!navigator.onLine);
+
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  if (isOffline && !session) {
+    return <OfflineScreen />;
+  }
 
   return (
     <div style={{ minHeight: '100vh' }}>
+
+      <ConnectionRestoredToast />
+
       <NavigationProvider
         routes={{
           home: HomeScreen,
@@ -40,7 +65,6 @@ function AppContent() {
         initialRouteName="home"
       />
 
-      {/* Mostrar banner e prompt apenas se estiver logado */}
       {session && <OfflineBanner />}
       {session && <InstallAppPrompt />}
     </div>

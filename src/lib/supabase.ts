@@ -6,10 +6,43 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undef
 if (!supabaseUrl) throw new Error("Falta VITE_SUPABASE_URL no .env.local");
 if (!supabaseAnonKey) throw new Error("Falta VITE_SUPABASE_ANON_KEY no .env.local");
 
+// Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
-    autoRefreshToken: true,
+
+    // ✅ não tentar refrescar token quando estás offline
+    autoRefreshToken: typeof navigator !== "undefined" ? navigator.onLine : true,
+
     detectSessionInUrl: true,
   },
 });
+
+// ✅ gerir o auto-refresh conforme a ligação (evita spam de erros offline)
+if (typeof window !== "undefined") {
+  const stop = async () => {
+    try {
+      await supabase.auth.stopAutoRefresh();
+    } catch {
+      // ignora
+    }
+  };
+
+  const start = async () => {
+    try {
+      await supabase.auth.startAutoRefresh();
+    } catch {
+      // ignora
+    }
+  };
+
+  window.addEventListener("offline", stop);
+  window.addEventListener("online", start);
+
+  // aplica imediatamente
+  if (!navigator.onLine) {
+    stop();
+  } else {
+    start();
+  }
+}

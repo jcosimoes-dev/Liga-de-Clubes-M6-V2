@@ -9,4 +9,5 @@ export { Toast } from './Toast';
 export type { ToastType } from './Toast';
 export { Header } from './Header';
 export { AddPlayerModal } from './AddPlayerModal';
+export { EditGameModal } from './EditGameModal';
 export { RestrictedAccessModal } from './RestrictedAccessModal';

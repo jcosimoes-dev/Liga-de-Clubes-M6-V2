@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, FormEvent } from 'react';
 import { Layout } from '../components/layout/Layout';
-import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType } from '../components/ui';
+import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService, AvailabilitiesService, PairsService, PlayersService } from '../services';
 import { supabase } from '../lib/supabase';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle } from 'lucide-react';
 
 export type GameType = 'Liga' | 'Torneio' | 'Mix' | 'Treino';
 
@@ -84,6 +84,7 @@ export function SportManagementScreen() {
   const [gameEditOpponent, setGameEditOpponent] = useState('');
   const [gameEditLocation, setGameEditLocation] = useState('');
   const [gameEditSaving, setGameEditSaving] = useState(false);
+  const [gameToEdit, setGameToEdit] = useState<any | null>(null);
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
 
@@ -281,7 +282,7 @@ export function SportManagementScreen() {
   const loadOpenGames = async () => {
     setGamesLoading(true);
     try {
-      const games = await GamesService.getOpenGames();
+      const games = await GamesService.getOpenGames(true);
       setOpenGames(games);
       if (!selectedGame) setSelectedGame(null);
     } catch (e) {
@@ -652,6 +653,7 @@ export function SportManagementScreen() {
           <p className="text-sm text-gray-600 mb-4">
             Liga: mínimo 4 jogadores (2 duplas). Outros tipos: mínimo 2 jogadores (1 dupla). Escolhe da lista de{' '}
             <strong>confirmados</strong>; as duplas são ordenadas por pontos. Ao confirmar, a convocatória é fechada.
+            Jogos com data já passada continuam aqui até serem concluídos ou fechados — usa o ícone de lápis para adiar ou alterar o local.
           </p>
 
           {gamesLoading ? (
@@ -667,14 +669,33 @@ export function SportManagementScreen() {
               {openGames.map((game: any) => {
                 const cat = getCategoryFromPhase(game.phase);
                 const styles = CATEGORY_STYLES[cat];
+                const isPastDate = new Date(game.starts_at) < new Date();
                 return (
                   <button
                     key={game.id}
+                    type="button"
                     onClick={() => setSelectedGame(selectedGame?.id === game.id ? null : game)}
-                    className={`text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
-                      selectedGame?.id === game.id ? 'ring-2 ring-offset-2 ring-blue-500 border-blue-500' : 'border-transparent hover:shadow-xl'
+                    className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
+                      selectedGame?.id === game.id ? 'ring-2 ring-offset-2 ring-blue-500 border-blue-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
                   >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setGameToEdit(game);
+                      }}
+                      className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
+                      aria-label="Editar jogo"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    {isPastDate && (
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                        Data passada
+                      </div>
+                    )}
                     <div className={`px-3 py-2 ${styles.headerGradient} text-white text-sm font-semibold`}>
                       {GamesService.formatOpponentDisplay(game.opponent)}
                     </div>
@@ -832,15 +853,33 @@ export function SportManagementScreen() {
               {closedGames.map((game: any) => {
                 const cat = getCategoryFromPhase(game.phase);
                 const styles = CATEGORY_STYLES[cat];
+                const isPastDate = new Date(game.starts_at) < new Date();
                 return (
                   <button
                     key={game.id}
                     type="button"
                     onClick={() => setSelectedGameForSwap(selectedGameForSwap?.id === game.id ? null : game)}
-                    className={`text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
-                      selectedGameForSwap?.id === game.id ? 'ring-2 ring-offset-2 ring-amber-500 border-amber-500' : 'border-transparent hover:shadow-xl'
+                    className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
+                      selectedGameForSwap?.id === game.id ? 'ring-2 ring-offset-2 ring-amber-500 border-amber-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
                   >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setGameToEdit(game);
+                      }}
+                      className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
+                      aria-label="Editar jogo"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    {isPastDate && (
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                        Data passada
+                      </div>
+                    )}
                     <div className={`px-3 py-2 ${styles.headerGradient} text-white text-sm font-semibold`}>
                       {GamesService.formatOpponentDisplay(game.opponent)}
                     </div>
@@ -990,6 +1029,18 @@ export function SportManagementScreen() {
             <p className="text-sm text-gray-500 mt-4">Este jogo ainda não tem duplas definidas.</p>
           )}
         </CategoryCard>
+
+        <EditGameModal
+          isOpen={!!gameToEdit}
+          game={gameToEdit}
+          onClose={() => setGameToEdit(null)}
+          onSuccess={async () => {
+            await loadOpenGames();
+            await loadClosedGames();
+            showToast('Jogo atualizado com sucesso', 'success');
+            setGameToEdit(null);
+          }}
+        />
 
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       </div>
