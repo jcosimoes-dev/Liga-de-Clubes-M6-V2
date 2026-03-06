@@ -30,7 +30,7 @@ function toDatetimeLocal(iso: string): string {
   return `${y}-${m}-${day}T${h}:${min}`;
 }
 
-const COMPLETED_STATUSES = ['concluido', 'completed', 'closed'];
+const COMPLETED_STATUSES = ['concluido', 'completed', 'closed', 'final'];
 
 /**
  * Modal para editar Data/Hora e Localização de um jogo.

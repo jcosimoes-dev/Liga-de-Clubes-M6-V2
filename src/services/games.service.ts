@@ -240,14 +240,14 @@ export const GamesService = {
 
   /**
    * Marcar jogo como concluído (apenas capitão).
+   * Usa status 'final' (aceite no Supabase) para pontuação e para evitar erro de Enum.
    * Liga: trigger define team_points 3 (vitória), 1 (derrota), 0 (no_show).
-   * Não faz select após update para evitar refresh que poderia acionar joins com results.
    */
   async complete(id: string, options?: { no_show?: boolean }) {
     const { error } = await supabase
       .from('games')
       .update({
-        status: 'concluido',
+        status: 'final',
         ...(options?.no_show === true && { no_show: true }),
       })
       .eq('id', id);

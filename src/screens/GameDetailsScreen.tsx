@@ -4,8 +4,9 @@ import { Card, Button, Header, Loading, Toast, ToastType, Badge, ConfirmDialog }
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
-import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
+import { GamesService, PairsService, ResultsService, AvailabilitiesService, syncPlayerPoints } from '../services';
 import { PlayerRoles } from '../domain/constants';
+import { ArrowLeft } from 'lucide-react';
 
 type Props = {
   id?: string;
@@ -28,7 +29,7 @@ function toNum(v: string | number | null | undefined): number | null {
 }
 
 export function GameDetailsScreen({ id }: Props) {
-  const { navigate } = useNavigation();
+  const { navigate, goBack } = useNavigation();
   const { user, role } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
   const isLoggedIn = Boolean(user?.id);
@@ -66,7 +67,7 @@ export function GameDetailsScreen({ id }: Props) {
     const run = async () => {
       setLoading(true);
       try {
-        const gamesCols = 'id, status, opponent, starts_at, location, phase, round_number';
+        const gamesCols = 'id, status, opponent, starts_at, location, phase, round_number, team_points';
         const { data, error } = await supabase.from('games').select(gamesCols).eq('id', gameId).maybeSingle();
 
         if (error) throw error;
@@ -77,12 +78,30 @@ export function GameDetailsScreen({ id }: Props) {
           return;
         }
 
-        const isClosed = ['convocatoria_fechada', 'closed', 'concluido', 'completed'].includes(data.status ?? '');
+        const isClosed = ['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(data.status ?? '');
         if (isClosed) {
-          const pairsData = await PairsService.getByGame(gameId);
+          const [pairsData, resData] = await Promise.all([
+            PairsService.getByGame(gameId),
+            ResultsService.getByGame(gameId),
+          ]);
           setPairs(Array.isArray(pairsData) ? pairsData : []);
+          const resMap: Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }> = {};
+          for (const r of resData ?? []) {
+            const pid = (r as { pair_id?: string }).pair_id;
+            if (pid)
+              resMap[pid] = {
+                set1_casa: (r as any).set1_casa ?? 0,
+                set1_fora: (r as any).set1_fora ?? 0,
+                set2_casa: (r as any).set2_casa ?? 0,
+                set2_fora: (r as any).set2_fora ?? 0,
+                set3_casa: (r as any).set3_casa ?? null,
+                set3_fora: (r as any).set3_fora ?? null,
+              };
+          }
+          setResults(resMap);
         } else {
           setPairs([]);
+          setResults({});
         }
         try {
           const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
@@ -90,7 +109,6 @@ export function GameDetailsScreen({ id }: Props) {
         } catch {
           setConfirmedPlayers([]);
         }
-        setResults({});
       } catch (e) {
         console.error('[GameDetailsScreen] Erro ao carregar:', e);
         showToast(getErrorMessage(e), 'error');
@@ -123,8 +141,9 @@ export function GameDetailsScreen({ id }: Props) {
           <Card>
             <p className="text-sm text-gray-700">Não foi possível carregar o jogo.</p>
             <div className="mt-4">
-              <Button variant="primary" fullWidth onClick={() => navigate({ name: 'home' })}>
-                Voltar ao Início
+              <Button variant="primary" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
+                <ArrowLeft className="w-4 h-4" />
+                Voltar
               </Button>
             </div>
           </Card>
@@ -148,19 +167,66 @@ export function GameDetailsScreen({ id }: Props) {
               </div>
 
               <div className="mt-4">
-                <Button variant="ghost" fullWidth onClick={() => navigate({ name: 'home' })}>
-                  Voltar ao Início
+                <Button variant="ghost" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
+                  <ArrowLeft className="w-4 h-4" />
+                  Voltar
                 </Button>
               </div>
             </Card>
 
+            {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '') && pairs.length > 0 && (
+              <Card>
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Duplas e resultado</h3>
+                <div className="space-y-4">
+                  {pairs.map((pair: any, idx: number) => {
+                    const pairId = pair?.id ?? '';
+                    const res = results[pairId];
+                    const p1 = pair.player1?.name ?? '—';
+                    const p2 = pair.player2?.name ?? '—';
+                    let setsStr = '—';
+                    let outcome: 'Vitória' | 'Derrota' | null = null;
+                    if (res && (res.set1_casa != null || res.set1_fora != null)) {
+                      const s1 = `${res.set1_casa ?? 0}-${res.set1_fora ?? 0}`;
+                      const s2 = `${res.set2_casa ?? 0}-${res.set2_fora ?? 0}`;
+                      const s3 = res.set3_casa != null && res.set3_fora != null ? `${res.set3_casa}-${res.set3_fora}` : null;
+                      setsStr = s3 ? `${s1}, ${s2}, ${s3}` : `${s1}, ${s2}`;
+                      const totalCasa = (res.set1_casa ?? 0) + (res.set2_casa ?? 0) + (res.set3_casa ?? 0);
+                      const totalFora = (res.set1_fora ?? 0) + (res.set2_fora ?? 0) + (res.set3_fora ?? 0);
+                      outcome = totalCasa > totalFora ? 'Vitória' : 'Derrota';
+                    }
+                    return (
+                      <div key={pairId} className="p-3 rounded-lg border border-gray-200 bg-gray-50/50">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900">
+                            Dupla {idx + 1}: {p1} + {p2}
+                          </span>
+                          {outcome && (
+                            <Badge variant={outcome === 'Vitória' ? 'success' : 'danger'} size="sm">
+                              {outcome}
+                            </Badge>
+                          )}
+                        </div>
+                        {setsStr !== '—' && <p className="text-sm text-gray-600 mt-1">Sets: {setsStr}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {game.team_points != null && (
+                  <p className="text-sm text-gray-600 mt-3">
+                    <strong>Resultado da equipa:</strong> {game.team_points} {game.team_points === 1 ? 'ponto' : 'pontos'} (jogo)
+                  </p>
+                )}
+              </Card>
+            )}
+
             {confirmedPlayers.length > 0 && (
               <Card>
-                <h3 className="text-base font-semibold text-gray-900 mb-2">Jogadores que confirmaram</h3>
-                <p className="text-sm text-gray-600 mb-2">Lista visível para todos os elementos da equipa.</p>
+                <h3 className="text-base font-semibold text-gray-900 mb-2">Quem confirmou disponibilidade (Check verde)</h3>
+                <p className="text-sm text-gray-600 mb-2">Todos os jogadores que disseram que podiam jogar nesta jornada.</p>
                 <ul className="space-y-1">
                   {confirmedPlayers.map((p: any) => (
-                    <li key={p.id} className="text-sm text-gray-700">
+                    <li key={p.id} className="text-sm text-gray-700 flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-500" aria-hidden />
                       {p.name ?? '—'}
                       {p.federation_points != null ? ` (${p.federation_points} pts)` : ''}
                     </li>
@@ -169,7 +235,7 @@ export function GameDetailsScreen({ id }: Props) {
               </Card>
             )}
 
-            {['convocatoria_fechada', 'closed', 'concluido', 'completed'].includes(game.status ?? '') && pairs.length > 0 && (
+            {['convocatoria_fechada', 'closed'].includes(game.status ?? '') && pairs.length > 0 && (
               <Card>
                 <h3 className="text-base font-semibold text-gray-900 mb-4">Quadro de Resultados</h3>
                 <p className="text-sm text-gray-600 mb-4">
@@ -181,7 +247,7 @@ export function GameDetailsScreen({ id }: Props) {
                     const res = results[pairId] ?? defaultSetRow;
                     const p1 = pair.player1?.name ?? '—';
                     const p2 = pair.player2?.name ?? '—';
-                    const isReadOnly = ['concluido', 'completed'].includes(game.status ?? '') || isReadOnlyByRole;
+                    const isReadOnly = isReadOnlyByRole;
                     return (
                       <div key={pairId} className="p-4 rounded-lg border border-gray-200 bg-gray-50 space-y-3" data-pair-id={pairId}>
                         <div className="font-medium text-gray-900">
@@ -316,7 +382,7 @@ export function GameDetailsScreen({ id }: Props) {
                     <Button
                       fullWidth
                       className="mt-4"
-                      disabled={saving || !isLoggedIn || ['concluido', 'completed'].includes(game.status ?? '')}
+                      disabled={saving || !isLoggedIn || ['concluido', 'completed', 'final'].includes(game.status ?? '')}
                       onClick={() => {
                         if (!gameId || saving) return;
                         if (!isLoggedIn || !user?.id) {
@@ -326,7 +392,7 @@ export function GameDetailsScreen({ id }: Props) {
                         setShowConfirmGravar(true);
                       }}
                     >
-                      {saving ? 'A guardar...' : !isLoggedIn ? 'Inicia sessão para guardar' : ['concluido', 'completed'].includes(game.status ?? '') ? 'Resultados Guardados' : 'Gravar Resultados'}
+                      {saving ? 'A guardar...' : !isLoggedIn ? 'Inicia sessão para guardar' : ['concluido', 'completed', 'final'].includes(game.status ?? '') ? 'Resultados Guardados' : 'Gravar Resultados'}
                     </Button>
                     <ConfirmDialog
                       isOpen={showConfirmGravar}
@@ -367,7 +433,8 @@ export function GameDetailsScreen({ id }: Props) {
                               await ResultsService.upsertResult(payload);
                             }
                             await GamesService.complete(gameId);
-                            setGame((prev: any) => (prev ? { ...prev, status: 'concluido' } : prev));
+                            await syncPlayerPoints(game?.team_id);
+                            setGame((prev: any) => (prev ? { ...prev, status: 'final' } : prev));
                             showToast('Resultados guardados', 'success');
                             setResults({});
                             setSaving(false);

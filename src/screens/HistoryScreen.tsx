@@ -58,7 +58,7 @@ export function HistoryScreen() {
       const allGames = await GamesService.getAll();
 
       const completedGames = allGames.filter((game) =>
-        ['concluido', 'completed'].includes(game.status)
+        ['concluido', 'completed', 'final'].includes(game.status)
       );
 
       const gamesWithResults = await Promise.all(

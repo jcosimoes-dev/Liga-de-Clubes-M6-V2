@@ -4,7 +4,7 @@ import { Card, Button, Badge, Loading, Header, Toast, ToastType } from '../compo
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService, AvailabilitiesService, PairsService } from '../services';
-import { Calendar, MapPin, Users, CheckCircle, Lock } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle, Lock, ArrowLeft } from 'lucide-react';
 
 /**
  * Gestão de Convocatórias (Opção 4)
@@ -14,7 +14,7 @@ import { Calendar, MapPin, Users, CheckCircle, Lock } from 'lucide-react';
  */
 export function ConvocatoryManagementScreen() {
   const { player, canManageSport } = useAuth();
-  const { navigate } = useNavigation();
+  const { navigate, goBack } = useNavigation();
   const [openGames, setOpenGames] = useState<any[]>([]);
   const [selectedGame, setSelectedGame] = useState<any | null>(null);
   const [availablePlayers, setAvailablePlayers] = useState<any[]>([]);
@@ -172,8 +172,9 @@ export function ConvocatoryManagementScreen() {
         <div className="max-w-screen-sm mx-auto px-4 pt-4">
           <Card>
             <p className="text-sm text-gray-700">Acesso restrito a coordenadores e administradores.</p>
-            <Button className="mt-3" onClick={() => navigate({ name: 'home' })}>
-              Voltar ao Início
+            <Button className="mt-3 inline-flex items-center justify-center gap-2" onClick={goBack}>
+              <ArrowLeft className="w-4 h-4" />
+              Voltar
             </Button>
           </Card>
         </div>

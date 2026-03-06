@@ -101,7 +101,7 @@ export interface Database {
           location: string
           /** Liga: Qualificação|Regionais|Nacionais; outros: Torneio|Mix|Treino */
           phase: 'Qualificação' | 'Regionais' | 'Nacionais' | 'Torneio' | 'Mix' | 'Treino'
-          status: 'agendado' | 'convocatoria_aberta' | 'convocatoria_fechada' | 'concluido' | 'open' | 'closed' | 'scheduled' | 'completed'
+          status: 'agendado' | 'convocatoria_aberta' | 'convocatoria_fechada' | 'concluido' | 'open' | 'closed' | 'scheduled' | 'completed' | 'final'
           team_id: string
           team_points: number | null
           no_show: boolean

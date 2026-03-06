@@ -2,6 +2,17 @@ import { supabase } from '../lib/supabase';
 import type { Player } from '../lib/database.types';
 import { PlayerRoles, validateRole, validatePreferredSide, type PlayerRole } from '../domain/constants';
 
+/** Colunas permitidas no update de players (nunca enviar id, user_id, email, created_at, updated_at). */
+const ALLOWED_PLAYER_UPDATE_KEYS = [
+  'name',
+  'phone',
+  'preferred_side',
+  'role',
+  'federation_points',
+  'is_active',
+  'must_change_password',
+] as const;
+
 export const PlayersService = {
   /**
    * Obter todos os jogadores
@@ -86,7 +97,8 @@ export const PlayersService = {
   },
 
   /**
-   * Actualizar perfil do jogador
+   * Actualizar perfil do jogador.
+   * Só envia colunas permitidas; nunca id, user_id, email, created_at ou updated_at (evita 400).
    */
   async updateProfile(id: string, updates: Partial<Player>) {
     if (updates.role != null) {
@@ -98,9 +110,17 @@ export const PlayersService = {
       if (err) throw new Error(err);
     }
 
+    const payload: Record<string, unknown> = {};
+    const allowed = new Set<string>(ALLOWED_PLAYER_UPDATE_KEYS);
+    for (const [key, value] of Object.entries(updates)) {
+      if (allowed.has(key) && value !== undefined) {
+        payload[key] = value;
+      }
+    }
+
     const { data, error } = await supabase
       .from('players')
-      .update(updates)
+      .update(payload)
       .eq('id', id)
       .select()
       .single();
@@ -145,17 +165,17 @@ export const PlayersService = {
   },
 
   /**
-   * Actualizar pontos de federação do jogador
-   * (Pode ser feito pelo próprio jogador ou pelo capitão)
+   * Actualizar pontos de federação do jogador.
+   * Envia APENAS federation_points (nunca id, email, created_at ou objeto player inteiro).
    */
-  async updateFederationPoints(id: string, points: number) {
+  async updateFederationPoints(playerId: string, novoValor: number) {
+    const payload = { federation_points: Number(novoValor) };
+    console.log('[PlayersService] A gravar apenas:', payload);
+
     const { data, error } = await supabase
       .from('players')
-      .update({
-        federation_points: points,
-        points_updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
+      .update(payload)
+      .eq('id', playerId)
       .select()
       .single();
 

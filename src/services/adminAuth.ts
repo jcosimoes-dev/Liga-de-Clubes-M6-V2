@@ -40,3 +40,18 @@ export async function updateUserPassword(userId: string, newPassword: string): P
     .eq('user_id', userId);
   if (dbError) throw dbError;
 }
+
+/**
+ * Atualiza apenas federation_points de um jogador (ignora RLS; usa SERVICE_ROLE).
+ * Corpo do update: apenas { federation_points: valor }. Nunca id, email ou created_at.
+ */
+export async function updatePlayerFederationPoints(playerId: string, valor: number): Promise<void> {
+  const admin = getAdminClient();
+  const { error } = await admin
+    .from('players')
+    .update({ federation_points: valor })
+    .eq('id', playerId)
+    .select()
+    .single();
+  if (error) throw error;
+}

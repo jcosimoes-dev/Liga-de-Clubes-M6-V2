@@ -44,7 +44,7 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
  */
 export function SportManagementScreen() {
   const { player, canManageSport, loading: authLoading } = useAuth();
-  const { navigate } = useNavigation();
+  const { navigate, goBack } = useNavigation();
   const [gameType, setGameType] = useState<GameType>('Liga');
   const [ligaPhase, setLigaPhase] = useState<LigaPhase>('Qualificação');
   const [roundNumber, setRoundNumber] = useState('1');
@@ -506,7 +506,7 @@ export function SportManagementScreen() {
           <RestrictedAccessModal
             isOpen
             message={RESTRICTED_MESSAGE_SPORT}
-            onClose={() => navigate({ name: 'home' })}
+            onClose={goBack}
           />
         </div>
       </Layout>

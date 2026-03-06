@@ -264,7 +264,7 @@ export function TeamScreen() {
                 />
 
                 <Input
-                  label="Pontos de Federação"
+                  label="Pontos de Federação (coluna federation_points)"
                   type="number"
                   value={editForm.federation_points}
                   onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value) || 0 })}
@@ -361,8 +361,11 @@ export function TeamScreen() {
 
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-base text-gray-900">
-                    <Trophy className="w-5 h-5" />
-                    <span className="font-semibold">{player.federation_points} pontos</span>
+                    <Trophy className="w-5 h-5 text-amber-500" />
+                    <div>
+                      <span className="block text-xs text-gray-500 uppercase tracking-wide">Total acumulado (federation_points)</span>
+                      <span className="font-bold text-lg">{player.federation_points ?? 0} pontos</span>
+                    </div>
                   </div>
                   {player.preferred_side && (
                     <div className="text-sm text-gray-600 ml-7">

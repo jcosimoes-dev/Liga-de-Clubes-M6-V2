@@ -38,7 +38,7 @@ export function CalendarScreen() {
       const gamesData = await GamesService.getAll();
       const notCompleted = gamesData.filter(
         (game) =>
-          !['concluido', 'completed', 'closed'].includes(game.status)
+          !['concluido', 'completed', 'closed', 'final'].includes(game.status)
       );
       const sorted = notCompleted.sort(
         (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
@@ -159,6 +159,7 @@ export function CalendarScreen() {
       closed: { variant: 'danger', label: 'Cancelado' },
       concluido: { variant: 'default', label: 'Concluído' },
       completed: { variant: 'default', label: 'Concluído' },
+      final: { variant: 'default', label: 'Concluído' },
     };
     const badge = badges[status] || { variant: 'default' as const, label: 'Agendado' };
     return <Badge variant={badge.variant}>{badge.label}</Badge>;

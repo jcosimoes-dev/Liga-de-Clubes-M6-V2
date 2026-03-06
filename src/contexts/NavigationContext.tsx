@@ -1,13 +1,17 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles } from '../domain/constants';
 import { MustChangePasswordBanner } from '../components/MustChangePasswordBanner';
 
 type RouteName = string;
 
+type RouteEntry = { name: RouteName; params?: any };
+
 type NavigationContextType = {
-  route: { name: RouteName; params?: any };
+  route: RouteEntry;
   navigate: (options: { name: RouteName; params?: any }) => void;
+  /** Voltar atrás (para o separador anterior). Faz scroll ao topo. */
+  goBack: () => void;
 };
 
 const NavigationContext = createContext<NavigationContextType | null>(null);
@@ -38,12 +42,15 @@ export function NavigationProvider({
   routes: Record<string, any>;
   initialRouteName: string;
 }) {
-  const [route, setRoute] = useState<{ name: RouteName; params?: any }>(() => {
+  const [route, setRoute] = useState<RouteEntry>(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
       return { name: 'reset-password' };
     }
     return { name: initialRouteName };
   });
+
+  const historyStackRef = useRef<RouteEntry[]>([]);
+  const MAX_HISTORY = 50;
 
   const { role, session, mustChangePassword } = useAuth();
 
@@ -76,7 +83,24 @@ export function NavigationProvider({
   }, [isForbidden, route.name]);
 
   const navigate = ({ name, params }: { name: RouteName; params?: any }) => {
-    setRoute({ name, params });
+    setRoute((prev) => {
+      if (prev.name !== name || JSON.stringify(prev.params) !== JSON.stringify(params)) {
+        const stack = historyStackRef.current;
+        if (stack.length < MAX_HISTORY) stack.push({ name: prev.name, params: prev.params });
+      }
+      return { name, params };
+    });
+  };
+
+  const goBack = () => {
+    const stack = historyStackRef.current;
+    if (stack.length > 0) {
+      const previous = stack.pop()!;
+      setRoute(previous);
+    } else {
+      setRoute({ name: 'home' });
+    }
+    if (typeof window !== 'undefined') window.scrollTo(0, 0);
   };
 
   const CurrentScreen = routes[route.name];
@@ -87,14 +111,14 @@ export function NavigationProvider({
 
   if (isForbidden) {
     return (
-      <NavigationContext.Provider value={{ route, navigate }}>
+      <NavigationContext.Provider value={{ route, navigate, goBack }}>
         <div className="flex items-center justify-center min-h-[200px] text-gray-500">A redirecionar...</div>
       </NavigationContext.Provider>
     );
   }
 
   return (
-    <NavigationContext.Provider value={{ route, navigate }}>
+    <NavigationContext.Provider value={{ route, navigate, goBack }}>
       {session && mustChangePassword && <MustChangePasswordBanner />}
       <CurrentScreen {...route.params} />
     </NavigationContext.Provider>

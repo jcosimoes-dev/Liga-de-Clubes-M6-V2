@@ -110,7 +110,7 @@ export function HomeScreen() {
         setGamesPlayed(0);
       } else {
         const completedGames = (pairs || []).filter((p: any) =>
-          ['concluido', 'completed'].includes(p.games?.status ?? '')
+          ['concluido', 'completed', 'final'].includes(p.games?.status ?? '')
         );
         setGamesPlayed(completedGames.length);
       }
@@ -137,6 +137,7 @@ export function HomeScreen() {
       closed: { variant: 'danger', label: 'Cancelado' },
       concluido: { variant: 'success', label: 'Concluído' },
       completed: { variant: 'success', label: 'Concluído' },
+      final: { variant: 'success', label: 'Concluído' },
     };
     const badge = badges[status] || { variant: 'default' as const, label: 'Agendado' };
     return <Badge variant={badge.variant}>{badge.label}</Badge>;
@@ -182,7 +183,9 @@ export function HomeScreen() {
               <div className="flex items-center gap-4 mt-1">
                 <div className="flex items-center gap-1.5">
                   <Trophy className="w-4 h-4 text-yellow-600" />
-                  <span className="text-sm font-semibold text-gray-700">{player?.federation_points ?? 0} pts</span>
+                  <span className="text-sm font-semibold text-gray-700" title="Total acumulado dos jogos">
+                    {player?.federation_points ?? 0} pts
+                  </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-blue-600" />
