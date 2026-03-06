@@ -109,7 +109,7 @@ export function RegisterScreen() {
             email: trimmedEmail.toLowerCase(),
             federation_points: 0,
             is_active: true,
-            role: PlayerRoles.player,
+            role: PlayerRoles.jogador,
             preferred_side: 'both',
             profile_completed: true,
             points_updated_at: new Date().toISOString(),

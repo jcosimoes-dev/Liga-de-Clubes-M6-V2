@@ -165,7 +165,7 @@ export function BootstrapScreen() {
                   <strong>Utilizador:</strong> {player.name}
                 </p>
                 <p className="text-sm text-blue-900">
-                  <strong>Role actual:</strong> {player.role === PlayerRoles.player ? 'Jogador' : player.role}
+                  <strong>Role actual:</strong> {player.role === PlayerRoles.jogador ? 'Jogador' : player.role}
                 </p>
               </div>
             )}

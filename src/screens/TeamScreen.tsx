@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, Badge, Loading, Button, Input, ConfirmDialog, Toast, ToastType, Header } from '../components/ui';
 import { PlayersService } from '../services';
-import { User, Trophy, Edit2, X, Save, Trash2, Mail } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { MIN_PASSWORD_LENGTH } from '../lib/authErrors';
+import { normalizePhoneForDb } from '../lib/phone';
+import { User, Trophy, Edit2, X, Save, Trash2, Mail, KeyRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles, PreferredSides, validatePreferredSide, validateRole, type PreferredSide, type PlayerRole } from '../domain/constants';
 
 export function TeamScreen() {
-  const { player: currentPlayer, isAdmin } = useAuth();
+  const { player: currentPlayer, isAdmin, mustChangePassword, refreshPlayer } = useAuth();
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -15,12 +18,16 @@ export function TeamScreen() {
     name: '',
     federation_points: 0,
     preferred_side: PreferredSides.right,
-    role: PlayerRoles.player as PlayerRole,
+    role: PlayerRoles.jogador as PlayerRole,
+    phone: '',
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+  const [changePasswordNew, setChangePasswordNew] = useState('');
+  const [changePasswordConfirm, setChangePasswordConfirm] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const showToast = (message: string, type: ToastType = 'success') => {
     setToast({ message, type });
@@ -54,14 +61,15 @@ export function TeamScreen() {
 
   const startEdit = (player: any) => {
     setEditingId(player.id);
-    const role = player.role && [PlayerRoles.player, PlayerRoles.captain, PlayerRoles.coordinator, PlayerRoles.admin].includes(player.role)
+    const role = player.role && [PlayerRoles.admin, PlayerRoles.gestor, PlayerRoles.coordenador, PlayerRoles.capitao, PlayerRoles.jogador].includes(player.role)
       ? player.role
-      : PlayerRoles.player;
+      : PlayerRoles.jogador;
     setEditForm({
       name: player.name ?? '',
       federation_points: player.federation_points ?? 0,
       preferred_side: (player.preferred_side || PreferredSides.right) as PreferredSide,
       role: role as PlayerRole,
+      phone: player.phone ?? '',
     });
   };
 
@@ -91,6 +99,7 @@ export function TeamScreen() {
         name: editForm.name,
         federation_points: editForm.federation_points,
         preferred_side: editForm.preferred_side,
+        phone: normalizePhoneForDb(editForm.phone) ?? (editForm.phone.trim() || null),
       };
       if (isAdmin && editForm.role) updates.role = editForm.role;
       await PlayersService.updateProfile(editingId, updates);
@@ -144,6 +153,10 @@ export function TeamScreen() {
 
   const getRoleBadge = (role: string) => {
     if (role === PlayerRoles.admin) return <Badge variant="admin" size="sm">Admin</Badge>;
+    if (role === PlayerRoles.gestor) return <Badge variant="admin" size="sm">Gestor</Badge>;
+    if (role === PlayerRoles.coordenador) return <Badge variant="admin" size="sm">Coordenador</Badge>;
+    if (role === PlayerRoles.capitao) return <Badge variant="admin" size="sm">Capitão</Badge>;
+    if (role === PlayerRoles.jogador) return <Badge variant="secondary" size="sm">Jogador</Badge>;
     return null;
   };
 
@@ -156,10 +169,79 @@ export function TeamScreen() {
     }
   };
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (changePasswordNew.length < MIN_PASSWORD_LENGTH) {
+      showToast(`A nova password deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`, 'error');
+      return;
+    }
+    if (changePasswordNew !== changePasswordConfirm) {
+      showToast('As passwords não coincidem.', 'error');
+      return;
+    }
+    if (!currentPlayer?.id) {
+      showToast('Perfil não encontrado.', 'error');
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: changePasswordNew });
+      if (error) throw error;
+      await PlayersService.updateProfile(currentPlayer.id, { must_change_password: false });
+      setChangePasswordNew('');
+      setChangePasswordConfirm('');
+      await refreshPlayer();
+      showToast('Password alterada com sucesso. Já podes continuar a usar a app normalmente.', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Erro ao alterar password.', 'error');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <Layout>
       <Header title="Equipa" />
-      <div className="max-w-6xl mx-auto px-4 pt-4 pb-6">
+      <div className="max-w-6xl mx-auto px-4 pt-4 pb-6 space-y-4">
+        {currentPlayer && (
+          <Card className={mustChangePassword ? 'border-amber-200 bg-amber-50/50' : 'border-gray-200'}>
+            <div className="flex items-center gap-2 mb-3">
+              <KeyRound className={`w-5 h-5 ${mustChangePassword ? 'text-amber-700' : 'text-gray-600'}`} />
+              <h3 className="font-semibold text-gray-900">Alterar password</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              {mustChangePassword
+                ? 'Estás a usar uma password temporária. Define uma nova password da tua preferência.'
+                : 'Podes alterar a tua password aqui.'}
+            </p>
+            <form onSubmit={handleChangePassword} className="space-y-3 max-w-sm">
+              <Input
+                type="password"
+                label="Nova password"
+                value={changePasswordNew}
+                onChange={(e) => setChangePasswordNew(e.target.value)}
+                placeholder={`Mín. ${MIN_PASSWORD_LENGTH} caracteres`}
+                minLength={MIN_PASSWORD_LENGTH}
+                required
+                disabled={changingPassword}
+              />
+              <Input
+                type="password"
+                label="Confirmar nova password"
+                value={changePasswordConfirm}
+                onChange={(e) => setChangePasswordConfirm(e.target.value)}
+                placeholder="Repete a password"
+                minLength={MIN_PASSWORD_LENGTH}
+                required
+                disabled={changingPassword}
+              />
+              <Button type="submit" disabled={changingPassword}>
+                {changingPassword ? 'A guardar...' : 'Guardar nova password'}
+              </Button>
+            </form>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {players.map((player, index) => (
           <Card key={player.id} className="hover:shadow-lg transition-all">
@@ -188,6 +270,14 @@ export function TeamScreen() {
                   onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value) || 0 })}
                 />
 
+                <Input
+                  label="Telemóvel"
+                  type="tel"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  placeholder="912 345 678 ou +351 912 345 678"
+                />
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Lado Preferencial
@@ -211,9 +301,10 @@ export function TeamScreen() {
                       onChange={(e) => setEditForm({ ...editForm, role: e.target.value as PlayerRole })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value={PlayerRoles.player}>Jogador</option>
-                      <option value={PlayerRoles.captain}>Capitão</option>
-                      <option value={PlayerRoles.coordinator}>Coordenador</option>
+                      <option value={PlayerRoles.jogador}>Jogador</option>
+                      <option value={PlayerRoles.capitao}>Capitão</option>
+                      <option value={PlayerRoles.coordenador}>Coordenador</option>
+                      <option value={PlayerRoles.gestor}>Gestor</option>
                       <option value={PlayerRoles.admin}>Administrador</option>
                     </select>
                   </div>

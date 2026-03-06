@@ -133,7 +133,7 @@ export const PlayersService = {
         federation_points: profile.federation_points,
         team_id: profile.team_id || DEFAULT_TEAM_ID,
         is_active: true,
-        role: PlayerRoles.player,
+        role: PlayerRoles.jogador,
       }, {
         onConflict: 'user_id',
       })
@@ -236,7 +236,7 @@ export const PlayersService = {
           email: coordinator.email,
           phone: coordinator.phone || null,
           is_active: true,
-          role: PlayerRoles.player,
+          role: PlayerRoles.jogador,
           federation_points: 0,
         },
         { onConflict: 'user_id' }

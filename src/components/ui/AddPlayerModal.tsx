@@ -9,9 +9,10 @@ import { PlayerRoles, PreferredSides, type PlayerRole, type PreferredSide } from
 const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
 const ROLE_OPTIONS: { value: PlayerRole; label: string }[] = [
-  { value: PlayerRoles.player, label: 'Jogador' },
-  { value: PlayerRoles.captain, label: 'Capitão' },
-  { value: PlayerRoles.coordinator, label: 'Coordenador' },
+  { value: PlayerRoles.jogador, label: 'Jogador' },
+  { value: PlayerRoles.capitao, label: 'Capitão' },
+  { value: PlayerRoles.coordenador, label: 'Coordenador' },
+  { value: PlayerRoles.gestor, label: 'Gestor' },
   { value: PlayerRoles.admin, label: 'Administrador' },
 ];
 
@@ -51,7 +52,7 @@ export function AddPlayerModal({ isOpen, onClose, onSuccess, onError, teamId }: 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<PlayerRole>(PlayerRoles.player);
+  const [role, setRole] = useState<PlayerRole>(PlayerRoles.jogador);
   const [phone, setPhone] = useState('');
   const [federationPoints, setFederationPoints] = useState<number>(0);
   const [preferredSide, setPreferredSide] = useState<PreferredSide>(PreferredSides.both);
@@ -184,10 +185,11 @@ export function AddPlayerModal({ isOpen, onClose, onSuccess, onError, teamId }: 
       setName('');
       setEmail('');
       setPassword('');
-      setRole(PlayerRoles.player);
+      setRole(PlayerRoles.jogador);
       setPhone('');
       setFederationPoints(0);
       setPreferredSide(PreferredSides.both);
+      setError('');
       setLoading(false);
       onSuccess();
       onClose();

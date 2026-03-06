@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles } from '../domain/constants';
+import { MustChangePasswordBanner } from '../components/MustChangePasswordBanner';
 
 type RouteName = string;
 
@@ -44,7 +45,7 @@ export function NavigationProvider({
     return { name: initialRouteName };
   });
 
-  const { role, session } = useAuth();
+  const { role, session, mustChangePassword } = useAuth();
 
   useEffect(() => {
     if (!session) {
@@ -54,8 +55,8 @@ export function NavigationProvider({
     }
   }, [session, route.name]);
 
-  const effectiveRole = role || PlayerRoles.player;
-  const isPlayerOnly = effectiveRole === PlayerRoles.player;
+  const effectiveRole = (role || PlayerRoles.jogador).trim();
+  const isPlayerOnly = effectiveRole === PlayerRoles.jogador;
   const allowedForRole = isPlayerOnly
     ? ROUTES_ALLOWED_FOR_PLAYER
     : [...ROUTES_ALLOWED_FOR_PLAYER, ...ROUTES_ALLOWED_FOR_CAPTAIN_OR_ABOVE];
@@ -94,6 +95,7 @@ export function NavigationProvider({
 
   return (
     <NavigationContext.Provider value={{ route, navigate }}>
+      {session && mustChangePassword && <MustChangePasswordBanner />}
       <CurrentScreen {...route.params} />
     </NavigationContext.Provider>
   );

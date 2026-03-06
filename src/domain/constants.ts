@@ -1,14 +1,15 @@
 /**
  * Domain constants (single source of truth).
- * Roles: player (default), captain, coordinator, admin.
- * JOGADOR | CAPITÃO | COORDENADOR | ADMINISTRADOR
+ * Roles na BD: admin, gestor, coordenador, capitao, jogador.
+ * ADMIN | GESTOR | COORDENADOR | CAPITÃO | JOGADOR
  */
 
 export const PlayerRoles = {
-  player: 'player',
-  captain: 'captain',
-  coordinator: 'coordinator',
   admin: 'admin',
+  gestor: 'gestor',
+  coordenador: 'coordenador',
+  capitao: 'capitao',
+  jogador: 'jogador',
 } as const;
 
 export type PlayerRole = (typeof PlayerRoles)[keyof typeof PlayerRoles];
@@ -24,13 +25,14 @@ export type PreferredSide = (typeof PreferredSides)[keyof typeof PreferredSides]
 /** Validate role before sending to API. Returns error message or null if valid. */
 export function validateRole(value: unknown): string | null {
   if (
-    value === PlayerRoles.player ||
-    value === PlayerRoles.captain ||
-    value === PlayerRoles.coordinator ||
-    value === PlayerRoles.admin
+    value === PlayerRoles.admin ||
+    value === PlayerRoles.gestor ||
+    value === PlayerRoles.coordenador ||
+    value === PlayerRoles.capitao ||
+    value === PlayerRoles.jogador
   )
     return null;
-  return `Role inválido. Use: ${PlayerRoles.player}, ${PlayerRoles.captain}, ${PlayerRoles.coordinator} ou ${PlayerRoles.admin}`;
+  return `Role inválido. Use: ${PlayerRoles.admin}, ${PlayerRoles.gestor}, ${PlayerRoles.coordenador}, ${PlayerRoles.capitao} ou ${PlayerRoles.jogador}`;
 }
 
 /** Validate preferred_side before sending to API. Returns error message or null if valid. */

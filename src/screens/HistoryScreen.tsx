@@ -250,8 +250,7 @@ export function HistoryScreen() {
                       {getResultBadge(game)}
                     </div>
                   }
-                  className="cursor-pointer hover:shadow-xl transition-shadow"
-                  onClick={() => navigate({ name: 'game', params: { id: game.id } })}
+                  className="hover:shadow-xl transition-shadow"
                 >
                   <div className="space-y-3">
                     {game.result && (

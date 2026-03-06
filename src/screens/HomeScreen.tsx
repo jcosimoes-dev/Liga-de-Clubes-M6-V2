@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Button, Badge, Loading, Header, Toast, ToastType } from '../components/ui';
 import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/categoryTheme';
@@ -9,8 +9,9 @@ import { supabase } from '../lib/supabase';
 import { Calendar, MapPin, Users, Shield, Trophy, UserCircle } from 'lucide-react';
 
 export function HomeScreen() {
-  const { user, session, player, isAdmin, loading: authLoading } = useAuth();
+  const { user, session, player, isAdmin, loading: authLoading, refreshPlayer } = useAuth();
   const { route, navigate } = useNavigation();
+  const profileRefreshedRef = useRef(false);
 
   const [openGames, setOpenGames] = useState<any[]>([]);
   const [gamesPlayed, setGamesPlayed] = useState<number>(0);
@@ -27,6 +28,12 @@ export function HomeScreen() {
     }
   }, [route.name, route.params?.accessDenied]);
 
+  // Reset refresh flag when session is lost (logout)
+  useEffect(() => {
+    if (!session) profileRefreshedRef.current = false;
+  }, [session]);
+
+  // Refresh perfil ao entrar no Início (garante role atualizado após correção RLS) e carrega jogos
   useEffect(() => {
     if (authLoading) {
       setLoading(true);
@@ -39,7 +46,17 @@ export function HomeScreen() {
       return;
     }
 
-    // Jogador vai direto para a Home (sem redirecionamento para CompleteProfile)
+    // Refresh do perfil uma vez por sessão para que Admin/Coordenador vejam os menus corretos
+    if (!profileRefreshedRef.current) {
+      profileRefreshedRef.current = true;
+      void refreshPlayer();
+    }
+
+    if (!player) {
+      setLoading(true);
+      return;
+    }
+
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, session, user, player]);
@@ -52,14 +69,28 @@ export function HomeScreen() {
     }
     try {
       // Mostrar "Configuração Inicial" apenas quando este é o único jogador (primeiro utilizador do sistema).
-      // Jogadores criados por um admin nunca são únicos — não devem ver a opção de se promover a admin.
-      const { count: totalPlayers } = await supabase.from('players').select('id', { count: 'exact', head: true });
+      const { count: totalPlayers, error: playersError } = await supabase
+        .from('players')
+        .select('id', { count: 'exact', head: true });
+      if (playersError) {
+        console.error('[HomeScreen] loadData players count error:', {
+          message: playersError.message,
+          details: (playersError as { details?: string }).details,
+          hint: (playersError as { hint?: string }).hint,
+          code: (playersError as { code?: string }).code,
+          full: playersError,
+        });
+      }
       setShowBootstrapPrompt((totalPlayers ?? 0) === 1);
 
       try {
         const open = await GamesService.getOpenGames();
         setOpenGames(open ?? []);
       } catch (gamesErr) {
+        console.error('[HomeScreen] loadData getOpenGames error:', {
+          message: gamesErr instanceof Error ? gamesErr.message : String(gamesErr),
+          full: gamesErr,
+        });
         setOpenGames([]);
       }
 
@@ -69,6 +100,13 @@ export function HomeScreen() {
         .or(`player1_id.eq.${player.id},player2_id.eq.${player.id}`);
 
       if (pairsError) {
+        console.error('[HomeScreen] loadData pairs error:', {
+          message: pairsError.message,
+          details: (pairsError as { details?: string }).details,
+          hint: (pairsError as { hint?: string }).hint,
+          code: (pairsError as { code?: string }).code,
+          full: pairsError,
+        });
         setGamesPlayed(0);
       } else {
         const completedGames = (pairs || []).filter((p: any) =>
@@ -77,7 +115,10 @@ export function HomeScreen() {
         setGamesPlayed(completedGames.length);
       }
     } catch (err) {
-      console.error('[HomeScreen] loadData error:', err);
+      console.error('[HomeScreen] loadData error:', {
+        message: err instanceof Error ? err.message : String(err),
+        full: err,
+      });
     } finally {
       setLoading(false);
     }

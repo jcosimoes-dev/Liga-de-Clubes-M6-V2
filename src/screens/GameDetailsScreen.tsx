@@ -32,8 +32,8 @@ export function GameDetailsScreen({ id }: Props) {
   const { user, role } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
   const isLoggedIn = Boolean(user?.id);
-  // Apenas admin e coordenador podem gravar resultados; capitão e jogador têm inputs em readOnly e sem botão Gravar.
-  const canSaveResults = role === PlayerRoles.admin || role === PlayerRoles.coordinator;
+  // Admin, gestor, coordenador e capitão podem gravar resultados (capitão só jogos da sua equipa; RLS aplica).
+  const canSaveResults = role === PlayerRoles.admin || role === PlayerRoles.gestor || role === PlayerRoles.coordenador || role === PlayerRoles.capitao;
   const isReadOnlyByRole = !canSaveResults;
 
   const [loading, setLoading] = useState(true);

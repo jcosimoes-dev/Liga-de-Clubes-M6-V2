@@ -25,6 +25,8 @@ export type Player = {
 
   // se tiveres esta coluna
   is_admin?: boolean | null;
+  /** Password temporária (reset pelo admin) — jogador deve alterar no perfil */
+  must_change_password?: boolean | null;
 };
 
 export type AuthCtx = {
@@ -33,7 +35,7 @@ export type AuthCtx = {
   user: User | null;
 
   player: Player | null;
-  /** role lido da tabela players (normalizado: player | captain | coordinator | admin); "4" é tratado como admin */
+  /** role lido da tabela players (normalizado: admin | gestor | coordenador | capitao | jogador) */
   role: string;
   isAdmin: boolean;
   canManageTeam: boolean;
@@ -41,6 +43,8 @@ export type AuthCtx = {
   canManageSport: boolean;
   /** Coordenador+: Gestão de Pontos de Federação */
   canManageFederationPoints: boolean;
+  /** Password temporária definida pelo admin — jogador deve alterar no perfil */
+  mustChangePassword: boolean;
 
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name?: string) => Promise<void>;
@@ -55,6 +59,10 @@ const AuthContext = createContext<AuthCtx | null>(null);
 
 const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
+/**
+ * Lê o perfil do utilizador da tabela players (coluna role: 'admin' | 'gestor' | 'coordenador' | 'capitao' | 'jogador').
+ * No Supabase o perfil está em public.players; não usar tabela profiles para a role.
+ */
 async function fetchPlayerByUserId(userId: string): Promise<Player | null> {
   const { data, error } = await supabase
     .from('players')
@@ -62,9 +70,31 @@ async function fetchPlayerByUserId(userId: string): Promise<Player | null> {
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (error) throw error;
-  const profile = (data as Player) ?? null;
-  console.log('Perfil Carregado:', profile ? { id: profile.id, role: profile.role, name: profile.name } : null);
+  if (error) {
+    console.error('[AuthContext] fetchPlayerByUserId Supabase error:', {
+      message: error.message,
+      details: (error as { details?: string }).details,
+      hint: (error as { hint?: string }).hint,
+      code: (error as { code?: string }).code,
+      fullError: error,
+    });
+    throw error;
+  }
+  const raw = data as Record<string, unknown> | null;
+  if (import.meta.env.DEV && raw) {
+    console.log('[AuthContext] Colunas da tabela players:', Object.keys(raw));
+  }
+
+  const roleValue = raw?.role ?? (raw as { user_role?: string })?.user_role ?? null;
+  const profile: Player | null = raw
+    ? { ...raw, role: roleValue } as Player
+    : null;
+
+  // Avisar só quando a role está em falta na BD (null/vazia), não quando é 'jogador' (válido)
+  const roleMissing = profile && (roleValue == null || String(roleValue).trim() === '');
+  if (roleMissing) {
+    console.warn('[AuthContext] A role na BD está vazia para este utilizador. Verifica a coluna role (ou user_role) na tabela players.');
+  }
   return profile;
 }
 
@@ -92,7 +122,7 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
     user_id: userId,
     name: name || 'Utilizador',
     email: email || `${userId}@temp.local`,
-    role: PlayerRoles.player,
+    role: PlayerRoles.jogador,
     team_id: teamId,
     is_active: true,
     federation_points: 0,
@@ -112,53 +142,61 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
 }
 
 /**
- * Normaliza o role vindo da BD (string ou número) para o valor canónico usado na app.
- * Prioridade: usa sempre o valor da BD; só devolve 'player' se estiver vazio ou inválido.
- * A BD pode devolver role como string ('1','2','3','4' ou 'player','captain','coordinator','admin') ou número.
+ * Normaliza o role vindo da BD. Role 'admin' = maior autoridade (único com painel Admin).
+ * Valores canónicos: admin, gestor, coordenador, capitao, jogador. Aceita 'coordinator' (EN) → coordenador.
  */
 function normalizeRole(role: string | number | null | undefined): string {
-  if (role === null || role === undefined || role === '') return PlayerRoles.player;
-  const r = (role as string).toString().trim().toLowerCase();
-  if (r === '4' || r === 'admin' || r === PlayerRoles.admin) return PlayerRoles.admin;
-  if (r === '3' || r === 'coordinator' || r === PlayerRoles.coordinator) return PlayerRoles.coordinator;
-  if (r === '2' || r === 'captain' || r === PlayerRoles.captain) return PlayerRoles.captain;
-  if (r === '1' || r === 'player' || r === PlayerRoles.player) return PlayerRoles.player;
+  if (role === null || role === undefined) return PlayerRoles.jogador;
+  if (typeof role === 'number') {
+    if (role === 4) return PlayerRoles.admin;
+    if (role === 3) return PlayerRoles.coordenador;
+    if (role === 2) return PlayerRoles.capitao;
+    if (role === 1) return PlayerRoles.jogador;
+    return PlayerRoles.jogador;
+  }
+  const r = String(role).replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!r) return PlayerRoles.jogador;
+  if (r === 'admin') return PlayerRoles.admin;
+  if (r === 'gestor') return PlayerRoles.gestor;
+  if (r === 'coordenador' || r === 'coordinator') return PlayerRoles.coordenador;
+  if (r === 'capitao' || r === 'captain') return PlayerRoles.capitao;
+  if (r === 'jogador' || r === 'player') return PlayerRoles.jogador;
   const num = Number(r);
   if (Number.isInteger(num)) {
     if (num === 4) return PlayerRoles.admin;
-    if (num === 3) return PlayerRoles.coordinator;
-    if (num === 2) return PlayerRoles.captain;
-    if (num === 1) return PlayerRoles.player;
+    if (num === 3) return PlayerRoles.coordenador;
+    if (num === 2) return PlayerRoles.capitao;
+    if (num === 1) return PlayerRoles.jogador;
   }
-  return PlayerRoles.player;
+  return PlayerRoles.jogador;
 }
 
+/** Apenas role 'admin' (maior autoridade): painel de Administração, redefinição de passwords, etc. */
 function computeIsAdmin(player: Player | null): boolean {
   if (!player) return false;
   const r = normalizeRole(player.role);
-  if (r === PlayerRoles.admin) return true;
-  if (player.is_admin) return true;
-  return false;
+  return r === PlayerRoles.admin || Boolean(player.is_admin);
 }
 
+/** Admin, Gestor, Coordenador: podem gerir equipa (criar/editar jogadores; apagar só admin). */
 function computeCanManageTeam(player: Player | null): boolean {
   if (!player) return false;
   const r = normalizeRole(player.role);
-  if (r === PlayerRoles.admin || r === PlayerRoles.coordinator) return true;
-  if (player.is_admin) return true;
-  return false;
+  return r === PlayerRoles.admin || r === PlayerRoles.gestor || r === PlayerRoles.coordenador;
 }
 
+/** Admin e Coordenador: gestão de jogos e resultados. Capitão: submeter resultados da sua equipa. */
 function computeCanManageSport(player: Player | null): boolean {
   if (!player) return false;
   const r = normalizeRole(player.role);
-  return r === PlayerRoles.captain || r === PlayerRoles.coordinator || r === PlayerRoles.admin;
+  return r === PlayerRoles.admin || r === PlayerRoles.coordenador || r === PlayerRoles.capitao;
 }
 
+/** Admin, Gestor, Coordenador: podem gerir pontos de federação. */
 function computeCanManageFederationPoints(player: Player | null): boolean {
   if (!player) return false;
   const r = normalizeRole(player.role);
-  return r === PlayerRoles.coordinator || r === PlayerRoles.admin;
+  return r === PlayerRoles.admin || r === PlayerRoles.gestor || r === PlayerRoles.coordenador;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -169,9 +207,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const user = session?.user ?? null;
   const role = normalizeRole(player?.role);
   const isAdmin = computeIsAdmin(player);
+  const mustChangePassword = player?.must_change_password === true;
   const canManageTeam = computeCanManageTeam(player);
   const canManageSport = computeCanManageSport(player);
   const canManageFederationPoints = computeCanManageFederationPoints(player);
+
+  // Debug (apenas em desenvolvimento): role e permissões
+  useEffect(() => {
+    if (!player || !import.meta.env.DEV) return;
+    console.log('[AuthContext] Perfil carregado:', { role: player.role, normalizado: role, isAdmin, canManageSport });
+  }, [player?.id, player?.role, role, isAdmin, canManageSport]);
+
+  // Avisar só quando a role está em falta na BD (não quando é 'jogador', que é válido)
+  useEffect(() => {
+    if (!player) return;
+    const roleMissing = player.role == null || String(player.role).trim() === '';
+    if (roleMissing) {
+      console.warn('[AuthContext] A role na BD está vazia. Menus Admin/Gestão podem ficar escondidos. Verifica a coluna role na tabela players.');
+    }
+  }, [player?.id, player?.role]);
 
   const refreshPlayer = async () => {
     if (!user?.id) {
@@ -183,6 +237,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshProfile = refreshPlayer;
+
+  // Refresh forçado da sessão (getSession) e do perfil ao montar: garante que a role na tabela players é lida de imediato
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (cancelled) return;
+      setSession(s ?? null);
+      if (!s?.user) {
+        setPlayer(null);
+        setLoading(false);
+        return;
+      }
+      ensurePlayerProfile(s.user.id, s.user)
+        .then((p) => {
+          if (!cancelled) setPlayer(p);
+        })
+        .catch((e) => {
+          console.error('[AuthContext] ensurePlayerProfile error:', e);
+          if (!cancelled) setPlayer(null);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
@@ -278,13 +361,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       canManageTeam,
       canManageSport,
       canManageFederationPoints,
+      mustChangePassword,
       signIn,
       signUp,
       signOut,
       refreshPlayer,
       refreshProfile,
     }),
-    [loading, session, user, player, role, isAdmin, canManageTeam, canManageSport, canManageFederationPoints]
+    [loading, session, user, player, role, isAdmin, canManageTeam, canManageSport, canManageFederationPoints, mustChangePassword]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

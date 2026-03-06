@@ -1,2 +1,7 @@
 # Supabase local/config (Edge Functions)
 # https://supabase.com/docs/guides/functions/function-configuration
+#
+# Deploy: supabase functions deploy reset-player-password --no-verify-jwt
+
+[functions.reset-player-password]
+verify_jwt = false

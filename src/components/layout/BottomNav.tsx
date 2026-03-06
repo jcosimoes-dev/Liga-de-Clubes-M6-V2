@@ -33,8 +33,12 @@ function isActiveRoute(currentRoute: string, tabRoute: string, tabId: NavTabId) 
 
 export function BottomNav() {
   const { route, navigate } = useNavigation();
-  const { isAdmin, canManageSport, signOut } = useAuth();
+  const { isAdmin, canManageSport, signOut, role } = useAuth();
   const [restrictModal, setRestrictModal] = useState<{ message: string } | null>(null);
+
+  // Botão Admin: apenas role 'admin' (maior autoridade). Coordinator vê Gestão de Jogos, não vê Admin.
+  const showAdminTab = role === 'admin' || isAdmin;
+  const showGestaoTab = canManageSport;
 
   const handleTabClick = (tab: (typeof TAB_ITEMS)[number]) => {
     if (tab.id === "sport-management" && !canManageSport) {
@@ -57,10 +61,14 @@ export function BottomNav() {
   };
 
   const visibleTabs = TAB_ITEMS.filter((tab) => {
-    if (tab.id === "sport-management") return canManageSport;
-    if (tab.id === "admin") return isAdmin;
+    if (tab.id === "sport-management") return showGestaoTab;
+    if (tab.id === "admin") return showAdminTab;
     return true;
   });
+
+  if (typeof window !== 'undefined' && role === 'admin' && !showAdminTab) {
+    console.warn('[BottomNav] Role é admin mas showAdminTab é false. isAdmin=', isAdmin);
+  }
 
   return (
     <>

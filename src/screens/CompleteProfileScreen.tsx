@@ -116,7 +116,7 @@ export function CompleteProfileScreen() {
         federation_points: federationPoints,
         points_updated_at: new Date().toISOString(),
         preferred_side,
-        role: player?.role || PlayerRoles.player,
+        role: player?.role || PlayerRoles.jogador,
         email: (player?.email ?? user?.email ?? '').trim() || null,
         profile_completed: true,
       };

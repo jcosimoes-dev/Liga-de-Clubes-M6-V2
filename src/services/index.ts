@@ -1,3 +1,4 @@
+export { updateUserPassword } from './adminAuth';
 export { TeamsService } from './teams.service';
 export { PlayersService } from './players.service';
 export { GamesService } from './games.service';

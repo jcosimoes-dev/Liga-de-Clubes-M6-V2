@@ -9,36 +9,78 @@ function isValidUuid(s: string): boolean {
 
 export const GamesService = {
   /**
-   * Obter todos os jogos (ordenados por data decrescente). Usa colunas mínimas (Calendário).
+   * Obter todos os jogos (ordenados por data decrescente). Suporta game_date ou starts_at na BD.
    */
   async getAll() {
-    const cols = 'id, status, opponent, starts_at, location, phase, round_number';
-    const { data, error } = await supabase
-      .from('games')
-      .select(cols)
-      .order('starts_at', { ascending: false });
-    if (error) throw error;
-    return data ?? [];
+    const colsStartsAt = 'id, status, opponent, starts_at, location, phase, round_number';
+    const colsGameDate = 'id, status, opponent, game_date, location, phase, round_number';
+    let res = await supabase.from('games').select(colsStartsAt).order('starts_at', { ascending: false });
+    if (res.error) {
+      console.error('[GamesService.getAll] Supabase error:', res.error?.message, res.error);
+      res = await supabase.from('games').select(colsGameDate).order('game_date', { ascending: false });
+      if (res.error) throw res.error;
+      return (res.data ?? []).map((g: Record<string, unknown>) => this._normalizeGame(g));
+    }
+    return (res.data ?? []).map((g: Record<string, unknown>) => this._normalizeGame(g));
+  },
+
+  /**
+   * Normaliza um jogo da BD para expor sempre starts_at (a BD pode ter game_date ou starts_at).
+   */
+  _normalizeGame<T extends Record<string, unknown>>(g: T): T & { starts_at: string } {
+    const dateVal = (g as { starts_at?: string; game_date?: string }).starts_at ?? (g as { game_date?: string }).game_date;
+    return { ...g, starts_at: dateVal ?? '' } as T & { starts_at: string };
   },
 
   /**
    * Obter jogos com convocatória aberta (para Início e Gestão de Convocatórias).
-   * Colunas mínimas para evitar 400. Filtra por status; opcionalmente por data.
-   * @param includePast - Se true (gestão Admin/Coordenador), inclui jogos com data já passada; os jogos só saem da lista ao serem concluídos ou fechados.
+   * Usa game_date ou starts_at conforme existir na BD. Log detalhado em caso de erro.
    */
   async getOpenGames(includePast = false) {
-    const { data, error } = await supabase
+    const colsWithStartsAt = 'id, status, opponent, starts_at, location, phase, round_number';
+    const colsWithGameDate = 'id, status, opponent, game_date, location, phase, round_number';
+
+    let res = await supabase
       .from('games')
-      .select('id, status, opponent, starts_at, location, phase, round_number')
+      .select(colsWithStartsAt)
       .order('starts_at', { ascending: true });
-    if (error) throw error;
+    let data: Array<Record<string, unknown>> | null = res.data as Array<Record<string, unknown>> | null;
+    let error = res.error;
+
+    if (error) {
+      console.error('[GamesService.getOpenGames] Supabase error (tentativa starts_at):', {
+        message: error.message,
+        details: (error as { details?: string }).details,
+        hint: (error as { hint?: string }).hint,
+        code: (error as { code?: string }).code,
+        fullError: error,
+      });
+      res = await supabase
+        .from('games')
+        .select(colsWithGameDate)
+        .order('game_date', { ascending: true });
+      data = res.data as Array<Record<string, unknown>> | null;
+      error = res.error;
+      if (error) {
+        console.error('[GamesService.getOpenGames] Supabase error (fallback game_date):', {
+          message: error.message,
+          details: (error as { details?: string }).details,
+          hint: (error as { hint?: string }).hint,
+          code: (error as { code?: string }).code,
+          fullError: error,
+        });
+        throw error;
+      }
+    }
+
     const openStatuses = ['convocatoria_aberta', 'open', 'agendado', 'scheduled'];
     const filtered = (data ?? []).filter((g) =>
-      openStatuses.includes(g.status ?? '')
+      openStatuses.includes((g.status as string) ?? '')
     );
-    if (includePast) return filtered;
+    const normalized = filtered.map((g) => this._normalizeGame(g));
+    if (includePast) return normalized;
     const now = new Date();
-    return filtered.filter((g) => new Date(g.starts_at) >= now);
+    return normalized.filter((g) => new Date(g.starts_at) >= now);
   },
 
   /**

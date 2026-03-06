@@ -51,6 +51,8 @@ export interface Database {
           federation_points: number
           points_updated_at: string | null
           profile_completed: boolean
+          /** Password temporária definida pelo admin — jogador deve alterar no perfil */
+          must_change_password: boolean
           created_at: string
           updated_at: string
         }
@@ -67,6 +69,7 @@ export interface Database {
           federation_points?: number
           points_updated_at?: string | null
           profile_completed?: boolean
+          must_change_password?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -83,6 +86,7 @@ export interface Database {
           federation_points?: number
           points_updated_at?: string | null
           profile_completed?: boolean
+          must_change_password?: boolean
           created_at?: string
           updated_at?: string
         }
