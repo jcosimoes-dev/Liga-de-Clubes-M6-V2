@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Home, Users, Calendar, Trophy, Settings, LogOut, History } from "lucide-react";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { useAuth } from "../../contexts/AuthContext";
+import { PlayerRoles } from "../../domain/constants";
 import { RestrictedAccessModal } from "../ui";
 
 export type NavTabId = "home" | "team" | "calendar" | "history" | "sport-management" | "admin";
@@ -36,9 +37,9 @@ export function BottomNav() {
   const { isAdmin, canManageSport, signOut, role } = useAuth();
   const [restrictModal, setRestrictModal] = useState<{ message: string } | null>(null);
 
-  // Botão Admin: apenas role 'admin' (maior autoridade). Coordinator vê Gestão de Jogos, não vê Admin.
-  const showAdminTab = role === 'admin' || isAdmin;
-  const showGestaoTab = canManageSport;
+  // Admin: apenas role 'admin'. Gestão de Jogos: admin, coordenador ou capitão (evitar coordenador perder acesso).
+  const showAdminTab = role === PlayerRoles.admin || isAdmin;
+  const showGestaoTab = canManageSport || role === PlayerRoles.admin || role === PlayerRoles.coordenador || role === PlayerRoles.capitao;
 
   const handleTabClick = (tab: (typeof TAB_ITEMS)[number]) => {
     if (tab.id === "sport-management" && !canManageSport) {

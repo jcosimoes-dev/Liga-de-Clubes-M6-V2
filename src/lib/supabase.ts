@@ -6,7 +6,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undef
 if (!supabaseUrl) throw new Error("Falta VITE_SUPABASE_URL no .env.local");
 if (!supabaseAnonKey) throw new Error("Falta VITE_SUPABASE_ANON_KEY no .env.local");
 
-// Supabase client
+// Supabase client (sem headers customizados para evitar 406)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,

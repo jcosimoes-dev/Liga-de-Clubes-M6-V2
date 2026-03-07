@@ -61,6 +61,7 @@ const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
 /**
  * Lê o perfil do utilizador da tabela players (coluna role: 'admin' | 'gestor' | 'coordenador' | 'capitao' | 'jogador').
+ * A role é usada para menus e rotas (Gestão de Jogos para admin/coordenador/capitão). Aceita 'coordinator' (EN) → coordenador.
  * No Supabase o perfil está em public.players; não usar tabela profiles para a role.
  */
 async function fetchPlayerByUserId(userId: string): Promise<Player | null> {

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { closeGameStatusAdmin } from './adminAuth';
 import type { Game, GameStatus } from '../lib/database.types';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -232,27 +233,35 @@ export const GamesService = {
   },
 
   /**
-   * Fechar convocatória (apenas capitão)
+   * Fechar convocatória (apenas capitão/coordenador).
+   * Status 'convocatoria_fechada' = jogo sai de Convocatórias Abertas. Usa admin primeiro; se falhar, tenta cliente normal.
    */
   async closeCall(id: string) {
-    return this.update(id, { status: 'convocatoria_fechada' });
+    const status = 'convocatoria_fechada';
+    const payload = { status };
+    console.log('[GamesService] A fechar jogo ID:', id, '→ status:', status);
+
+    try {
+      await closeGameStatusAdmin(id, status);
+    } catch (adminErr) {
+      const msg = adminErr instanceof Error ? adminErr.message : String(adminErr);
+      const code = (adminErr as { code?: string })?.code;
+      console.warn('[GamesService] Admin falhou, a tentar cliente normal:', msg);
+      const { error } = await supabase.from('games').update(payload).eq('id', id);
+      if (error) {
+        console.error('[GamesService] Update falhou:', error);
+        throw new Error(`Status não mudou: ${error.message}${error.code ? ` [${error.code}]` : ''}`);
+      }
+    }
   },
 
   /**
-   * Marcar jogo como concluído (apenas capitão).
-   * Usa status 'final' (aceite no Supabase) para pontuação e para evitar erro de Enum.
-   * Liga: trigger define team_points 3 (vitória), 1 (derrota), 0 (no_show).
+   * Marcar jogo como concluído (apenas capitão/coordenador).
+   * Usa supabaseAdmin para evitar RLS. Status 'final' ativa trigger de team_points e syncPlayerPoints.
    */
   async complete(id: string, options?: { no_show?: boolean }) {
-    const { error } = await supabase
-      .from('games')
-      .update({
-        status: 'final',
-        ...(options?.no_show === true && { no_show: true }),
-      })
-      .eq('id', id);
-
-    if (error) throw error;
+    const extra = options?.no_show === true ? { no_show: true } : undefined;
+    await closeGameStatusAdmin(id, 'final', extra);
   },
 
   /**

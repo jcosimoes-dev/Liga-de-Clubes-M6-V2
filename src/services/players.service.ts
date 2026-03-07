@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { Player } from '../lib/database.types';
+import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { PlayerRoles, validateRole, validatePreferredSide, type PlayerRole } from '../domain/constants';
 
 /** Colunas permitidas no update de players (nunca enviar id, user_id, email, created_at, updated_at). */
@@ -21,6 +22,7 @@ export const PlayersService = {
     const { data, error } = await supabase
       .from('players')
       .select('*')
+      .neq('email', GESTOR_HIDE_EMAIL)
       .order('name');
 
     if (error) throw error;
@@ -35,6 +37,7 @@ export const PlayersService = {
       .from('players')
       .select('*')
       .eq('is_active', true)
+      .neq('email', GESTOR_HIDE_EMAIL)
       .order('name');
 
     if (error) throw error;
@@ -47,7 +50,7 @@ export const PlayersService = {
    * teamId opcional: se omitido, devolve todos (útil para fallback).
    */
   async getTeamPlayers(teamId?: string) {
-    let q = supabase.from('players').select('*');
+    let q = supabase.from('players').select('*').neq('email', GESTOR_HIDE_EMAIL);
     if (teamId) q = q.eq('team_id', teamId);
     const { data, error } = await q.order('name');
     if (error) throw error;
@@ -62,6 +65,7 @@ export const PlayersService = {
     const { data, error } = await supabase
       .from('players')
       .select('*')
+      .neq('email', GESTOR_HIDE_EMAIL)
       .order('name');
 
     if (error) throw error;

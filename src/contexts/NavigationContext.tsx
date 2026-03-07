@@ -28,8 +28,8 @@ const ROUTES_ALLOWED_FOR_PLAYER: RouteName[] = [
   'reset-password',
 ];
 
-const ROUTES_ALLOWED_FOR_CAPTAIN_OR_ABOVE: RouteName[] = [
-  'admin',
+/** Rotas para quem pode gerir jogos (admin, coordenador, capitão). */
+const ROUTES_FOR_SPORT_MANAGEMENT: RouteName[] = [
   'sport-management',
   'history',
   'bootstrap',
@@ -52,7 +52,7 @@ export function NavigationProvider({
   const historyStackRef = useRef<RouteEntry[]>([]);
   const MAX_HISTORY = 50;
 
-  const { role, session, mustChangePassword, player } = useAuth();
+  const { role, session, mustChangePassword, player, canManageSport } = useAuth();
   const isAdmin = (role || '').trim() === PlayerRoles.admin;
 
   useEffect(() => {
@@ -74,11 +74,11 @@ export function NavigationProvider({
     }
   }, [session, route.name, player?.profile_completed, isAdmin]);
 
-  const effectiveRole = (role || PlayerRoles.jogador).trim();
-  const isPlayerOnly = effectiveRole === PlayerRoles.jogador;
-  const allowedForRole = isPlayerOnly
-    ? ROUTES_ALLOWED_FOR_PLAYER
-    : [...ROUTES_ALLOWED_FOR_PLAYER, ...ROUTES_ALLOWED_FOR_CAPTAIN_OR_ABOVE];
+  const allowedForRole = [
+    ...ROUTES_ALLOWED_FOR_PLAYER,
+    ...(canManageSport ? ROUTES_FOR_SPORT_MANAGEMENT : []),
+    ...(isAdmin ? ['admin'] : []),
+  ];
   const isForbidden = route.name != null && !allowedForRole.includes(route.name);
 
   // Ao criar jogador no Admin, o signUp troca brevemente a sessão para o novo user → role vira player e admin fica "proibido".

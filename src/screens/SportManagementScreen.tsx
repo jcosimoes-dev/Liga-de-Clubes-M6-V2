@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService, AvailabilitiesService, PairsService, PlayersService } from '../services';
 import { supabase } from '../lib/supabase';
+import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle } from 'lucide-react';
 
 export type GameType = 'Liga' | 'Torneio' | 'Mix' | 'Treino';
@@ -105,7 +106,8 @@ export function SportManagementScreen() {
         const { data: raw } = await supabase
           .from('players')
           .select('id, name, federation_points, is_active')
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .neq('email', GESTOR_HIDE_EMAIL);
         setRawPlayers(Array.isArray(raw) ? raw : []);
       })();
     } else {
@@ -421,13 +423,17 @@ export function SportManagementScreen() {
       try {
         await GamesService.closeCall(selectedGame.id);
       } catch (closeErr) {
-        showToast(closeErr instanceof Error ? closeErr.message : 'Convocatória fechada mas falha ao atualizar jogo', 'error');
+        const err = closeErr as { message?: string; code?: string; details?: string };
+        const msg = err?.message ?? (closeErr instanceof Error ? closeErr.message : String(closeErr));
+        const detail = err?.code ? ` [${err.code}]` : '';
+        showToast(`Erro ao atualizar status: ${msg}${detail}`, 'error');
         setSaving(false);
         return;
       }
       showToast('Convocatória fechada com sucesso', 'success');
       setSelectedGame(null);
       await loadOpenGames();
+      await loadClosedGames();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao fechar convocatória';
       showToast(msg, 'error');

@@ -309,7 +309,6 @@ export function TeamScreen() {
                       <option value={PlayerRoles.jogador}>Jogador</option>
                       <option value={PlayerRoles.capitao}>Capitão</option>
                       <option value={PlayerRoles.coordenador}>Coordenador</option>
-                      <option value={PlayerRoles.gestor}>Gestor</option>
                       <option value={PlayerRoles.admin}>Administrador</option>
                     </select>
                   </div>

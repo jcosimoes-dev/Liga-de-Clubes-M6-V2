@@ -12,7 +12,6 @@ const ROLE_OPTIONS: { value: PlayerRole; label: string }[] = [
   { value: PlayerRoles.jogador, label: 'Jogador' },
   { value: PlayerRoles.capitao, label: 'Capitão' },
   { value: PlayerRoles.coordenador, label: 'Coordenador' },
-  { value: PlayerRoles.gestor, label: 'Gestor' },
   { value: PlayerRoles.admin, label: 'Administrador' },
 ];
 

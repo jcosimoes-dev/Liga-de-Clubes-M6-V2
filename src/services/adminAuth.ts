@@ -55,6 +55,60 @@ export async function updatePlayerFederationPoints(playerId: string, valor: numb
   if (error) throw error;
 }
 
+/**
+ * Atualiza o status de um jogo usando SERVICE_ROLE (ignora RLS).
+ * Usado no fecho da convocatória para garantir que o Coordenador consegue persistir.
+ * @param gameId - UUID do jogo
+ * @param status - 'convocatoria_fechada' | 'final' | outro valor válido
+ */
+export async function closeGameStatusAdmin(
+  gameId: string,
+  status: string,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  const admin = getAdminClient();
+  const payload = { status, ...extra };
+  console.log('[adminAuth] A fechar jogo ID:', gameId, 'status:', status, extra ? 'extra:' : '', extra);
+  const { error } = await admin.from('games').update(payload).eq('id', gameId);
+  if (error) throw error;
+}
+
+/**
+ * Upsert resultado na tabela results usando SERVICE_ROLE (ignora RLS).
+ * Usado pelo Coordenador para gravar resultados finais sem bloqueio RLS (42501).
+ */
+export async function upsertResultAdmin(payload: {
+  game_id: string;
+  pair_id: string;
+  created_by: string;
+  set1_casa: number;
+  set1_fora: number;
+  set2_casa: number;
+  set2_fora: number;
+  set3_casa?: number | null;
+  set3_fora?: number | null;
+}): Promise<void> {
+  const admin = getAdminClient();
+  const row: Record<string, unknown> = {
+    game_id: payload.game_id,
+    pair_id: payload.pair_id,
+    created_by: payload.created_by,
+    set1_casa: payload.set1_casa,
+    set1_fora: payload.set1_fora,
+    set2_casa: payload.set2_casa,
+    set2_fora: payload.set2_fora,
+  };
+  if (payload.set3_casa != null && payload.set3_fora != null) {
+    row.set3_casa = payload.set3_casa;
+    row.set3_fora = payload.set3_fora;
+  }
+  console.log('[adminAuth] upsertResultAdmin game_id:', payload.game_id, 'pair_id:', payload.pair_id);
+  const { error } = await admin
+    .from('results')
+    .upsert(row, { onConflict: 'game_id,pair_id' });
+  if (error) throw error;
+}
+
 const ALLOWED_PROFILE_UPDATE_KEYS = [
   'name',
   'phone',

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { upsertResultAdmin } from './adminAuth';
 
 export const ResultsService = {
   /**
@@ -164,19 +165,26 @@ export const ResultsService = {
       payload.set3_fora = Number(s3f);
     }
     console.log('Enviando para Supabase (results upsert), onConflict: game_id,pair_id:', payload);
-    const { error } = await supabase
-      .from('results')
-      .upsert(payload, { onConflict: 'game_id,pair_id' });
-
-    if (error) {
-      console.error('[ResultsService.upsertResult] Erro Supabase detalhado:', {
-        code: (error as { code?: string }).code,
-        message: (error as { message?: string }).message,
-        details: (error as { details?: string }).details,
-        hint: (error as { hint?: string }).hint,
-        fullError: error,
+    try {
+      await upsertResultAdmin({
+        game_id: gameId,
+        pair_id: pairId,
+        created_by: createdBy,
+        set1_casa: Number(s1c),
+        set1_fora: Number(s1f),
+        set2_casa: Number(s2c),
+        set2_fora: Number(s2f),
+        ...(s3c != null && s3f != null ? { set3_casa: Number(s3c), set3_fora: Number(s3f) } : {}),
       });
-      throw error;
+    } catch (err) {
+      console.error('[ResultsService.upsertResult] Erro Supabase detalhado:', {
+        code: (err as { code?: string })?.code,
+        message: (err as { message?: string })?.message,
+        details: (err as { details?: string })?.details,
+        hint: (err as { hint?: string })?.hint,
+        fullError: err,
+      });
+      throw err;
     }
   },
 

@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { AvailabilityStatus } from '../lib/database.types';
+import { filterOutGestor } from '../lib/gestorFilter';
 
 export const AvailabilitiesService = {
   /**
@@ -37,11 +38,12 @@ export const AvailabilitiesService = {
       .in('id', playerIds);
 
     if (playersError) throw playersError;
-    const playerMap = new Map((players ?? []).map((p) => [p.id, p]));
+    const allowed = filterOutGestor(players ?? []);
+    const playerMap = new Map(allowed.map((p) => [p.id, p]));
     return (avails ?? []).map((a) => ({
       ...a,
-      player: a.player_id ? playerMap.get(a.player_id) : null,
-    }));
+      player: a.player_id ? playerMap.get(a.player_id) ?? null : null,
+    })).filter((a) => a.player != null);
   },
 
   /**
@@ -270,7 +272,7 @@ export const AvailabilitiesService = {
       .in('id', playerIds);
 
     if (playersError) throw playersError;
-    return players ?? [];
+    return filterOutGestor(players ?? []);
   },
 
   /**
@@ -294,6 +296,6 @@ export const AvailabilitiesService = {
       .in('id', playerIds);
 
     if (playersError) throw playersError;
-    return players ?? [];
+    return filterOutGestor(players ?? []);
   },
 };

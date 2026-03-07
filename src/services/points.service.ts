@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { updatePlayerFederationPoints } from './adminAuth';
 
 /**
@@ -260,11 +261,14 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
 
   const { data: players } = await supabase
     .from('players')
-    .select('id, name')
+    .select('id, name, email')
     .in('id', playerIds);
   const nameMap = new Map((players ?? []).map((p) => [p.id, p.name ?? '—']));
+  const gestorEmailNorm = GESTOR_HIDE_EMAIL.trim().toLowerCase();
+  const isGestor = (id: string) => ((players ?? []).find((p) => p.id === id) as { email?: string } | undefined)?.email?.trim().toLowerCase() === gestorEmailNorm;
 
   const out = playerIds
+    .filter((id) => !isGestor(id))
     .map((id) => {
       const s = playerStats.get(id)!;
       return {
@@ -349,7 +353,8 @@ export async function getSeasonStats(teamId: string): Promise<SeasonStatRow[]> {
     supabase
       .from('players')
       .select('id, name, federation_points')
-      .eq('team_id', teamId),
+      .eq('team_id', teamId)
+      .neq('email', GESTOR_HIDE_EMAIL),
   ]);
 
   if (availsRes.error || playersRes.error) return [];

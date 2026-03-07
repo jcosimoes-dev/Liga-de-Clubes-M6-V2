@@ -159,7 +159,10 @@ export function ConvocatoryManagementScreen() {
       setSelectedGame(null);
       await loadOpenGames();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Erro ao fechar convocatória', 'error');
+      const err = e as { message?: string; code?: string };
+      const msg = err?.message ?? (e instanceof Error ? e.message : String(e));
+      const detail = err?.code ? ` [código: ${err.code}]` : '';
+      showToast(`Erro ao fechar convocatória: ${msg}${detail}`, 'error');
     } finally {
       setSaving(false);
     }
