@@ -4,6 +4,7 @@ import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAc
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
+import { PlayerRoles } from '../domain/constants';
 import { GamesService, AvailabilitiesService, PairsService, PlayersService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints, OFFICIAL_M6_TEAM_ID } from '../services';
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow } from '../services';
 import { supabase } from '../lib/supabase';
@@ -45,7 +46,7 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
  * phase na BD: Liga → Qualificação|Regionais|Nacionais; outros → Torneio|Mix|Treino.
  */
 export function SportManagementScreen() {
-  const { player, canManageSport, loading: authLoading } = useAuth();
+  const { player, canManageSport, role, loading: authLoading } = useAuth();
   const { navigate, goBack } = useNavigation();
   const [gameType, setGameType] = useState<GameType>('Liga');
   const [ligaPhase, setLigaPhase] = useState<LigaPhase>('Qualificação');
@@ -600,6 +601,8 @@ export function SportManagementScreen() {
     }));
   }, [ranking, seasonStatsEpoca, totalTeamGames]);
 
+  const canRecalcularPontos = role === PlayerRoles.admin || role === PlayerRoles.coordenador;
+
   const tabStyles = (tab: 'performance' | 'tecnica' | 'convocatorias') =>
     activeTab === tab
       ? 'border-b-2 border-blue-600 text-blue-700 font-semibold'
@@ -609,16 +612,19 @@ export function SportManagementScreen() {
     <Layout>
       <div className="flex items-center justify-between gap-4 px-4 pt-4">
         <Header title="Gestão de Jogos" />
-        <button
-          type="button"
-          onClick={handleRecalcularPontos}
-          disabled={recalculatingPoints}
-          className="flex-shrink-0 p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition-colors disabled:opacity-50"
-          title="Recalcular Pontos Liga"
-          aria-label="Recalcular Pontos"
-        >
-          {recalculatingPoints ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
-        </button>
+        {canRecalcularPontos && (
+          <button
+            type="button"
+            onClick={handleRecalcularPontos}
+            disabled={recalculatingPoints}
+            className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Recalcular Pontos Liga"
+            aria-label="Recalcular Pontos"
+          >
+            {recalculatingPoints ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+            <span className="hidden sm:inline text-sm font-medium">Recalcular Pontos</span>
+          </button>
+        )}
       </div>
       <div className="max-w-screen-lg mx-auto px-4 pt-2 pb-6 space-y-6">
         {/* Tabs */}
