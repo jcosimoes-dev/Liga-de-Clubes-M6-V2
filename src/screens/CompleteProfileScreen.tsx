@@ -74,6 +74,11 @@ export function CompleteProfileScreen() {
   }, [authLoading, user, player, navigate]);
 
   const onSubmit = async () => {
+    const phoneTrim = form.phone?.trim() ?? '';
+    if (!phoneTrim) {
+      showToast('O telemóvel é obrigatório.', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -111,7 +116,7 @@ export function CompleteProfileScreen() {
         user_id,
         team_id,
         name: displayName.trim(),
-        phone: form.phone?.trim() || null,
+        phone: phoneTrim || null,
         is_active: player?.is_active ?? true,
         federation_points: federationPoints,
         points_updated_at: new Date().toISOString(),
@@ -187,11 +192,12 @@ export function CompleteProfileScreen() {
           <Card>
             <div className="space-y-3">
               <Input
-                label="Telefone"
+                label="Telemóvel (obrigatório)"
                 type="tel"
                 value={form.phone}
                 onChange={(e: any) => setForm((s) => ({ ...s, phone: e.target.value }))}
-                placeholder="912345678"
+                placeholder="912 345 678 ou +351 912 345 678"
+                required
               />
 
               <div>

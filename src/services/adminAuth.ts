@@ -43,13 +43,47 @@ export async function updateUserPassword(userId: string, newPassword: string): P
 
 /**
  * Atualiza apenas federation_points de um jogador (ignora RLS; usa SERVICE_ROLE).
- * Corpo do update: apenas { federation_points: valor }. Nunca id, email ou created_at.
  */
 export async function updatePlayerFederationPoints(playerId: string, valor: number): Promise<void> {
   const admin = getAdminClient();
   const { error } = await admin
     .from('players')
     .update({ federation_points: valor })
+    .eq('id', playerId)
+    .select()
+    .single();
+  if (error) throw error;
+}
+
+const ALLOWED_PROFILE_UPDATE_KEYS = [
+  'name',
+  'phone',
+  'preferred_side',
+  'role',
+  'federation_points',
+  'is_active',
+  'must_change_password',
+] as const;
+
+/**
+ * Atualiza perfil de um jogador usando SERVICE_ROLE (ignora RLS).
+ * Útil quando o Admin edita o perfil de outro jogador e a RLS bloqueia.
+ * Apenas colunas permitidas; nunca id, user_id, email, created_at.
+ */
+export async function updatePlayerProfileAdmin(
+  playerId: string,
+  updates: Record<string, unknown>
+): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  const allowed = new Set<string>(ALLOWED_PROFILE_UPDATE_KEYS);
+  for (const [key, value] of Object.entries(updates)) {
+    if (allowed.has(key) && value !== undefined) payload[key] = value;
+  }
+  if (Object.keys(payload).length === 0) return;
+  const admin = getAdminClient();
+  const { error } = await admin
+    .from('players')
+    .update(payload)
     .eq('id', playerId)
     .select()
     .single();

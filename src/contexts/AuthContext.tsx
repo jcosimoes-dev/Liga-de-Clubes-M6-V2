@@ -126,6 +126,8 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
     team_id: teamId,
     is_active: true,
     federation_points: 0,
+    preferred_side: 'both',
+    profile_completed: false,
   };
 
   const { error: upsertError } = await supabase

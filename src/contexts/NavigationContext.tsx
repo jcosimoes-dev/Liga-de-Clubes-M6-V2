@@ -52,15 +52,27 @@ export function NavigationProvider({
   const historyStackRef = useRef<RouteEntry[]>([]);
   const MAX_HISTORY = 50;
 
-  const { role, session, mustChangePassword } = useAuth();
+  const { role, session, mustChangePassword, player } = useAuth();
+  const isAdmin = (role || '').trim() === PlayerRoles.admin;
 
   useEffect(() => {
     if (!session) {
       if (route.name !== 'login' && route.name !== 'register' && route.name !== 'reset-password') {
         setRoute({ name: 'login' });
       }
+      return;
     }
-  }, [session, route.name]);
+    if (session && route.name === 'login') {
+      setRoute({ name: 'home' });
+      return;
+    }
+    if (isAdmin) return;
+    if (player && player.profile_completed === false) {
+      if (route.name !== 'complete-profile' && route.name !== 'login' && route.name !== 'register' && route.name !== 'reset-password') {
+        setRoute({ name: 'complete-profile' });
+      }
+    }
+  }, [session, route.name, player?.profile_completed, isAdmin]);
 
   const effectiveRole = (role || PlayerRoles.jogador).trim();
   const isPlayerOnly = effectiveRole === PlayerRoles.jogador;

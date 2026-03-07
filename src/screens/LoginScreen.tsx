@@ -106,8 +106,12 @@ export function LoginScreen() {
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-10">
-            <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <User className="w-10 h-10 text-white" />
+            <div className="flex justify-center mb-6">
+              <img
+                src="/pwa192.png"
+                alt="Liga de Clubes M6"
+                className="w-28 h-28 rounded-full object-cover shadow-md border border-gray-200"
+              />
             </div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">🎾 Equipa M6 APC TRABLISA</h1>
             <p className="text-lg text-gray-600">Gestão da equipa e dos jogos</p>

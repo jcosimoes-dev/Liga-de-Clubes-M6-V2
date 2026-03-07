@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService } from '../services';
 import { supabase } from '../lib/supabase';
-import { Calendar, MapPin, Users, Shield, Trophy, UserCircle } from 'lucide-react';
+import { Calendar, MapPin, Users, Trophy, UserCircle } from 'lucide-react';
 
 export function HomeScreen() {
   const { user, session, player, isAdmin, loading: authLoading, refreshPlayer } = useAuth();
@@ -16,7 +16,6 @@ export function HomeScreen() {
   const [openGames, setOpenGames] = useState<any[]>([]);
   const [gamesPlayed, setGamesPlayed] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [showBootstrapPrompt, setShowBootstrapPrompt] = useState<boolean>(false);
 
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
@@ -68,21 +67,7 @@ export function HomeScreen() {
       return;
     }
     try {
-      // Mostrar "Configuração Inicial" apenas quando este é o único jogador (primeiro utilizador do sistema).
-      const { count: totalPlayers, error: playersError } = await supabase
-        .from('players')
-        .select('id', { count: 'exact', head: true });
-      if (playersError) {
-        console.error('[HomeScreen] loadData players count error:', {
-          message: playersError.message,
-          details: (playersError as { details?: string }).details,
-          hint: (playersError as { hint?: string }).hint,
-          code: (playersError as { code?: string }).code,
-          full: playersError,
-        });
-      }
-      setShowBootstrapPrompt((totalPlayers ?? 0) === 1);
-
+      // Configuração inicial (equipas/jogos) assumida feita via Supabase; não mostrar card de Setup.
       try {
         const open = await GamesService.getOpenGames();
         setOpenGames(open ?? []);
@@ -195,23 +180,6 @@ export function HomeScreen() {
             </div>
           </div>
         </CategoryCard>
-
-        {!isAdmin && showBootstrapPrompt && (
-          <CategoryCard category="Liga" header={<span className="font-semibold flex items-center gap-2"><Shield className="w-5 h-5" /> Configuração Inicial</span>}>
-            <div className="flex items-start gap-3">
-              <div className="inline-flex items-center justify-center w-10 h-10 bg-blue-100 rounded-lg">
-                <Shield className="w-5 h-5 text-blue-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">Configuração Inicial</h3>
-                <p className="text-xs text-gray-600 mb-3">Promova-se a Administrador para gerir equipas, jogos e utilizadores.</p>
-                <Button size="sm" className={CATEGORY_STYLES.Liga.buttonClasses} onClick={() => navigate({ name: 'bootstrap' })}>
-                  Configurar Sistema
-                </Button>
-              </div>
-            </div>
-          </CategoryCard>
-        )}
 
         <CategoryCard
           category="Liga"

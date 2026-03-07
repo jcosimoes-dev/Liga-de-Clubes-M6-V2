@@ -62,7 +62,7 @@ function AppContent() {
           bootstrap: BootstrapScreen,
           'reset-password': ResetPasswordScreen,
         }}
-        initialRouteName="home"
+        initialRouteName="login"
       />
 
       {session && <OfflineBanner />}

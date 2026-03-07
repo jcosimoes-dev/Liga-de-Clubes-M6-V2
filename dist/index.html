@@ -11,7 +11,8 @@
     <link rel="icon" type="image/png" href="/pwa192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <!-- iOS PWA -->
+    <!-- PWA / mobile web app -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Equipa M6 Trablisa" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -26,15 +27,15 @@
     <meta name="twitter:image" content="/pwa512.png" />
 
     <style>
-      /* loader */
+      /* Splash: logo PWA redondo, tamanho grande (w-64 / 18rem), saída suave */
       #preloader {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
-        background: #000;
+        background: #f8fafc;
         z-index: 9999;
-        transition: opacity 0.35s ease;
+        transition: opacity 1s ease-out;
       }
 
       #preloader.fade-out {
@@ -42,36 +43,48 @@
         pointer-events: none;
       }
 
-      #preloader img {
-        width: 140px;
-        height: 140px;
-        border-radius: 28px;
-        animation: pulse 1.2s ease-in-out infinite;
+      #preloader .logo-wrap {
+        width: min(50vw, 18rem);
+        height: min(50vw, 18rem);
+        max-width: 288px;
+        max-height: 288px;
+        display: grid;
+        place-items: center;
       }
 
-      @keyframes pulse {
+      #preloader img {
+        width: 100%;
+        height: 100%;
+        min-width: 120px;
+        min-height: 120px;
+        -o-object-fit: contain;
+           object-fit: contain;
+        border-radius: 50%;
+        animation: logo-entrance 1s ease-out forwards;
+      }
+
+      /* Entrada elegante: começa pequeno e com fade-in, termina em tamanho completo */
+      @keyframes logo-entrance {
         0% {
-          transform: scale(0.95);
-          opacity: 0.85;
-        }
-        50% {
-          transform: scale(1.05);
-          opacity: 1;
+          opacity: 0;
+          transform: scale(0.35);
         }
         100% {
-          transform: scale(0.95);
-          opacity: 0.85;
+          opacity: 1;
+          transform: scale(1);
         }
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-C5juiKb3.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DXt8z8et.css">
+    <script type="module" crossorigin src="/assets/index-Da58O7pD.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-D88qQUs-.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
 
   <body>
-    <!-- Loader -->
+    <!-- Splash: logo PWA redondo (pwa192.png em public/), visível pelo menos 2s, saída suave -->
     <div id="preloader">
-      <img src="/apple-touch-icon.png" alt="Equipa M6 Trablisa" />
+      <div class="logo-wrap">
+        <img src="/pwa192.png" alt="Liga de Clubes M6" />
+      </div>
     </div>
 
     <div id="root"></div>
@@ -82,7 +95,8 @@
         const pre = document.getElementById("preloader");
         const root = document.getElementById("root");
         const start = Date.now();
-        const minTime = 700;
+        const minTime = 2000;
+        const fadeOutDuration = 1000;
 
         const stop = () => {
           const elapsed = Date.now() - start;
@@ -90,7 +104,7 @@
 
           setTimeout(() => {
             pre.classList.add("fade-out");
-            setTimeout(() => pre.remove(), 300);
+            setTimeout(() => pre.remove(), fadeOutDuration);
           }, wait);
         };
 

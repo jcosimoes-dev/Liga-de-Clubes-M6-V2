@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "create-admin": "tsx scripts/createAdmin.ts"
+    "create-admin": "tsx scripts/createAdmin.ts",
+    "seed-players": "tsx scripts/seed-players.ts",
+    "list-auth-users": "tsx scripts/list-auth-users.ts",
+    "sync-players-from-auth": "tsx scripts/sync-players-from-auth.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

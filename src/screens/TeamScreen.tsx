@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, Badge, Loading, Button, Input, ConfirmDialog, Toast, ToastType, Header } from '../components/ui';
 import { PlayersService } from '../services';
+import { updatePlayerProfileAdmin } from '../services/adminAuth';
 import { supabase } from '../lib/supabase';
 import { MIN_PASSWORD_LENGTH } from '../lib/authErrors';
 import { normalizePhoneForDb } from '../lib/phone';
@@ -102,7 +103,11 @@ export function TeamScreen() {
         phone: normalizePhoneForDb(editForm.phone) ?? (editForm.phone.trim() || null),
       };
       if (isAdmin && editForm.role) updates.role = editForm.role;
-      await PlayersService.updateProfile(editingId, updates);
+      if (isAdmin) {
+        await updatePlayerProfileAdmin(editingId, updates as Record<string, unknown>);
+      } else {
+        await PlayersService.updateProfile(editingId, updates);
+      }
       await loadPlayers();
       setEditingId(null);
       showToast('Perfil atualizado com sucesso', 'success');
