@@ -190,9 +190,18 @@ export function GameDetailsScreen({ id }: Props) {
                       const s2 = `${res.set2_casa ?? 0}-${res.set2_fora ?? 0}`;
                       const s3 = res.set3_casa != null && res.set3_fora != null ? `${res.set3_casa}-${res.set3_fora}` : null;
                       setsStr = s3 ? `${s1}, ${s2}, ${s3}` : `${s1}, ${s2}`;
-                      const totalCasa = (res.set1_casa ?? 0) + (res.set2_casa ?? 0) + (res.set3_casa ?? 0);
-                      const totalFora = (res.set1_fora ?? 0) + (res.set2_fora ?? 0) + (res.set3_fora ?? 0);
-                      outcome = totalCasa > totalFora ? 'Vitória' : 'Derrota';
+                      let setsWon = 0;
+                      let setsLost = 0;
+                      if (res.set1_casa != null && res.set1_fora != null) {
+                        if (Number(res.set1_casa) > Number(res.set1_fora)) setsWon += 1; else setsLost += 1;
+                      }
+                      if (res.set2_casa != null && res.set2_fora != null) {
+                        if (Number(res.set2_casa) > Number(res.set2_fora)) setsWon += 1; else setsLost += 1;
+                      }
+                      if (res.set3_casa != null && res.set3_fora != null) {
+                        if (Number(res.set3_casa) > Number(res.set3_fora)) setsWon += 1; else setsLost += 1;
+                      }
+                      outcome = setsWon > setsLost ? 'Vitória' : 'Derrota';
                     }
                     return (
                       <div key={pairId} className="p-3 rounded-lg border border-gray-200 bg-gray-50/50">

@@ -3,9 +3,8 @@ import { Layout } from '../components/layout/Layout';
 import { Card, Button, Badge, Toast, ToastType, Header, AddPlayerModal, RestrictedAccessModal, Input } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
-import { PlayersService, updateUserPassword, syncPlayerPoints, getPlayerRanking, getSeasonStats, resetAllPlayerPoints } from '../services';
-import type { PlayerRankingRow, SeasonStatRow } from '../services';
-import { UserPlus, ShieldCheck, Key, Lock, X, Loader2, ChevronDown, Search, Phone, Calculator, Trophy, BarChart2, UserCheck } from 'lucide-react';
+import { PlayersService, updateUserPassword } from '../services';
+import { UserPlus, ShieldCheck, Key, Lock, X, Loader2, ChevronDown, Search, Phone } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 import { PlayerRoles, validateRole, type PlayerRole } from '../domain/constants';
 import { formatPhoneForWhatsApp, normalizePhoneForDb } from '../lib/phone';
@@ -61,13 +60,6 @@ export function AdminScreen() {
     playerName: string;
     phone: string | null;
   } | null>(null);
-  const [recalculatingPoints, setRecalculatingPoints] = useState(false);
-  const [ranking, setRanking] = useState<PlayerRankingRow[]>([]);
-  const [rankingLoading, setRankingLoading] = useState(false);
-  const [seasonStats, setSeasonStats] = useState<SeasonStatRow[]>([]);
-  const [seasonStatsLoading, setSeasonStatsLoading] = useState(false);
-  const [zeroingPoints, setZeroingPoints] = useState(false);
-
   const showToast = (message: string, type: ToastType = 'success') => {
     setToast({ message, type });
   };
@@ -75,41 +67,6 @@ export function AdminScreen() {
   useEffect(() => {
     if (isAdmin) loadPlayers();
   }, [isAdmin]);
-
-  const loadRanking = async () => {
-    const tid = player?.team_id;
-    if (!tid) return;
-    setRankingLoading(true);
-    try {
-      const data = await getPlayerRanking(tid);
-      setRanking(data);
-    } catch {
-      setRanking([]);
-    } finally {
-      setRankingLoading(false);
-    }
-  };
-
-  const loadSeasonStats = async () => {
-    const tid = player?.team_id;
-    if (!tid) return;
-    setSeasonStatsLoading(true);
-    try {
-      const data = await getSeasonStats(tid);
-      setSeasonStats(data);
-    } catch {
-      setSeasonStats([]);
-    } finally {
-      setSeasonStatsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isAdmin && player?.team_id) {
-      loadRanking();
-      loadSeasonStats();
-    }
-  }, [isAdmin, player?.team_id]);
 
   useEffect(() => {
     setPhoneEdit(selectedPlayerForReset?.phone ?? '');
@@ -553,193 +510,6 @@ export function AdminScreen() {
               </div>
             </div>
             )}
-          </div>
-        </Card>
-
-        {/* Dashboard de Performance: ranking Vitórias, Derrotas, Pontos Totais */}
-        <Card className="shadow-sm rounded-xl border border-gray-100 md:col-span-2 flex flex-col">
-          <div className="p-6">
-            <div className="flex items-center gap-2">
-              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-                <Trophy className="w-4 h-4 text-amber-600" />
-              </div>
-              <h3 className="text-base font-medium text-gray-900">Dashboard de Performance</h3>
-            </div>
-            <p className="text-sm text-gray-500 mt-1.5">
-              Ranking com base nos jogos com status &quot;final&quot;. Vitória = 10 pts, Derrota = 3 pts.
-            </p>
-            {rankingLoading ? (
-              <div className="mt-4 py-6 text-center text-gray-500">A carregar ranking...</div>
-            ) : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-semibold text-gray-700">#</th>
-                      <th className="text-left py-2 px-3 font-semibold text-gray-700">Jogador</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Vitórias</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Derrotas</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Pontos totais</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ranking.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="py-6 text-center text-gray-500">
-                          Nenhum jogo &quot;final&quot; ainda. Recalcula os pontos após fechares jogos.
-                        </td>
-                      </tr>
-                    ) : (
-                      ranking.map((row, idx) => (
-                        <tr key={row.player_id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                          <td className="py-2.5 px-3 text-gray-600">{idx + 1}</td>
-                          <td className="py-2.5 px-3 font-medium text-gray-900">{row.name}</td>
-                          <td className="py-2.5 px-3 text-right text-green-600">{row.wins}</td>
-                          <td className="py-2.5 px-3 text-right text-red-600">{row.losses}</td>
-                          <td className="py-2.5 px-3 text-right font-semibold text-gray-900">{row.total_points}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Estatísticas de Época: disponibilidade, convocatórias, taxa de escolha, pontos (dados reais de availabilities/pairs) */}
-        <Card className="shadow-sm rounded-xl border border-gray-100 md:col-span-2 flex flex-col">
-          <div className="p-6">
-            <div className="flex items-center gap-2">
-              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                <BarChart2 className="w-4 h-4 text-blue-600" />
-              </div>
-              <h3 className="text-base font-medium text-gray-900">Estatísticas de Época</h3>
-            </div>
-            <p className="text-sm text-gray-500 mt-1.5">
-              Disponibilidade = contagem de &quot;Check&quot; verde (availabilities). Pontos Ranking = coluna <code className="text-gray-600 bg-gray-100 px-1 rounded">federation_points</code> de cada jogador (+10 vitória, +3 derrota). Destaque: jogadores com muita disponibilidade e poucas convocatórias.
-            </p>
-            {seasonStatsLoading ? (
-              <div className="mt-4 py-6 text-center text-gray-500">A carregar estatísticas...</div>
-            ) : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-semibold text-gray-700">Jogador</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Disponibilidade</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Convocatórias</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Taxa de Escolha</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Pontos Ranking</th>
-                      <th className="text-center py-2 px-2 font-semibold text-gray-700" title="Muita disponibilidade, poucas convocatórias — considerar rodar">Rodar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {seasonStats.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-6 text-center text-gray-500">
-                          Nenhum dado ainda. As contagens usam a tabela de disponibilidades e as duplas dos jogos.
-                        </td>
-                      </tr>
-                    ) : (
-                      seasonStats.map((row) => (
-                        <tr
-                          key={row.player_id}
-                          className={`border-b border-gray-100 hover:bg-gray-50/50 ${row.highlight_rodar ? 'bg-amber-50/80' : ''}`}
-                        >
-                          <td className="py-2.5 px-3 font-medium text-gray-900">{row.name}</td>
-                          <td className="py-2.5 px-3 text-right text-gray-700">{row.disponibilidade}</td>
-                          <td className="py-2.5 px-3 text-right text-gray-700">{row.convocatorias}</td>
-                          <td className="py-2.5 px-3 text-right text-gray-700">{row.taxa_escolha}%</td>
-                          <td className="py-2.5 px-3 text-right font-semibold text-gray-900">{row.pontos_ranking}</td>
-                          <td className="py-2.5 px-2 text-center">
-                            {row.highlight_rodar ? (
-                              <span className="inline-flex items-center gap-1 text-amber-700" title="Muita disponibilidade, poucas convocatórias — considerar para o próximo jogo">
-                                <UserCheck className="w-4 h-4" aria-hidden />
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Recalcular pontos — atualiza federation_points a partir dos jogos status 'final' (sem erro de Enum) */}
-        <Card className="shadow-sm rounded-xl border border-gray-100 md:col-span-2 flex flex-col">
-          <div className="p-6">
-            <div className="flex items-center gap-2">
-              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Calculator className="w-4 h-4 text-slate-600" />
-              </div>
-              <h3 className="text-base font-medium text-gray-900">Pontos e rankings</h3>
-            </div>
-            <p className="text-sm text-gray-500 mt-1.5">
-              Pontos por dupla: +10 vitória, +3 derrota (só jogadores escalados nas duplas). Recalcula a partir dos jogos com status &quot;final&quot;. Ver consola (F12) para o log do cálculo.
-            </p>
-            <div className="mt-4 flex flex-col gap-3">
-              <Button
-                onClick={async () => {
-                  setRecalculatingPoints(true);
-                  try {
-                    const { updated, errors } = await syncPlayerPoints(player?.team_id ?? undefined);
-                    if (errors.length > 0) {
-                      showToast(`Atualizados: ${updated}. Erros: ${errors.slice(0, 2).join('; ')}`, 'error');
-                    } else {
-                      showToast(`Pontos recalculados: ${updated} jogador(es) atualizado(s).`, 'success');
-                    }
-                    await loadPlayers();
-                    await loadRanking();
-                    await loadSeasonStats();
-                  } catch (e) {
-                    showToast(e instanceof Error ? e.message : 'Erro ao recalcular pontos.', 'error');
-                  } finally {
-                    setRecalculatingPoints(false);
-                  }
-                }}
-                disabled={recalculatingPoints}
-                className={BTN_PRIMARY}
-              >
-                {recalculatingPoints ? 'A recalcular...' : 'Recalcular Pontos'}
-              </Button>
-              <div className="border-t border-gray-200 pt-3">
-                <p className="text-xs text-amber-700 mb-2">
-                  Limpeza: zera a coluna &quot;federation_points&quot; de todos os jogadores desta equipa (para corrigir erros antes de recalcular).
-                </p>
-                <Button
-                  variant="secondary"
-                  onClick={async () => {
-                    if (!window.confirm('Zerar os pontos de todos os jogadores desta equipa? Depois podes usar "Recalcular Pontos".')) return;
-                    setZeroingPoints(true);
-                    try {
-                      const { updated, error } = await resetAllPlayerPoints(player?.team_id ?? undefined);
-                      if (error) {
-                        showToast(`Erro: ${error}`, 'error');
-                      } else {
-                        showToast(`Pontos zerados: ${updated} jogador(es).`, 'success');
-                        await loadPlayers();
-                        await loadRanking();
-                        await loadSeasonStats();
-                      }
-                    } catch (e) {
-                      showToast(e instanceof Error ? e.message : 'Erro ao zerar pontos.', 'error');
-                    } finally {
-                      setZeroingPoints(false);
-                    }
-                  }}
-                  disabled={zeroingPoints}
-                  className="w-full py-2.5 px-4 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 font-medium transition-colors disabled:opacity-50"
-                >
-                  {zeroingPoints ? 'A zerar...' : 'Zerar Pontos de Todos (esta equipa)'}
-                </Button>
-              </div>
-            </div>
           </div>
         </Card>
 

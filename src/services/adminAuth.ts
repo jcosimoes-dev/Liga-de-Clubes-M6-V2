@@ -43,12 +43,28 @@ export async function updateUserPassword(userId: string, newPassword: string): P
 
 /**
  * Atualiza apenas federation_points de um jogador (ignora RLS; usa SERVICE_ROLE).
+ * federation_points é EXCLUSIVAMENTE manual (perfil). Nunca sobrescrito pelo recálculo.
  */
 export async function updatePlayerFederationPoints(playerId: string, valor: number): Promise<void> {
   const admin = getAdminClient();
   const { error } = await admin
     .from('players')
     .update({ federation_points: valor })
+    .eq('id', playerId)
+    .select()
+    .single();
+  if (error) throw error;
+}
+
+/**
+ * Atualiza apenas liga_points de um jogador (ignora RLS; usa SERVICE_ROLE).
+ * Usado pelo botão "Recalcular Pontos" — pontos da liga M6 (10v/3d). federation_points não é tocado.
+ */
+export async function updatePlayerLigaPoints(playerId: string, valor: number): Promise<void> {
+  const admin = getAdminClient();
+  const { error } = await admin
+    .from('players')
+    .update({ liga_points: valor })
     .eq('id', playerId)
     .select()
     .single();

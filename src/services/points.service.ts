@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { updatePlayerFederationPoints } from './adminAuth';
+import { updatePlayerLigaPoints } from './adminAuth';
 
 /**
  * Serviço de pontuação. A coluna de pontos na tabela players é federation_points.
@@ -14,6 +14,12 @@ export const POINTS_LOSS = 3;
 
 /** Status que consideram o jogo final. Incluir 'concluido'/'completed' se a BD ainda não tiver 'final'. */
 const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed'] as const;
+
+/** Statuses para o card Performance da Equipa (jogos que contam para V-D-F). */
+const STATUS_TEAM_PERFORMANCE = ['final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
+
+/** ID oficial da equipa M6 para garantir o filtro no card de Performance. */
+export const OFFICIAL_M6_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 
 const LOG_PREFIX = '[Points]';
 
@@ -29,19 +35,27 @@ interface ResultRow {
 }
 
 /**
- * Determina se a dupla ganhou com base nos sets (casa vs fora).
+ * Determina se a dupla ganhou com base no número de SETS ganhos (melhor de 3).
+ * Cada set: casa > fora → +1 set ganho; casa < fora → +1 set perdido.
+ * Vitória = 2 sets ganhos (ou mais), Derrota = 1 ou 0 sets ganhos.
  * Vitória = +10 pts, Derrota = +3 pts.
  */
 function isPairWin(r: ResultRow): boolean {
-  const casa =
-    (Number(r.set1_casa) || 0) +
-    (Number(r.set2_casa) || 0) +
-    (Number(r.set3_casa) || 0);
-  const fora =
-    (Number(r.set1_fora) || 0) +
-    (Number(r.set2_fora) || 0) +
-    (Number(r.set3_fora) || 0);
-  return casa > fora;
+  let setsWon = 0;
+  let setsLost = 0;
+  if (r.set1_casa != null && r.set1_fora != null) {
+    if (Number(r.set1_casa) > Number(r.set1_fora)) setsWon += 1;
+    else setsLost += 1;
+  }
+  if (r.set2_casa != null && r.set2_fora != null) {
+    if (Number(r.set2_casa) > Number(r.set2_fora)) setsWon += 1;
+    else setsLost += 1;
+  }
+  if (r.set3_casa != null && r.set3_fora != null) {
+    if (Number(r.set3_casa) > Number(r.set3_fora)) setsWon += 1;
+    else setsLost += 1;
+  }
+  return setsWon > setsLost;
 }
 
 /**
@@ -165,11 +179,11 @@ export async function syncPlayerPoints(teamId?: string): Promise<{ updated: numb
     return String(e);
   };
 
-  // 6) Atualizar federation_points (admin client ignora RLS)
+  // 6) Atualizar apenas liga_points (federation_points nunca é sobrescrito)
   let updated = 0;
   for (const [playerId, total] of playerPoints) {
     try {
-      await updatePlayerFederationPoints(playerId, total);
+      await updatePlayerLigaPoints(playerId, total);
       updated++;
     } catch (e) {
       const msg = toErrorMsg(e);
@@ -182,17 +196,148 @@ export async function syncPlayerPoints(teamId?: string): Promise<{ updated: numb
   return { updated, errors };
 }
 
+/** Estatísticas da equipa na Liga Oficial (Vitória 3 pts, Derrota 1 pt, Falta 0 pts). */
+export interface TeamPerformanceStats {
+  wins: number;
+  losses: number;
+  noShows: number;
+  totalPoints: number;
+  record: string;
+}
+
 export interface PlayerRankingRow {
   player_id: string;
   name: string;
   wins: number;
   losses: number;
+  /** Pontos Liga M6: 10 pts vitória, 3 pts derrota (calculado a partir do histórico). */
+  pontos_liga: number;
+  /** Pontos Federação: valor da coluna federation_points na tabela players. */
+  federation_points: number;
+  /** Pontos Totais: Pontos Liga + Pontos Federação. */
   total_points: number;
 }
 
 /**
- * Ranking da equipa com base em jogos 'final': usa duplas + resultados (não availabilities).
- * +10 por vitória da dupla, +3 por derrota.
+ * Calcula se a equipa ganhou o jogo com base nos resultados (maioria de sets ganhos por dupla).
+ * Usado quando team_points não está preenchido na BD.
+ */
+function teamWonFromResults(rows: ResultRow[]): boolean {
+  let setsWon = 0;
+  let setsLost = 0;
+  for (const r of rows) {
+    if (r.set1_casa != null && r.set1_fora != null) {
+      if (Number(r.set1_casa) > Number(r.set1_fora)) setsWon += 1;
+      else setsLost += 1;
+    }
+    if (r.set2_casa != null && r.set2_fora != null) {
+      if (Number(r.set2_casa) > Number(r.set2_fora)) setsWon += 1;
+      else setsLost += 1;
+    }
+    if (r.set3_casa != null && r.set3_fora != null) {
+      if (Number(r.set3_casa) > Number(r.set3_fora)) setsWon += 1;
+      else setsLost += 1;
+    }
+  }
+  return setsWon > setsLost;
+}
+
+/**
+ * Estatísticas da equipa na Liga Oficial M6.
+ * Percorre games (team_id = M6): Vitória = 3 pts, Derrota = 1 pt, Falta = 0 pts.
+ * Total = (Vitórias * 3) + (Derrotas * 1). Se team_points estiver null, calcula vitória/derrota a partir dos results (maioria de sets).
+ */
+export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerformanceStats> {
+  const effectiveTeamId = teamId || OFFICIAL_M6_TEAM_ID;
+
+  const { data: games, error } = await supabase
+    .from('games')
+    .select('id, status, team_points, no_show')
+    .eq('team_id', effectiveTeamId)
+    .in('status', [...STATUS_TEAM_PERFORMANCE]);
+
+  if (error) {
+    console.error(`${LOG_PREFIX} getTeamPerformanceStats erro:`, error);
+    return { wins: 0, losses: 0, noShows: 0, totalPoints: 0, record: '0-0-0' };
+  }
+
+  const list = games ?? [];
+  if (list.length === 0) {
+    return { wins: 0, losses: 0, noShows: 0, totalPoints: 0, record: '0-0-0' };
+  }
+
+  const gameIdsNeedingResults = list
+    .filter((g) => {
+      const ns = !!(g as { no_show?: boolean }).no_show;
+      if (ns) return false;
+      const pts = (g as { team_points?: number | null }).team_points;
+      return typeof pts !== 'number' || pts === 0;
+    })
+    .map((g) => (g as { id: string }).id);
+
+  let resultsByGame: Map<string, ResultRow[]> = new Map();
+  if (gameIdsNeedingResults.length > 0) {
+    const { data: results, error: resError } = await supabase
+      .from('results')
+      .select('game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora')
+      .in('game_id', gameIdsNeedingResults);
+    if (!resError && results?.length) {
+      for (const r of results) {
+        const gid = (r as { game_id: string }).game_id;
+        const arr = resultsByGame.get(gid) ?? [];
+        arr.push(r as ResultRow);
+        resultsByGame.set(gid, arr);
+      }
+    }
+  }
+
+  let wins = 0;
+  let losses = 0;
+  let noShows = 0;
+
+  for (const g of list) {
+    const ns = !!(g as { no_show?: boolean }).no_show;
+    const pts = (g as { team_points?: number | null }).team_points;
+    const gid = (g as { id: string }).id;
+
+    if (ns) {
+      noShows += 1;
+      continue;
+    }
+    if (typeof pts === 'number' && pts === 3) {
+      wins += 1;
+      continue;
+    }
+    if (typeof pts === 'number' && pts === 1) {
+      losses += 1;
+      continue;
+    }
+    const resultRows = resultsByGame.get(gid);
+    if (resultRows?.length) {
+      if (teamWonFromResults(resultRows)) {
+        wins += 1;
+      } else {
+        losses += 1;
+      }
+    }
+  }
+
+  const totalPoints = wins * 3 + losses * 1;
+
+  console.log(`${LOG_PREFIX} getTeamPerformanceStats teamId=${effectiveTeamId} jogos=${list.length} V=${wins} D=${losses} F=${noShows} pts=${totalPoints}`);
+
+  return {
+    wins,
+    losses,
+    noShows,
+    totalPoints,
+    record: `${wins}-${losses}-${noShows}`,
+  };
+}
+
+/**
+ * Ranking da equipa: lê liga_points e federation_points da tabela players.
+ * Coluna Liga = liga_points (atualizado pelo Recalcular). Federação = federation_points (só manual). Total = liga_points + federation_points.
  */
 export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow[]> {
   console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId);
@@ -261,9 +406,19 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
 
   const { data: players } = await supabase
     .from('players')
-    .select('id, name, email')
+    .select('id, name, email, federation_points, liga_points')
     .in('id', playerIds);
+
+  /** Lê valor numérico da BD; null/vazio → 0. */
+  const readNum = (raw: number | string | null | undefined): number => {
+    if (raw == null || raw === '') return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
   const nameMap = new Map((players ?? []).map((p) => [p.id, p.name ?? '—']));
+  const ligaPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { liga_points?: number | string | null }).liga_points)]));
+  const fedPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { federation_points?: number | string | null }).federation_points)]));
   const gestorEmailNorm = GESTOR_HIDE_EMAIL.trim().toLowerCase();
   const isGestor = (id: string) => ((players ?? []).find((p) => p.id === id) as { email?: string } | undefined)?.email?.trim().toLowerCase() === gestorEmailNorm;
 
@@ -271,12 +426,17 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
     .filter((id) => !isGestor(id))
     .map((id) => {
       const s = playerStats.get(id)!;
+      const ligaPoints = ligaPointsMap.get(id) ?? 0;
+      const federationPoints = fedPointsMap.get(id) ?? 0;
+      const totalPoints = ligaPoints + federationPoints;
       return {
         player_id: id,
         name: nameMap.get(id) ?? '—',
         wins: s.wins,
         losses: s.losses,
-        total_points: s.points,
+        pontos_liga: ligaPoints,
+        federation_points: federationPoints,
+        total_points: totalPoints,
       };
     })
     .sort((a, b) => b.total_points - a.total_points);
@@ -293,51 +453,106 @@ export interface SeasonStatRow {
   name: string;
   disponibilidade: number;
   convocatorias: number;
+  /** Taxa de Escolha = Convocatórias / Disponibilidade (ex: 1/4 = 25%). */
   taxa_escolha: number;
-  pontos_ranking: number;
+  /** Pontos Liga M6 (10v/3d) — coluna liga_points. */
+  pontos_liga: number;
+  wins: number;
+  losses: number;
+  /** Eficácia = vitórias / jogos realizados (Win Rate %). */
+  eficacia: number;
   highlight_rodar: boolean;
+  /** % Disponibilidade = checks / jogos no período (quando filtro de datas aplicado). */
+  disp_pct?: number;
+}
+
+export interface GetSeasonStatsOptions {
+  startDate?: Date;
+  endDate?: Date;
+}
+
+export interface GetSeasonStatsResult {
+  rows: SeasonStatRow[];
+  totalGamesInPeriod: number;
+}
+
+/** Obtém game_date ou starts_at de um jogo (a BD pode ter uma ou outra coluna). */
+function getGameDate(g: { game_date?: string; starts_at?: string }): Date | null {
+  const raw = g.game_date ?? g.starts_at;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Verifica se uma data está no intervalo [startDate, endDate] (inclusive). */
+function isInDateRange(gameDate: Date | null, startDate?: Date, endDate?: Date): boolean {
+  if (!gameDate) return false;
+  if (startDate && gameDate < startDate) return false;
+  if (endDate && gameDate > endDate) return false;
+  return true;
 }
 
 /**
- * Estatísticas de época:
- * - Disponibilidade: apenas registos em availabilities com status 'confirmed' (check verde).
- * - Convocatórias: apenas vezes que o jogador aparece nas 3 duplas de um jogo com status 'final'.
- * - Pontos Ranking: soma real (10 por vitória da dupla, 3 por derrota); se convocatórias = 0 → 0 pontos (nunca valor manual).
+ * Estatísticas de época para o Coordenador:
+ * - Disponibilidade: checks verdes (availabilities confirmed).
+ * - Convocatórias: jogos 'final' em que o jogador está numa dupla.
+ * - Taxa de Escolha: Convocatórias / Disponibilidade (ex: 1/4 = 25%).
+ * - Pontos Liga M6: liga_points (10v/3d). Vitórias/Derrotas e Eficácia a partir de results.
+ * - Com options.startDate/endDate, filtra por game_date no lado do cliente.
  */
-export async function getSeasonStats(teamId: string): Promise<SeasonStatRow[]> {
-  if (!teamId) return [];
+export async function getSeasonStats(
+  teamId: string,
+  options?: GetSeasonStatsOptions
+): Promise<GetSeasonStatsResult> {
+  if (!teamId) return { rows: [], totalGamesInPeriod: 0 };
 
-  console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId);
+  const { startDate, endDate } = options ?? {};
+  console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId, options ? { startDate, endDate } : 'sem filtro');
 
-  // Jogos da equipa (todos, para disponibilidade)
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
-    .select('id')
+    .select('id, game_date, starts_at')
     .eq('team_id', teamId);
 
-  if (gamesAllError || !allTeamGames?.length) return [];
-  const allGameIds = allTeamGames.map((g) => g.id);
+  if (gamesAllError || !allTeamGames?.length) return { rows: [], totalGamesInPeriod: 0 };
 
-  // Apenas jogos finalizados (para convocatórias e pontos)
-  const { data: finalGames, error: finalError } = await supabase
+  const gamesWithDate = allTeamGames.map((g) => ({
+    id: g.id,
+    date: getGameDate(g as { game_date?: string; starts_at?: string }),
+  }));
+
+  const allGameIdsFiltered = gamesWithDate
+    .filter((g) => isInDateRange(g.date, startDate, endDate))
+    .map((g) => g.id);
+
+  const totalGamesInPeriod = allGameIdsFiltered.length;
+
+  const { data: finalGamesRaw, error: finalError } = await supabase
     .from('games')
-    .select('id')
+    .select('id, game_date, starts_at')
     .eq('team_id', teamId)
     .in('status', [...STATUS_FINAL_VALUES]);
 
-  const finalGameIds = (finalGames ?? []).map((g) => g.id);
-  console.log(`${LOG_PREFIX} getSeasonStats jogos finalizados da equipa:`, finalGameIds.length, finalGameIds);
+  const finalGamesWithDate = (finalGamesRaw ?? []).map((g) => ({
+    id: g.id,
+    date: getGameDate(g as { game_date?: string; starts_at?: string }),
+  }));
 
-  const [availsRes, pairsAllRes, pairsFinalRes, resultsFinalRes, playersRes] = await Promise.all([
+  const finalGameIdsFiltered = new Set(
+    finalGamesWithDate
+      .filter((g) => isInDateRange(g.date, startDate, endDate))
+      .map((g) => g.id)
+  );
+
+  const allGameIds = gamesWithDate.map((g) => g.id);
+  const finalGameIds = finalGamesWithDate.map((g) => g.id);
+
+  const [availsRes, pairsFinalRes, resultsFinalRes, playersRes] = await Promise.all([
     supabase
       .from('availabilities')
       .select('game_id, player_id')
       .in('game_id', allGameIds)
       .eq('status', AVAILABILITY_CONFIRMED),
-    supabase
-      .from('pairs')
-      .select('game_id, player1_id, player2_id')
-      .in('game_id', allGameIds),
     finalGameIds.length
       ? supabase
           .from('pairs')
@@ -352,30 +567,30 @@ export async function getSeasonStats(teamId: string): Promise<SeasonStatRow[]> {
       : Promise.resolve({ data: [] as ResultRow[], error: null }),
     supabase
       .from('players')
-      .select('id, name, federation_points')
+      .select('id, name, liga_points')
       .eq('team_id', teamId)
       .neq('email', GESTOR_HIDE_EMAIL),
   ]);
 
-  if (availsRes.error || playersRes.error) return [];
+  if (availsRes.error || playersRes.error) return { rows: [], totalGamesInPeriod: 0 };
   const avails = availsRes.data ?? [];
   const players = playersRes.data ?? [];
   const pairsFinal = (pairsFinalRes as { data?: { id: string; game_id: string; player1_id: string; player2_id: string }[] }).data ?? [];
-  const resultsFinalRaw = (resultsFinalRes as { data?: (ResultRow & { pair_id?: string })[] }).data ?? [];
-  const resultsFinal = resultsFinalRaw as ResultRow[];
+  const resultsFinal = (resultsFinalRes as { data?: ResultRow[] }).data ?? [];
 
-  // Disponibilidade: contagem de 'confirmed' por jogador
+  const allGameIdsFilteredSet = new Set(allGameIdsFiltered);
+
   const disponibilidadeByPlayer = new Map<string, number>();
   for (const a of avails) {
+    if (!allGameIdsFilteredSet.has(a.game_id)) continue;
     if (a.player_id) {
       disponibilidadeByPlayer.set(a.player_id, (disponibilidadeByPlayer.get(a.player_id) ?? 0) + 1);
     }
   }
-  console.log(`${LOG_PREFIX} getSeasonStats disponibilidade (check verde):`, Object.fromEntries(disponibilidadeByPlayer));
 
-  // Convocatórias: apenas jogos 'final', contagem de jogos em que o jogador está numa dupla
   const convocatoriasByPlayer = new Map<string, Set<string>>();
   for (const p of pairsFinal) {
+    if (!finalGameIdsFiltered.has(p.game_id)) continue;
     const gid = p.game_id;
     for (const pid of [p.player1_id, p.player2_id].filter(Boolean)) {
       if (pid) {
@@ -388,39 +603,71 @@ export async function getSeasonStats(teamId: string): Promise<SeasonStatRow[]> {
       }
     }
   }
-  console.log(`${LOG_PREFIX} getSeasonStats convocatórias (duplas em jogos 'final'):`, Object.fromEntries([...convocatoriasByPlayer.entries()].map(([k, v]) => [k, v.size])));
 
-  // Pontos ranking: mostrar federation_points da tabela players (sincronizados pelo recálculo +10/+3).
+  const resultByPair = new Map<string, ResultRow>();
+  for (const r of resultsFinal ?? []) {
+    resultByPair.set((r as { pair_id: string }).pair_id, r as ResultRow);
+  }
+
+  const winsByPlayer = new Map<string, number>();
+  const lossesByPlayer = new Map<string, number>();
+  for (const p of pairsFinal) {
+    if (!finalGameIdsFiltered.has(p.game_id)) continue;
+    const res = resultByPair.get(p.id);
+    if (!res) continue;
+    const won = isPairWin(res);
+    for (const pid of [p.player1_id, p.player2_id].filter(Boolean)) {
+      if (!pid) continue;
+      winsByPlayer.set(pid, (winsByPlayer.get(pid) ?? 0) + (won ? 1 : 0));
+      lossesByPlayer.set(pid, (lossesByPlayer.get(pid) ?? 0) + (won ? 0 : 1));
+    }
+  }
+
+  const readLigaPoints = (row: { liga_points?: number | string | null }): number => {
+    const raw = row.liga_points;
+    if (raw == null || raw === '') return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
   const rows: SeasonStatRow[] = players.map((pl) => {
     const disp = disponibilidadeByPlayer.get(pl.id) ?? 0;
     const convSet = convocatoriasByPlayer.get(pl.id);
     const conv = convSet ? convSet.size : 0;
     const taxa = disp > 0 ? Math.round((conv / disp) * 100) : 0;
-    const pontos = typeof (pl as { federation_points?: number }).federation_points === 'number'
-      ? (pl as { federation_points: number }).federation_points
-      : 0;
+    const wins = winsByPlayer.get(pl.id) ?? 0;
+    const losses = lossesByPlayer.get(pl.id) ?? 0;
+    const jogos = wins + losses;
+    const eficacia = jogos > 0 ? Math.round((wins / jogos) * 100) : 0;
     const highlight_rodar = disp >= 2 && (disp > conv || taxa < 50);
+    const disp_pct =
+      totalGamesInPeriod > 0 ? Math.round((disp / totalGamesInPeriod) * 100) : undefined;
     return {
       player_id: pl.id,
       name: pl.name ?? '—',
       disponibilidade: disp,
       convocatorias: conv,
       taxa_escolha: taxa,
-      pontos_ranking: pontos,
+      pontos_liga: readLigaPoints(pl as { liga_points?: number | string | null }),
+      wins,
+      losses,
+      eficacia,
       highlight_rodar,
+      ...(disp_pct !== undefined && { disp_pct }),
     };
   });
-  console.log(`${LOG_PREFIX} getSeasonStats federation_points por jogador:`, rows.map((r) => ({ name: r.name, disponibilidade: r.disponibilidade, federation_points: r.pontos_ranking })));
 
-  return rows.sort((a, b) => b.pontos_ranking - a.pontos_ranking);
+  return {
+    rows: rows.sort((a, b) => b.disponibilidade - a.disponibilidade),
+    totalGamesInPeriod,
+  };
 }
 
 /**
- * Zera a coluna federation_points de todos os jogadores (ou apenas da equipa indicada).
- * Útil para limpar erros antes de recalcular.
+ * Zera apenas liga_points (nunca federation_points). Útil antes de recalcular.
  */
 export async function resetAllPlayerPoints(teamId?: string): Promise<{ updated: number; error?: string }> {
-  console.log(`${LOG_PREFIX} resetAllPlayerPoints. teamId:`, teamId ?? 'todas');
+  console.log(`${LOG_PREFIX} resetAllPlayerPoints (liga_points apenas). teamId:`, teamId ?? 'todas');
 
   let q = supabase.from('players').select('id');
   if (teamId) {
@@ -442,7 +689,7 @@ export async function resetAllPlayerPoints(teamId?: string): Promise<{ updated: 
   let updated = 0;
   for (const id of ids) {
     try {
-      await updatePlayerFederationPoints(id, 0);
+      await updatePlayerLigaPoints(id, 0);
       updated++;
     } catch (e) {
       console.error(`${LOG_PREFIX} resetAllPlayerPoints falha em ${id}:`, e);

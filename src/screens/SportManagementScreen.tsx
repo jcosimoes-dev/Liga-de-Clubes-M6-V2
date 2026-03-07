@@ -4,10 +4,11 @@ import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAc
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
-import { GamesService, AvailabilitiesService, PairsService, PlayersService } from '../services';
+import { GamesService, AvailabilitiesService, PairsService, PlayersService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints, OFFICIAL_M6_TEAM_ID } from '../services';
+import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle } from 'lucide-react';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck } from 'lucide-react';
 
 export type GameType = 'Liga' | 'Torneio' | 'Mix' | 'Treino';
 
@@ -87,14 +88,83 @@ export function SportManagementScreen() {
   const [gameEditSaving, setGameEditSaving] = useState(false);
   const [gameToEdit, setGameToEdit] = useState<any | null>(null);
 
+  // Dashboard de Performance (Coordenador: equipa + ranking com % disponibilidade)
+  const [teamStats, setTeamStats] = useState<TeamPerformanceStats | null>(null);
+  const [ranking, setRanking] = useState<PlayerRankingRow[]>([]);
+  const [seasonStatsEpoca, setSeasonStatsEpoca] = useState<SeasonStatRow[]>([]);
+  const [seasonStatsMes, setSeasonStatsMes] = useState<SeasonStatRow[]>([]);
+  const [totalGamesEpoca, setTotalGamesEpoca] = useState(0);
+  const [totalGamesMes, setTotalGamesMes] = useState(0);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [rankingSortBy, setRankingSortBy] = useState<'total' | 'liga' | 'federacao' | 'disp'>('total');
+  const [rankingSortAsc, setRankingSortAsc] = useState(false);
+
+  // Tabs: Performance | Gestão Técnica | Convocatórias
+  const [activeTab, setActiveTab] = useState<'performance' | 'tecnica' | 'convocatorias'>('performance');
+  const [seasonStatsSortBy, setSeasonStatsSortBy] = useState<'disponibilidade' | 'pontos_liga'>('disponibilidade');
+  const [seasonStatsSortAsc, setSeasonStatsSortAsc] = useState(false);
+  const [statsFilter, setStatsFilter] = useState<'epoca' | 'mes'>('epoca');
+  const [recalculatingPoints, setRecalculatingPoints] = useState(false);
+
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
+
+  const handleRecalcularPontos = async () => {
+    if (recalculatingPoints || !player?.team_id) return;
+    setRecalculatingPoints(true);
+    try {
+      const { updated, errors } = await syncPlayerPoints(player.team_id);
+      if (errors.length > 0) {
+        showToast(`Atualizados: ${updated}. Erros: ${errors.slice(0, 2).join('; ')}`, 'error');
+      } else {
+        showToast(`Pontos recalculados: ${updated} jogador(es).`, 'success');
+      }
+      await loadDashboard();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Erro ao recalcular pontos.', 'error');
+    } finally {
+      setRecalculatingPoints(false);
+    }
+  };
+
+  const loadDashboard = async () => {
+    const tid = player?.team_id;
+    if (!tid || !canManageSport) return;
+    setDashboardLoading(true);
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    try {
+      const [rankData, teamData, seasonEpoca, seasonMes] = await Promise.all([
+        getPlayerRanking(tid),
+        getTeamPerformanceStats(OFFICIAL_M6_TEAM_ID),
+        getSeasonStats(tid),
+        getSeasonStats(tid, { startDate: thirtyDaysAgo, endDate: now }),
+      ]);
+      setRanking(rankData);
+      setTeamStats(teamData);
+      setSeasonStatsEpoca(seasonEpoca.rows);
+      setSeasonStatsMes(seasonMes.rows);
+      setTotalGamesEpoca(seasonEpoca.totalGamesInPeriod);
+      setTotalGamesMes(seasonMes.totalGamesInPeriod);
+    } catch {
+      setRanking([]);
+      setTeamStats(null);
+      setSeasonStatsEpoca([]);
+      setSeasonStatsMes([]);
+      setTotalGamesEpoca(0);
+      setTotalGamesMes(0);
+    } finally {
+      setDashboardLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (canManageSport) {
       loadOpenGames();
       loadClosedGames();
+      loadDashboard();
     }
-  }, [canManageSport]);
+  }, [canManageSport, player?.team_id]);
 
   useEffect(() => {
     if (selectedGameForSwap) {
@@ -434,6 +504,7 @@ export function SportManagementScreen() {
       setSelectedGame(null);
       await loadOpenGames();
       await loadClosedGames();
+      await loadDashboard();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao fechar convocatória';
       showToast(msg, 'error');
@@ -519,10 +590,297 @@ export function SportManagementScreen() {
     );
   }
 
+  const totalTeamGames = teamStats ? teamStats.wins + teamStats.losses + teamStats.noShows : 0;
+  const rankingWithDisp = useMemo(() => {
+    const dispByPlayer = new Map(seasonStatsEpoca.map((s) => [s.player_id, s.disponibilidade]));
+    return ranking.map((row) => ({
+      ...row,
+      disponibilidade: dispByPlayer.get(row.player_id) ?? 0,
+      disponibilidade_pct: totalTeamGames > 0 ? Math.round(((dispByPlayer.get(row.player_id) ?? 0) / totalTeamGames) * 100) : 0,
+    }));
+  }, [ranking, seasonStatsEpoca, totalTeamGames]);
+
+  const tabStyles = (tab: 'performance' | 'tecnica' | 'convocatorias') =>
+    activeTab === tab
+      ? 'border-b-2 border-blue-600 text-blue-700 font-semibold'
+      : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300';
+
   return (
     <Layout>
-      <Header title="Gestão de Jogos" />
-      <div className="max-w-screen-lg mx-auto px-4 pt-4 pb-6 space-y-6">
+      <div className="flex items-center justify-between gap-4 px-4 pt-4">
+        <Header title="Gestão de Jogos" />
+        <button
+          type="button"
+          onClick={handleRecalcularPontos}
+          disabled={recalculatingPoints}
+          className="flex-shrink-0 p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition-colors disabled:opacity-50"
+          title="Recalcular Pontos Liga"
+          aria-label="Recalcular Pontos"
+        >
+          {recalculatingPoints ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+        </button>
+      </div>
+      <div className="max-w-screen-lg mx-auto px-4 pt-2 pb-6 space-y-6">
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-gray-200 -mb-px">
+          <button
+            type="button"
+            onClick={() => setActiveTab('performance')}
+            className={`px-4 py-3 text-sm transition-colors ${tabStyles('performance')}`}
+          >
+            Performance
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('tecnica')}
+            className={`px-4 py-3 text-sm transition-colors ${tabStyles('tecnica')}`}
+          >
+            Gestão Técnica
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('convocatorias')}
+            className={`px-4 py-3 text-sm transition-colors ${tabStyles('convocatorias')}`}
+          >
+            Convocatórias
+          </button>
+        </div>
+
+        {/* Tab 1: Performance — Equipa + Ranking Individual */}
+        {activeTab === 'performance' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="shadow-sm rounded-xl border border-gray-100 flex flex-col">
+            <div className="p-6">
+              <div className="flex items-center gap-2">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                  <Medal className="w-4 h-4 text-amber-600" />
+                </div>
+                <h3 className="text-base font-medium text-gray-900">Performance da Equipa M6</h3>
+              </div>
+              <p className="text-sm text-gray-500 mt-1.5">
+                Liga: Vitória 3 pts · Derrota 1 pt · Falta 0 pts
+              </p>
+              {dashboardLoading ? (
+                <div className="mt-4 py-6 text-center text-gray-500">A carregar...</div>
+              ) : teamStats ? (
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-4 rounded-xl bg-green-50 border border-green-100">
+                    <div className="text-2xl font-bold text-green-700">{teamStats.wins}</div>
+                    <div className="text-xs text-green-600 mt-0.5">Vitórias</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-red-50 border border-red-100">
+                    <div className="text-2xl font-bold text-red-700">{teamStats.losses}</div>
+                    <div className="text-xs text-red-600 mt-0.5">Derrotas</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                    <div className="text-2xl font-bold text-gray-700">{teamStats.noShows}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">Faltas</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 col-span-2 sm:col-span-1">
+                    <div className="text-2xl font-bold text-amber-800">{teamStats.totalPoints}</div>
+                    <div className="text-xs text-amber-700 mt-0.5">Total ({teamStats.record})</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 py-4 text-center text-gray-500">Sem jogos finalizados</div>
+              )}
+            </div>
+          </Card>
+
+          <Card className="shadow-sm rounded-xl border border-gray-100 flex flex-col md:col-span-1">
+            <div className="p-6">
+              <div className="flex items-center gap-2">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                  <Trophy className="w-4 h-4 text-amber-600" />
+                </div>
+                <h3 className="text-base font-medium text-gray-900">Ranking Individual</h3>
+              </div>
+              <p className="text-sm text-gray-500 mt-1.5">
+                Liga 10v/3d · Federação (perfil) · Total · % Disp. = checks / jogos totais
+              </p>
+              {dashboardLoading ? (
+                <div className="mt-4 py-6 text-center text-gray-500">A carregar...</div>
+              ) : (
+                <div className="mt-4 overflow-x-auto -mx-1 px-1">
+                  <table className="w-full text-sm border-collapse min-w-[400px]">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 px-1 font-semibold text-gray-700">#</th>
+                        <th className="text-left py-2 px-1 font-semibold text-gray-700">Jogador</th>
+                        <th
+                          className="text-right py-2 px-1 font-semibold text-amber-700 cursor-pointer hover:bg-amber-50/80 rounded select-none"
+                          onClick={() => { setRankingSortBy('liga'); setRankingSortAsc(rankingSortBy === 'liga' ? !rankingSortAsc : false); }}
+                        >
+                          Liga {rankingSortBy === 'liga' && (rankingSortAsc ? '↑' : '↓')}
+                        </th>
+                        <th
+                          className="text-right py-2 px-1 font-semibold text-blue-700 cursor-pointer hover:bg-blue-50/80 rounded select-none"
+                          onClick={() => { setRankingSortBy('federacao'); setRankingSortAsc(rankingSortBy === 'federacao' ? !rankingSortAsc : false); }}
+                        >
+                          Fed. {rankingSortBy === 'federacao' && (rankingSortAsc ? '↑' : '↓')}
+                        </th>
+                        <th
+                          className="text-right py-2 px-1 font-semibold text-gray-800 cursor-pointer hover:bg-gray-100 rounded select-none"
+                          onClick={() => { setRankingSortBy('total'); setRankingSortAsc(rankingSortBy === 'total' ? !rankingSortAsc : false); }}
+                        >
+                          Total {rankingSortBy === 'total' && (rankingSortAsc ? '↑' : '↓')}
+                        </th>
+                        <th
+                          className="text-right py-2 px-1 font-semibold text-green-700 cursor-pointer hover:bg-green-50/80 rounded select-none"
+                          onClick={() => { setRankingSortBy('disp'); setRankingSortAsc(rankingSortBy === 'disp' ? !rankingSortAsc : false); }}
+                          title="% Disponibilidade (checks / jogos totais)"
+                        >
+                          % Disp. {rankingSortBy === 'disp' && (rankingSortAsc ? '↑' : '↓')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rankingWithDisp.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-4 text-center text-gray-500">Nenhum jogo final ainda.</td>
+                        </tr>
+                      ) : (
+                        (() => {
+                          const sorted = [...rankingWithDisp].sort((a, b) => {
+                            if (rankingSortBy === 'disp') {
+                              const va = (a as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0;
+                              const vb = (b as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0;
+                              return rankingSortAsc ? va - vb : vb - va;
+                            }
+                            const key = rankingSortBy === 'liga' ? 'pontos_liga' : rankingSortBy === 'federacao' ? 'federation_points' : 'total_points';
+                            const va = a[key] ?? 0;
+                            const vb = b[key] ?? 0;
+                            return rankingSortAsc ? va - vb : vb - va;
+                          });
+                          return sorted.map((row, idx) => (
+                            <tr key={row.player_id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                              <td className="py-2 px-1 text-gray-600">{idx + 1}</td>
+                              <td className="py-2 px-1 font-medium text-gray-900 truncate max-w-[100px]">{row.name}</td>
+                              <td className="py-2 px-1 text-right text-amber-700">{row.pontos_liga}</td>
+                              <td className="py-2 px-1 text-right text-blue-600">{row.federation_points}</td>
+                              <td className="py-2 px-1 text-right font-semibold text-gray-900">{row.total_points}</td>
+                              <td className="py-2 px-1 text-right text-green-700">{(row as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0}%</td>
+                            </tr>
+                          ));
+                        })()
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+        )}
+
+        {/* Tab 2: Gestão Técnica — Estatísticas de Época (Taxa de Escolha, Disponibilidade) */}
+        {activeTab === 'tecnica' && (
+        <Card className="shadow-sm rounded-xl border border-gray-100">
+          <div className="p-6">
+            <div className="flex items-center gap-2">
+              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <BarChart2 className="w-4 h-4 text-blue-600" />
+              </div>
+              <h3 className="text-base font-medium text-gray-900">Estatísticas de Época</h3>
+            </div>
+            <p className="text-sm text-gray-500 mt-1.5">
+              Taxa de Escolha = Convocatórias ÷ Disponibilidade (ex: 1/4 = 25%). Rodar = quem quer jogar e ainda não foi tanto convocado.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3 items-center">
+              <span className="text-xs text-gray-500">Filtro:</span>
+              <select
+                value={statsFilter}
+                onChange={(e) => setStatsFilter(e.target.value as 'epoca' | 'mes')}
+                className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 bg-white"
+              >
+                <option value="epoca">Toda a época</option>
+                <option value="mes">Último mês</option>
+              </select>
+              <span className="text-xs text-gray-500 ml-2">Ordenar:</span>
+              <button
+                type="button"
+                onClick={() => { setSeasonStatsSortBy('disponibilidade'); setSeasonStatsSortAsc(seasonStatsSortBy === 'disponibilidade' ? !seasonStatsSortAsc : false); }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${seasonStatsSortBy === 'disponibilidade' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Disponibilidade {seasonStatsSortBy === 'disponibilidade' && (seasonStatsSortAsc ? '↑' : '↓')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSeasonStatsSortBy('pontos_liga'); setSeasonStatsSortAsc(seasonStatsSortBy === 'pontos_liga' ? !seasonStatsSortAsc : false); }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${seasonStatsSortBy === 'pontos_liga' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Pontos Liga {seasonStatsSortBy === 'pontos_liga' && (seasonStatsSortAsc ? '↑' : '↓')}
+              </button>
+            </div>
+            {dashboardLoading ? (
+              <div className="mt-4 py-6 text-center text-gray-500">A carregar...</div>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm border-collapse min-w-[520px]">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 font-semibold text-gray-700">Jogador</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Disp.</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Conv.</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Taxa Escolha</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">V–D</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Eficácia</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Liga M6</th>
+                      <th className="text-center py-2 px-2 font-semibold text-gray-700" title="Muita disponibilidade, poucas convocatórias">Rodar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes).length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-6 text-center text-gray-500">Nenhum dado ainda.</td>
+                      </tr>
+                    ) : (
+                      (() => {
+                        const stats = statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes;
+                        const sorted = [...stats].sort((a, b) => {
+                          const key = seasonStatsSortBy;
+                          const va = key === 'disponibilidade' ? a.disponibilidade : a.pontos_liga;
+                          const vb = key === 'disponibilidade' ? b.disponibilidade : b.pontos_liga;
+                          return seasonStatsSortAsc ? va - vb : vb - va;
+                        });
+                        return sorted.map((row) => (
+                          <tr
+                            key={row.player_id}
+                            className={`border-b border-gray-100 hover:bg-gray-50/50 ${row.highlight_rodar ? 'bg-amber-50/80' : ''}`}
+                          >
+                            <td className="py-2.5 px-3 font-medium text-gray-900">{row.name}</td>
+                            <td className="py-2.5 px-3 text-right text-gray-700" title={row.disp_pct != null ? `${row.disponibilidade} de ${statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
+                              {row.disp_pct != null ? `${row.disponibilidade} (${row.disp_pct}%)` : row.disponibilidade}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-gray-700">{row.convocatorias}</td>
+                            <td className="py-2.5 px-3 text-right text-gray-700">{row.taxa_escolha}%</td>
+                            <td className="py-2.5 px-3 text-right text-gray-700">{row.wins}V – {row.losses}D</td>
+                            <td className="py-2.5 px-3 text-right text-gray-700">{row.eficacia}%</td>
+                            <td className="py-2.5 px-3 text-right font-semibold text-amber-700">{row.pontos_liga}</td>
+                            <td className="py-2.5 px-2 text-center">
+                              {row.highlight_rodar ? (
+                                <span className="inline-flex items-center gap-1 text-amber-700" title="Muita disponibilidade, poucas convocatórias">
+                                  <UserCheck className="w-4 h-4" aria-hidden />
+                                </span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ));
+                      })()
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Card>
+        )}
+
+        {/* Tab 3: Convocatórias — Criar jogo, Jogos em aberto, Substituições */}
+        {activeTab === 'convocatorias' && (
+        <>
         <CategoryCard
           category={gameType}
           header={
@@ -1035,6 +1393,8 @@ export function SportManagementScreen() {
             <p className="text-sm text-gray-500 mt-4">Este jogo ainda não tem duplas definidas.</p>
           )}
         </CategoryCard>
+        </>
+        )}
 
         <EditGameModal
           isOpen={!!gameToEdit}
@@ -1043,6 +1403,7 @@ export function SportManagementScreen() {
           onSuccess={async () => {
             await loadOpenGames();
             await loadClosedGames();
+            await loadDashboard();
             showToast('Jogo atualizado com sucesso', 'success');
             setGameToEdit(null);
           }}
