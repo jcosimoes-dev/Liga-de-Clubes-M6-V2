@@ -4,7 +4,7 @@ import { Card, Button, Input, Header, Toast, ToastType } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
-import { TeamsService } from '../services';
+import { TeamsService, PlayersService } from '../services';
 import { PreferredSides, PlayerRoles, type PreferredSide } from '../domain/constants';
 
 const FALLBACK_TEAM_ID = '00000000-0000-0000-0000-000000000001';
@@ -112,35 +112,44 @@ export function CompleteProfileScreen() {
 
       const preferred_side: PreferredSide = isPreferredSide(form.preferred_side) ? form.preferred_side : PreferredSides.both;
 
-      const payload = {
-        user_id,
-        team_id,
-        name: displayName.trim(),
-        phone: phoneTrim || null,
-        is_active: player?.is_active ?? true,
-        federation_points: federationPoints,
-        points_updated_at: new Date().toISOString(),
-        preferred_side,
-        role: player?.role || PlayerRoles.jogador,
-        email: (player?.email ?? user?.email ?? '').trim() || null,
-        profile_completed: true,
-      };
-
-      const { error } = await supabase
-        .from('players')
-        .upsert(payload, { onConflict: 'user_id' });
-
-      if (error) {
-        if (error.message?.includes('foreign key') || error.message?.includes('team_id') || error.code === '23503') {
-          throw new Error('A equipa associada não existe. Contacta o administrador.');
+      if (player?.id) {
+        await PlayersService.updateProfile(player.id, {
+          name: (displayName.trim() || 'Utilizador'),
+          phone: phoneTrim || null,
+          federation_points: federationPoints,
+          preferred_side,
+        });
+      } else {
+        const payload = {
+          user_id,
+          team_id,
+          name: displayName.trim(),
+          phone: phoneTrim || null,
+          is_active: true,
+          federation_points: federationPoints,
+          preferred_side,
+          role: PlayerRoles.jogador,
+          email: (player?.email ?? user?.email ?? '').trim() || '',
+        };
+        const { error } = await supabase
+          .from('players')
+          .upsert(payload, { onConflict: 'user_id' });
+        if (error) {
+          if (error.message?.includes('foreign key') || error.message?.includes('team_id') || error.code === '23503') {
+            throw new Error('A equipa associada não existe. Contacta o administrador.');
+          }
+          throw error;
         }
-        throw error;
       }
 
       await refreshPlayer();
       showToast('Perfil guardado!', 'success');
-    } catch (err) {
-      showToast(getErrorMessage(err), 'error');
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? String((err as { message?: string }).message)
+        : getErrorMessage(err);
+      const details = err && typeof err === 'object' && 'details' in err ? (err as { details?: string }).details : undefined;
+      showToast(details ? `${msg} (${details})` : msg, 'error');
     } finally {
       setSaving(false);
     }

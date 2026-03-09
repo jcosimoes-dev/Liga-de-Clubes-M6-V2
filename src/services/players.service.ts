@@ -3,16 +3,18 @@ import type { Player } from '../lib/database.types';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { PlayerRoles, validateRole, validatePreferredSide, type PlayerRole } from '../domain/constants';
 
-/** Colunas permitidas no update de players (nunca enviar id, user_id, email, created_at, updated_at). */
+/** Colunas editáveis no update de perfil (client). role só via updateRole ou admin. */
 const ALLOWED_PLAYER_UPDATE_KEYS = [
   'name',
   'phone',
   'preferred_side',
-  'role',
   'federation_points',
   'is_active',
   'must_change_password',
 ] as const;
+
+/** Campos que o Supabase rejeita por RLS para utilizadores não-Admin — nunca enviar no .update(). */
+const RESTRICTED_KEYS = ['id', 'user_id', 'role', 'created_at', 'updated_at', 'email'] as const;
 
 export const PlayersService = {
   /**
@@ -102,35 +104,50 @@ export const PlayersService = {
 
   /**
    * Actualizar perfil do jogador.
-   * Só envia colunas permitidas; nunca id, user_id, email, created_at ou updated_at (evita 400).
+   * Envia apenas campos editáveis; remove explicitamente id, user_id, role, created_at, updated_at (evita 400 por RLS).
+   * federation_points é convertido a número.
    */
   async updateProfile(id: string, updates: Partial<Player>) {
-    if (updates.role != null) {
-      const err = validateRole(updates.role);
-      if (err) throw new Error(err);
-    }
     if (updates.preferred_side != null) {
       const err = validatePreferredSide(updates.preferred_side);
       if (err) throw new Error(err);
     }
 
-    const payload: Record<string, unknown> = {};
     const allowed = new Set<string>(ALLOWED_PLAYER_UPDATE_KEYS);
+    const restricted = new Set<string>(RESTRICTED_KEYS);
+    const payload: Record<string, unknown> = {};
+
     for (const [key, value] of Object.entries(updates)) {
-      if (allowed.has(key) && value !== undefined) {
+      if (restricted.has(key)) continue;
+      if (!allowed.has(key) || value === undefined) continue;
+      if (key === 'federation_points') {
+        const n = typeof value === 'number' ? value : Number(value);
+        payload[key] = Number.isFinite(n) ? n : 0;
+      } else if (key === 'name' && (value === '' || (typeof value === 'string' && !value.trim()))) {
+        payload[key] = 'Utilizador';
+      } else {
         payload[key] = value;
       }
+    }
+    RESTRICTED_KEYS.forEach((k) => delete payload[k]);
+
+    if (Object.keys(payload).length === 0) {
+      return this.getById(id) as Promise<Player>;
     }
 
     const { data, error } = await supabase
       .from('players')
       .update(payload)
       .eq('id', id)
-      .select()
-      .single();
+      .select('id, name, phone, preferred_side, federation_points, is_active')
+      .maybeSingle();
 
-    if (error) throw error;
-    return data;
+    if (error) {
+      console.error('[PlayersService.updateProfile] Supabase error:', error.message, error.code, error.details);
+      throw error;
+    }
+    if (data) return data as Player;
+    return (await this.getById(id)) as Player;
   },
 
   /**
