@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
 import { GamesService, AvailabilitiesService, PairsService, PlayersService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints, OFFICIAL_M6_TEAM_ID } from '../services';
-import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow } from '../services';
+import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle } from 'lucide-react';
@@ -98,8 +98,13 @@ export function SportManagementScreen() {
   const [totalGamesEpoca, setTotalGamesEpoca] = useState(0);
   const [totalGamesMes, setTotalGamesMes] = useState(0);
   const [dashboardLoading, setDashboardLoading] = useState(false);
-  const [rankingSortBy, setRankingSortBy] = useState<'total' | 'liga' | 'federacao' | 'disp'>('total');
+  const [rankingSortBy, setRankingSortBy] = useState<'total' | 'liga' | 'federacao' | 'conv' | 'disp'>('total');
   const [rankingSortAsc, setRankingSortAsc] = useState(false);
+  /** Filtro de categoria para o ranking: Geral, Liga ou Treinos (Jogos e % Disp. atualizam por categoria). */
+  const [rankingCategoryFilter, setRankingCategoryFilter] = useState<SeasonStatsCategory>('Geral');
+  const [rankingCategoryStats, setRankingCategoryStats] = useState<SeasonStatRow[] | null>(null);
+  const [rankingCategoryTotalGames, setRankingCategoryTotalGames] = useState(0);
+  const [rankingCategoryLoading, setRankingCategoryLoading] = useState(false);
 
   // Tabs: Performance | Gestão Técnica | Convocatórias
   const [activeTab, setActiveTab] = useState<'performance' | 'tecnica' | 'convocatorias'>('performance');
@@ -167,6 +172,34 @@ export function SportManagementScreen() {
       loadDashboard();
     }
   }, [canManageSport, player?.team_id]);
+
+  /** Carrega estatísticas por categoria quando o filtro é Liga ou Treinos (Jogos e % Disp. por categoria). */
+  useEffect(() => {
+    if (rankingCategoryFilter === 'Geral' || !player?.team_id) {
+      setRankingCategoryStats(null);
+      setRankingCategoryTotalGames(0);
+      return;
+    }
+    let cancelled = false;
+    setRankingCategoryLoading(true);
+    getSeasonStats(player.team_id, { category: rankingCategoryFilter })
+      .then(({ rows, totalGamesInPeriod }) => {
+        if (!cancelled) {
+          setRankingCategoryStats(rows);
+          setRankingCategoryTotalGames(totalGamesInPeriod);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRankingCategoryStats([]);
+          setRankingCategoryTotalGames(0);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRankingCategoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [rankingCategoryFilter, player?.team_id]);
 
   useEffect(() => {
     if (selectedGameForSwap) {
@@ -593,14 +626,30 @@ export function SportManagementScreen() {
   }
 
   const totalTeamGames = teamStats ? teamStats.wins + teamStats.losses + teamStats.noShows : 0;
+  /** Para o ranking: fonte de disp/conv e total conforme filtro de categoria (Geral = época; Liga/Treinos = fetch por categoria). */
+  const statsForRanking = rankingCategoryFilter === 'Geral' ? seasonStatsEpoca : (rankingCategoryStats ?? []);
+  const totalEventsForRanking = rankingCategoryFilter === 'Geral' ? totalGamesEpoca : rankingCategoryTotalGames;
+
   const rankingWithDisp = useMemo(() => {
-    const dispByPlayer = new Map(seasonStatsEpoca.map((s) => [s.player_id, s.disponibilidade]));
-    return ranking.map((row) => ({
-      ...row,
-      disponibilidade: dispByPlayer.get(row.player_id) ?? 0,
-      disponibilidade_pct: totalTeamGames > 0 ? Math.round(((dispByPlayer.get(row.player_id) ?? 0) / totalTeamGames) * 100) : 0,
-    }));
-  }, [ranking, seasonStatsEpoca, totalTeamGames]);
+    const dispByPlayer = new Map(statsForRanking.map((s) => [s.player_id, s.disponibilidade]));
+    const convByPlayer = new Map(statsForRanking.map((s) => [s.player_id, s.convocatorias]));
+    return ranking.map((row) => {
+      const presencas = dispByPlayer.get(row.player_id) ?? 0;
+      const jogos = convByPlayer.get(row.player_id) ?? 0;
+      const rawPct = totalEventsForRanking > 0 ? (presencas / totalEventsForRanking) * 100 : 0;
+      const disponibilidade_pct = totalEventsForRanking > 0 ? Math.min(100, Math.round(rawPct)) : 0;
+      return {
+        ...row,
+        disponibilidade: presencas,
+        disponibilidade_pct,
+        jogos,
+      };
+    });
+  }, [ranking, statsForRanking, totalEventsForRanking]);
+
+  /** Cor da % disponibilidade: Verde >80%, Amarelo 50–80%, Vermelho <50% */
+  const dispPctColor = (pct: number) =>
+    pct > 80 ? 'text-green-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600';
 
   const canRecalcularPontos = role === PlayerRoles.admin || role === PlayerRoles.coordenador;
 
@@ -703,9 +752,26 @@ export function SportManagementScreen() {
                 <h3 className="text-base font-medium text-gray-900">Ranking Individual</h3>
               </div>
               <p className="text-sm text-gray-500 mt-1.5">
-                Liga 10v/3d · Federação (perfil) · Total · % Disp. = checks / jogos totais
+                Liga · Fed. · Total · Conv. = vezes convocado · % Disp. = (marcou disponível / eventos) × 100
               </p>
-              {dashboardLoading ? (
+              {/* Filtro por categoria: Jogos e % Disp. atualizam por Geral / Liga / Treinos */}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(['Geral', 'Liga', 'Treino'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setRankingCategoryFilter(cat)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      rankingCategoryFilter === cat
+                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                        : 'bg-gray-100 text-gray-600 border border-transparent hover:bg-gray-200'
+                    }`}
+                  >
+                    {cat === 'Treino' ? 'Treinos' : cat}
+                  </button>
+                ))}
+              </div>
+              {dashboardLoading || (rankingCategoryFilter !== 'Geral' && rankingCategoryLoading) ? (
                 <div className="mt-4 py-6 text-center text-gray-500">A carregar...</div>
               ) : (
                 <div className="mt-4 overflow-x-auto -mx-1 px-1">
@@ -733,9 +799,16 @@ export function SportManagementScreen() {
                           Total {rankingSortBy === 'total' && (rankingSortAsc ? '↑' : '↓')}
                         </th>
                         <th
+                          className="text-right py-2 px-1 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 rounded select-none"
+                          onClick={() => { setRankingSortBy('conv'); setRankingSortAsc(rankingSortBy === 'conv' ? !rankingSortAsc : false); }}
+                          title="Jogos: vezes convocado (selecionado/jogado) na categoria"
+                        >
+                          Conv. {rankingSortBy === 'conv' && (rankingSortAsc ? '↑' : '↓')}
+                        </th>
+                        <th
                           className="text-right py-2 px-1 font-semibold text-green-700 cursor-pointer hover:bg-green-50/80 rounded select-none"
                           onClick={() => { setRankingSortBy('disp'); setRankingSortAsc(rankingSortBy === 'disp' ? !rankingSortAsc : false); }}
-                          title="% Disponibilidade (checks / jogos totais)"
+                          title="% Disp. = (marcou disponível / total eventos) × 100"
                         >
                           % Disp. {rankingSortBy === 'disp' && (rankingSortAsc ? '↑' : '↓')}
                         </th>
@@ -744,7 +817,7 @@ export function SportManagementScreen() {
                     <tbody>
                       {rankingWithDisp.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-4 text-center text-gray-500">Nenhum jogo final ainda.</td>
+                          <td colSpan={7} className="py-4 text-center text-gray-500">Nenhum jogo final ainda.</td>
                         </tr>
                       ) : (
                         (() => {
@@ -752,6 +825,11 @@ export function SportManagementScreen() {
                             if (rankingSortBy === 'disp') {
                               const va = (a as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0;
                               const vb = (b as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0;
+                              return rankingSortAsc ? va - vb : vb - va;
+                            }
+                            if (rankingSortBy === 'conv') {
+                              const va = (a as { jogos?: number }).jogos ?? 0;
+                              const vb = (b as { jogos?: number }).jogos ?? 0;
                               return rankingSortAsc ? va - vb : vb - va;
                             }
                             const key = rankingSortBy === 'liga' ? 'pontos_liga' : rankingSortBy === 'federacao' ? 'federation_points' : 'total_points';
@@ -766,7 +844,10 @@ export function SportManagementScreen() {
                               <td className="py-2 px-1 text-right text-amber-700">{row.pontos_liga}</td>
                               <td className="py-2 px-1 text-right text-blue-600">{row.federation_points}</td>
                               <td className="py-2 px-1 text-right font-semibold text-gray-900">{row.total_points}</td>
-                              <td className="py-2 px-1 text-right text-green-700">{(row as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0}%</td>
+                              <td className="py-2 px-1 text-right text-gray-700">{(row as { jogos?: number }).jogos ?? 0}</td>
+                              <td className={`py-2 px-1 text-right font-medium ${dispPctColor((row as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0)}`}>
+                                {(row as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0}%
+                              </td>
                             </tr>
                           ));
                         })()
@@ -856,7 +937,7 @@ export function SportManagementScreen() {
                             className={`border-b border-gray-100 hover:bg-gray-50/50 ${row.highlight_rodar ? 'bg-amber-50/80' : ''}`}
                           >
                             <td className="py-2.5 px-3 font-medium text-gray-900">{row.name}</td>
-                            <td className="py-2.5 px-3 text-right text-gray-700" title={row.disp_pct != null ? `${row.disponibilidade} de ${statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
+                            <td className={`py-2.5 px-3 text-right font-medium ${dispPctColor(row.disp_pct ?? 0)}`} title={row.disp_pct != null ? `${row.disponibilidade} de ${statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
                               {row.disp_pct != null ? `${row.disponibilidade} (${row.disp_pct}%)` : row.disponibilidade}
                             </td>
                             <td className="py-2.5 px-3 text-right text-gray-700">{row.convocatorias}</td>

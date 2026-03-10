@@ -1,4 +1,4 @@
-import { Home, Users, Calendar, Trophy, Settings, LogOut, History } from "lucide-react";
+import { Home, Users, Calendar, Trophy, Settings, History } from "lucide-react";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { PlayerRoles } from "../../domain/constants";
@@ -16,7 +16,7 @@ const btnBase =
 
 export function BottomNav() {
   const { route, navigate } = useNavigation();
-  const { isAdmin, canManageSport, signOut, role } = useAuth();
+  const { isAdmin, canManageSport, role } = useAuth();
 
   const showAdminTab = Boolean(role === PlayerRoles.admin || isAdmin);
   const showGestaoTab = Boolean(
@@ -25,14 +25,6 @@ export function BottomNav() {
       role === PlayerRoles.coordenador ||
       role === PlayerRoles.capitao
   );
-
-  const handleLogout = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error("Erro ao fazer logout:", error);
-    }
-  };
 
   return (
     <nav
@@ -98,15 +90,6 @@ export function BottomNav() {
             <span className="text-xs mt-0.5 truncate px-0.5">Admin</span>
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          className={`${btnBase} text-gray-600 hover:text-red-600`}
-        >
-          <LogOut className="w-6 h-6 shrink-0" />
-          <span className="text-xs mt-0.5">Sair</span>
-        </button>
       </div>
     </nav>
   );

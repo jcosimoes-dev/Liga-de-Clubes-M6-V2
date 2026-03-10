@@ -466,9 +466,24 @@ export interface SeasonStatRow {
   disp_pct?: number;
 }
 
+/** Filtro de categoria para ranking/disp: Geral = todos, Liga = Qualificação|Regionais|Nacionais, Treino = Treino */
+export type SeasonStatsCategory = 'Geral' | 'Liga' | 'Treino';
+
+const LIGA_PHASES = ['Qualificação', 'Regionais', 'Nacionais'];
+
+function gameMatchesCategory(phase: string | null | undefined, category: SeasonStatsCategory | undefined): boolean {
+  if (!category || category === 'Geral') return true;
+  const p = (phase ?? '').trim();
+  if (category === 'Liga') return LIGA_PHASES.includes(p);
+  if (category === 'Treino') return p === 'Treino';
+  return true;
+}
+
 export interface GetSeasonStatsOptions {
   startDate?: Date;
   endDate?: Date;
+  /** Filtro por categoria: Liga, Treino ou Geral (todos). */
+  category?: SeasonStatsCategory;
 }
 
 export interface GetSeasonStatsResult {
@@ -506,20 +521,22 @@ export async function getSeasonStats(
 ): Promise<GetSeasonStatsResult> {
   if (!teamId) return { rows: [], totalGamesInPeriod: 0 };
 
-  const { startDate, endDate } = options ?? {};
-  console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId, options ? { startDate, endDate } : 'sem filtro');
+  const { startDate, endDate, category } = options ?? {};
+  console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId, options ? { startDate, endDate, category } : 'sem filtro');
 
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
-    .select('id, game_date, starts_at')
+    .select('id, game_date, starts_at, phase')
     .eq('team_id', teamId);
 
   if (gamesAllError || !allTeamGames?.length) return { rows: [], totalGamesInPeriod: 0 };
 
-  const gamesWithDate = allTeamGames.map((g) => ({
-    id: g.id,
-    date: getGameDate(g as { game_date?: string; starts_at?: string }),
-  }));
+  const gamesWithDate = allTeamGames
+    .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category))
+    .map((g) => ({
+      id: g.id,
+      date: getGameDate(g as { game_date?: string; starts_at?: string }),
+    }));
 
   const allGameIdsFiltered = gamesWithDate
     .filter((g) => isInDateRange(g.date, startDate, endDate))
@@ -529,14 +546,16 @@ export async function getSeasonStats(
 
   const { data: finalGamesRaw, error: finalError } = await supabase
     .from('games')
-    .select('id, game_date, starts_at')
+    .select('id, game_date, starts_at, phase')
     .eq('team_id', teamId)
     .in('status', [...STATUS_FINAL_VALUES]);
 
-  const finalGamesWithDate = (finalGamesRaw ?? []).map((g) => ({
-    id: g.id,
-    date: getGameDate(g as { game_date?: string; starts_at?: string }),
-  }));
+  const finalGamesWithDate = (finalGamesRaw ?? [])
+    .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category))
+    .map((g) => ({
+      id: g.id,
+      date: getGameDate(g as { game_date?: string; starts_at?: string }),
+    }));
 
   const finalGameIdsFiltered = new Set(
     finalGamesWithDate
@@ -640,8 +659,9 @@ export async function getSeasonStats(
     const jogos = wins + losses;
     const eficacia = jogos > 0 ? Math.round((wins / jogos) * 100) : 0;
     const highlight_rodar = disp >= 2 && (disp > conv || taxa < 50);
-    const disp_pct =
-      totalGamesInPeriod > 0 ? Math.round((disp / totalGamesInPeriod) * 100) : undefined;
+    // % Disp. = (Presenças confirmadas / Total jogos equipa) * 100, máx. 100%, 0% se total = 0
+    const rawPct = totalGamesInPeriod > 0 ? (disp / totalGamesInPeriod) * 100 : 0;
+    const disp_pct = totalGamesInPeriod > 0 ? Math.min(100, Math.round(rawPct)) : 0;
     return {
       player_id: pl.id,
       name: pl.name ?? '—',
@@ -653,7 +673,7 @@ export async function getSeasonStats(
       losses,
       eficacia,
       highlight_rodar,
-      ...(disp_pct !== undefined && { disp_pct }),
+      disp_pct,
     };
   });
 
