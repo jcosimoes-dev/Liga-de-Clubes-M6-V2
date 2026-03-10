@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles } from '../domain/constants';
 import { MustChangePasswordBanner } from '../components/MustChangePasswordBanner';
@@ -44,8 +44,9 @@ export function NavigationProvider({
 }) {
   const [route, setRoute] = useState<RouteEntry>(() => {
     if (typeof window === 'undefined') return { name: initialRouteName };
-    const pathname = window.location.pathname ?? '/';
-    if (pathname === '/reset-password') return { name: 'reset-password' };
+    const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '/';
+    if (pathname === '/reset-password' || pathname.endsWith('/reset-password')) return { name: 'reset-password' };
+    if (pathname === '/login' || pathname.endsWith('/login')) return { name: 'login' };
     const gameMatch = pathname.match(/\/jogos\/([^/]+)\/?$/);
     if (gameMatch) return { name: 'game', params: { id: decodeURIComponent(gameMatch[1]) } };
     return { name: initialRouteName };
@@ -57,10 +58,18 @@ export function NavigationProvider({
   const { role, session, mustChangePassword, player, canManageSport } = useAuth();
   const isAdmin = (role || '').trim() === PlayerRoles.admin;
 
-  useEffect(() => {
+  const PUBLIC_ROUTES: RouteName[] = ['login', 'register', 'reset-password'];
+  const isPublicRoute = PUBLIC_ROUTES.includes(route.name);
+
+  // Sem sessão: forçar rota login, limpar stack e URL para raiz (não guardar /jogos/:id).
+  useLayoutEffect(() => {
     if (!session) {
-      if (route.name !== 'login' && route.name !== 'register' && route.name !== 'reset-password') {
+      if (!isPublicRoute) {
         setRoute({ name: 'login' });
+        historyStackRef.current = [];
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', '/');
+        }
       }
       return;
     }
@@ -70,11 +79,11 @@ export function NavigationProvider({
     }
     if (isAdmin) return;
     if (player && player.profile_completed === false) {
-      if (route.name !== 'complete-profile' && route.name !== 'login' && route.name !== 'register' && route.name !== 'reset-password') {
+      if (route.name !== 'complete-profile' && !PUBLIC_ROUTES.includes(route.name)) {
         setRoute({ name: 'complete-profile' });
       }
     }
-  }, [session, route.name, player?.profile_completed, isAdmin]);
+  }, [session, route.name, isPublicRoute, player?.profile_completed, isAdmin]);
 
   const allowedForRole = [
     ...ROUTES_ALLOWED_FOR_PLAYER,
@@ -124,10 +133,12 @@ export function NavigationProvider({
     if (typeof window !== 'undefined') window.scrollTo(0, 0);
   };
 
-  const CurrentScreen = routes[route.name];
+  // Sem sessão em rota protegida: mostrar Login imediatamente (evita flash do ecrã anterior)
+  const effectiveRoute = !session && !isPublicRoute ? { name: 'login' as RouteName } : route;
+  const CurrentScreen = routes[effectiveRoute.name];
 
   if (!CurrentScreen) {
-    return <div>Rota inválida: {route.name}</div>;
+    return <div>Rota inválida: {effectiveRoute.name}</div>;
   }
 
   if (isForbidden) {
@@ -141,7 +152,7 @@ export function NavigationProvider({
   return (
     <NavigationContext.Provider value={{ route, navigate, goBack }}>
       {session && mustChangePassword && <MustChangePasswordBanner />}
-      <CurrentScreen {...route.params} />
+      <CurrentScreen {...effectiveRoute.params} />
     </NavigationContext.Provider>
   );
 }

@@ -272,15 +272,34 @@ export const GamesService = {
   },
 
   /**
-   * Eliminar jogo (apenas capitão)
+   * Eliminar convocatória/jogo e todos os dados associados.
+   * Ordem: results → pairs → availabilities → games (respeita FKs).
+   * Usar apenas para jogos em aberto/pendentes (sem resultados definitivos).
    */
   async delete(id: string) {
-    const { error } = await supabase
-      .from('games')
-      .delete()
-      .eq('id', id);
+    const gameId = id?.trim();
+    if (!gameId) throw new Error('ID do jogo inválido');
 
-    if (error) throw error;
+    const { error: resultsErr } = await supabase.from('results').delete().eq('game_id', gameId);
+    if (resultsErr) throw resultsErr;
+
+    const { error: pairsErr } = await supabase.from('pairs').delete().eq('game_id', gameId);
+    if (pairsErr) throw pairsErr;
+
+    const { error: availsErr } = await supabase.from('availabilities').delete().eq('game_id', gameId);
+    if (availsErr) throw availsErr;
+
+    const { error: gameErr } = await supabase.from('games').delete().eq('id', gameId);
+    if (gameErr) throw gameErr;
+  },
+
+  /**
+   * Indica se o jogo pode ser eliminado (convocatória aberta ou pendente, sem conclusão).
+   */
+  canDeleteGame(game: { status?: string | null }): boolean {
+    const s = (game?.status ?? '').trim().toLowerCase();
+    const deletable = ['convocatoria_aberta', 'open', 'agendado', 'scheduled'];
+    return deletable.includes(s);
   },
 
   /**

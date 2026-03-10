@@ -241,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = refreshPlayer;
 
-  // Refresh forçado da sessão (getSession) e do perfil ao montar: garante que a role na tabela players é lida de imediato
+  // Verificação de sessão no arranque: loading só passa a false DEPOIS de getSession() resolver (evita flash de rota errada).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -271,10 +271,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession ?? null);
 
-      if (!newSession?.user) {
+      if (event === 'SIGNED_OUT' || !newSession?.user) {
         setPlayer(null);
         setLoading(false);
         return;
@@ -342,14 +342,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    setSession(null);
-    setPlayer(null);
-    setLoading(false);
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) console.warn('[AuthContext] signOut:', error.message);
-    } catch (e) {
-      console.warn('[AuthContext] signOut error:', e);
+    await supabase.auth.signOut();
+    localStorage.clear();
+    if (typeof window !== 'undefined') {
+      window.location.href = '/';
     }
   };
 

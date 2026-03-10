@@ -36,6 +36,15 @@ export function getAppGameUrl(gameId: string): string {
   return `${base}/jogos/${encodeURIComponent(String(gameId).trim())}`;
 }
 
+/** URL absoluta do ecrã de Login (raiz da app, não a página atual). Usar após logout para redirect. */
+export function getLoginUrl(): string {
+  if (typeof window === 'undefined') return '/login';
+  const origin = window.location.origin ?? '';
+  const basePath = (typeof import.meta !== 'undefined' && (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL) || '/';
+  const base = basePath.replace(/\/+$/, '') || '';
+  return base ? `${origin}${base}/login` : `${origin}/login`;
+}
+
 /** Duração padrão do evento no calendário (1h30 em ms) */
 const DEFAULT_EVENT_DURATION_MS = 90 * 60 * 1000;
 

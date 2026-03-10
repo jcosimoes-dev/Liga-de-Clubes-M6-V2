@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, FormEvent } from 'react';
 import { Layout } from '../components/layout/Layout';
-import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal } from '../components/ui';
+import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal, ConfirmDialog } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -9,7 +9,7 @@ import { GamesService, AvailabilitiesService, PairsService, PlayersService, getP
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle } from 'lucide-react';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2 } from 'lucide-react';
 import { buildWhatsAppShareUrl } from '../lib/shareLinks';
 
 export type GameType = 'Liga' | 'Torneio' | 'Mix' | 'Treino';
@@ -89,6 +89,8 @@ export function SportManagementScreen() {
   const [gameEditLocation, setGameEditLocation] = useState('');
   const [gameEditSaving, setGameEditSaving] = useState(false);
   const [gameToEdit, setGameToEdit] = useState<any | null>(null);
+  const [gameToDelete, setGameToDelete] = useState<any | null>(null);
+  const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
 
   // Dashboard de Performance (Coordenador: equipa + ranking com % disponibilidade)
   const [teamStats, setTeamStats] = useState<TeamPerformanceStats | null>(null);
@@ -100,10 +102,12 @@ export function SportManagementScreen() {
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [rankingSortBy, setRankingSortBy] = useState<'total' | 'liga' | 'federacao' | 'conv' | 'disp'>('total');
   const [rankingSortAsc, setRankingSortAsc] = useState(false);
-  /** Filtro de categoria para o ranking: Geral, Liga ou Treinos (Jogos e % Disp. atualizam por categoria). */
+  /** Filtro de categoria para o ranking: Geral, Liga ou Treinos (pontos, Conv. e % Disp. por categoria). */
   const [rankingCategoryFilter, setRankingCategoryFilter] = useState<SeasonStatsCategory>('Geral');
   const [rankingCategoryStats, setRankingCategoryStats] = useState<SeasonStatRow[] | null>(null);
   const [rankingCategoryTotalGames, setRankingCategoryTotalGames] = useState(0);
+  /** Ranking filtrado por categoria (Liga = pontos só de jogos Liga; Treino = 0 pts). Null quando Geral. */
+  const [rankingByCategory, setRankingByCategory] = useState<PlayerRankingRow[] | null>(null);
   const [rankingCategoryLoading, setRankingCategoryLoading] = useState(false);
 
   // Tabs: Performance | Gestão Técnica | Convocatórias
@@ -173,26 +177,33 @@ export function SportManagementScreen() {
     }
   }, [canManageSport, player?.team_id]);
 
-  /** Carrega estatísticas por categoria quando o filtro é Liga ou Treinos (Jogos e % Disp. por categoria). */
+  /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
   useEffect(() => {
     if (rankingCategoryFilter === 'Geral' || !player?.team_id) {
       setRankingCategoryStats(null);
       setRankingCategoryTotalGames(0);
+      setRankingByCategory(null);
       return;
     }
     let cancelled = false;
     setRankingCategoryLoading(true);
-    getSeasonStats(player.team_id, { category: rankingCategoryFilter })
-      .then(({ rows, totalGamesInPeriod }) => {
-        if (!cancelled) {
-          setRankingCategoryStats(rows);
-          setRankingCategoryTotalGames(totalGamesInPeriod);
-        }
+    const tid = player.team_id;
+    const category = rankingCategoryFilter;
+    Promise.all([
+      getSeasonStats(tid, { category }),
+      getPlayerRanking(tid, { category }),
+    ])
+      .then(([statsRes, rankingRows]) => {
+        if (cancelled) return;
+        setRankingCategoryStats(statsRes.rows);
+        setRankingCategoryTotalGames(statsRes.totalGamesInPeriod);
+        setRankingByCategory(rankingRows);
       })
       .catch(() => {
         if (!cancelled) {
           setRankingCategoryStats([]);
           setRankingCategoryTotalGames(0);
+          setRankingByCategory([]);
         }
       })
       .finally(() => {
@@ -626,14 +637,16 @@ export function SportManagementScreen() {
   }
 
   const totalTeamGames = teamStats ? teamStats.wins + teamStats.losses + teamStats.noShows : 0;
-  /** Para o ranking: fonte de disp/conv e total conforme filtro de categoria (Geral = época; Liga/Treinos = fetch por categoria). */
+  /** Ranking a mostrar: Geral = ranking do dashboard; Liga/Treinos = rankingByCategory (pontos por categoria). */
+  const displayRanking = rankingCategoryFilter === 'Geral' ? ranking : (rankingByCategory ?? []);
+  /** Fonte de disp/conv e total de eventos conforme categoria (game_id filtrado por phase no backend). */
   const statsForRanking = rankingCategoryFilter === 'Geral' ? seasonStatsEpoca : (rankingCategoryStats ?? []);
   const totalEventsForRanking = rankingCategoryFilter === 'Geral' ? totalGamesEpoca : rankingCategoryTotalGames;
 
   const rankingWithDisp = useMemo(() => {
     const dispByPlayer = new Map(statsForRanking.map((s) => [s.player_id, s.disponibilidade]));
     const convByPlayer = new Map(statsForRanking.map((s) => [s.player_id, s.convocatorias]));
-    return ranking.map((row) => {
+    return displayRanking.map((row) => {
       const presencas = dispByPlayer.get(row.player_id) ?? 0;
       const jogos = convByPlayer.get(row.player_id) ?? 0;
       const rawPct = totalEventsForRanking > 0 ? (presencas / totalEventsForRanking) * 100 : 0;
@@ -645,7 +658,7 @@ export function SportManagementScreen() {
         jogos,
       };
     });
-  }, [ranking, statsForRanking, totalEventsForRanking]);
+  }, [displayRanking, statsForRanking, totalEventsForRanking]);
 
   /** Cor da % disponibilidade: Verde >80%, Amarelo 50–80%, Vermelho <50% */
   const dispPctColor = (pct: number) =>
@@ -1132,6 +1145,21 @@ export function SportManagementScreen() {
                     }`}
                   >
                     <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                      {GamesService.canDeleteGame(game) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setGameToDelete(game);
+                          }}
+                          disabled={deletingGameId === game.id}
+                          className="p-1.5 rounded-lg bg-white/90 hover:bg-red-100 text-gray-600 hover:text-red-600 transition-colors shadow-sm disabled:opacity-50"
+                          aria-label="Eliminar convocatória"
+                          title="Eliminar convocatória"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1525,6 +1553,33 @@ export function SportManagementScreen() {
         </CategoryCard>
         </>
         )}
+
+        <ConfirmDialog
+          isOpen={!!gameToDelete}
+          title="Eliminar convocatória"
+          message="Tem a certeza que deseja eliminar esta convocatória? Esta ação não pode ser revertida."
+          confirmText="Eliminar"
+          cancelText="Cancelar"
+          variant="danger"
+          onConfirm={async () => {
+            if (!gameToDelete?.id) return;
+            setDeletingGameId(gameToDelete.id);
+            try {
+              await GamesService.delete(gameToDelete.id);
+              if (selectedGame?.id === gameToDelete.id) setSelectedGame(null);
+              setGameToDelete(null);
+              await loadOpenGames();
+              await loadClosedGames();
+              await loadDashboard();
+              showToast('Convocatória eliminada. A lista e o Ranking foram atualizados.', 'success');
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : 'Erro ao eliminar convocatória.', 'error');
+            } finally {
+              setDeletingGameId(null);
+            }
+          }}
+          onCancel={() => setGameToDelete(null)}
+        />
 
         <EditGameModal
           isOpen={!!gameToEdit}

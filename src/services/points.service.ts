@@ -335,16 +335,23 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
   };
 }
 
-/**
- * Ranking da equipa: lê liga_points e federation_points da tabela players.
- * Coluna Liga = liga_points (atualizado pelo Recalcular). Federação = federation_points (só manual). Total = liga_points + federation_points.
- */
-export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow[]> {
-  console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId);
+export interface GetPlayerRankingOptions {
+  /** Filtro por categoria: Liga = pontos só de jogos Liga; Treino = 0 pts; Geral = tudo. */
+  category?: SeasonStatsCategory;
+}
 
-  const { data: games, error: gamesError } = await supabase
+/**
+ * Ranking da equipa. Sem category (ou Geral): liga_points/federation_points da BD e wins/losses de todos os jogos.
+ * Com category 'Liga': pontos calculados apenas de jogos com phase in [Qualificação, Regionais, Nacionais].
+ * Com category 'Treino': lista todos os jogadores da equipa com pontos a 0 (Liga/Fed escondidos nesta vista).
+ */
+export async function getPlayerRanking(teamId: string, options?: GetPlayerRankingOptions): Promise<PlayerRankingRow[]> {
+  const category = options?.category;
+  console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId, 'category:', category ?? 'Geral');
+
+  const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
-    .select('id, team_id, status')
+    .select('id, team_id, status, phase')
     .in('status', [...STATUS_FINAL_VALUES])
     .eq('team_id', teamId);
 
@@ -353,9 +360,42 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
     return [];
   }
 
-  console.log(`${LOG_PREFIX} getPlayerRanking jogos finalizados:`, games?.length ?? 0, games?.map((g) => ({ id: g.id, status: (g as { status?: string }).status })) ?? []);
+  const games =
+    !category || category === 'Geral'
+      ? gamesRaw ?? []
+      : (gamesRaw ?? []).filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category));
 
-  if (!games?.length) return [];
+  if (!games?.length && category !== 'Treino') {
+    console.log(`${LOG_PREFIX} getPlayerRanking sem jogos para categoria:`, category);
+    if (category === 'Liga') {
+      const { data: players } = await supabase.from('players').select('id, name, email').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL);
+      const list = (players ?? []).map((p) => ({
+        player_id: p.id,
+        name: p.name ?? '—',
+        wins: 0,
+        losses: 0,
+        pontos_liga: 0,
+        federation_points: 0,
+        total_points: 0,
+      }));
+      return list.sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
+    }
+    return [];
+  }
+
+  if (category === 'Treino') {
+    const { data: players } = await supabase.from('players').select('id, name, email').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL);
+    const list = (players ?? []).map((p) => ({
+      player_id: p.id,
+      name: p.name ?? '—',
+      wins: 0,
+      losses: 0,
+      pontos_liga: 0,
+      federation_points: 0,
+      total_points: 0,
+    }));
+    return list.sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
+  }
 
   const gameIds = games.map((g) => g.id);
 
@@ -364,10 +404,10 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
     .select('id, game_id, player1_id, player2_id')
     .in('game_id', gameIds);
 
-  if (pairsError || !pairs?.length) {
+  if (pairsError) {
     console.log(`${LOG_PREFIX} getPlayerRanking sem duplas ou erro:`, pairsError);
-    return [];
   }
+  const pairsList = pairs ?? [];
 
   const { data: results, error: resultsError } = await supabase
     .from('results')
@@ -376,7 +416,6 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
 
   if (resultsError) {
     console.error(`${LOG_PREFIX} getPlayerRanking erro results:`, resultsError);
-    return [];
   }
 
   const resultByPair = new Map<string, ResultRow>();
@@ -385,7 +424,7 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
   }
 
   const playerStats = new Map<string, { wins: number; losses: number; points: number }>();
-  for (const pair of pairs) {
+  for (const pair of pairsList) {
     const res = resultByPair.get(pair.id);
     if (!res) continue;
     const won = isPairWin(res);
@@ -401,15 +440,20 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
     }
   }
 
-  const playerIds = [...playerStats.keys()];
-  if (playerIds.length === 0) return [];
+  const playerIdsFromPairs = [...playerStats.keys()];
+  const needAllTeamPlayers = category === 'Liga';
+  const playerIds =
+    needAllTeamPlayers
+      ? (await supabase.from('players').select('id').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL)).data ?? []
+      : playerIdsFromPairs;
+  const ids = needAllTeamPlayers ? (playerIds as { id: string }[]).map((p) => p.id) : playerIdsFromPairs;
+  if (ids.length === 0) return [];
 
   const { data: players } = await supabase
     .from('players')
     .select('id, name, email, federation_points, liga_points')
-    .in('id', playerIds);
+    .in('id', ids);
 
-  /** Lê valor numérico da BD; null/vazio → 0. */
   const readNum = (raw: number | string | null | undefined): number => {
     if (raw == null || raw === '') return 0;
     const n = Number(raw);
@@ -417,17 +461,27 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
   };
 
   const nameMap = new Map((players ?? []).map((p) => [p.id, p.name ?? '—']));
-  const ligaPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { liga_points?: number | string | null }).liga_points)]));
-  const fedPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { federation_points?: number | string | null }).federation_points)]));
   const gestorEmailNorm = GESTOR_HIDE_EMAIL.trim().toLowerCase();
   const isGestor = (id: string) => ((players ?? []).find((p) => p.id === id) as { email?: string } | undefined)?.email?.trim().toLowerCase() === gestorEmailNorm;
 
-  const out = playerIds
+  const useComputedLigaPoints = category === 'Liga';
+  const ligaPointsMap = useComputedLigaPoints
+    ? new Map<string, number>()
+    : new Map((players ?? []).map((p) => [p.id, readNum((p as { liga_points?: number | string | null }).liga_points)]));
+  const fedPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { federation_points?: number | string | null }).federation_points)]));
+
+  if (useComputedLigaPoints) {
+    for (const id of playerStats.keys()) {
+      ligaPointsMap.set(id, playerStats.get(id)!.points);
+    }
+  }
+
+  const out = ids
     .filter((id) => !isGestor(id))
     .map((id) => {
-      const s = playerStats.get(id)!;
+      const s = playerStats.get(id) ?? { wins: 0, losses: 0, points: 0 };
       const ligaPoints = ligaPointsMap.get(id) ?? 0;
-      const federationPoints = fedPointsMap.get(id) ?? 0;
+      const federationPoints = category === 'Treino' ? 0 : (fedPointsMap.get(id) ?? 0);
       const totalPoints = ligaPoints + federationPoints;
       return {
         player_id: id,
@@ -441,7 +495,7 @@ export async function getPlayerRanking(teamId: string): Promise<PlayerRankingRow
     })
     .sort((a, b) => b.total_points - a.total_points);
 
-  console.log(`${LOG_PREFIX} getPlayerRanking resultado:`, out);
+  console.log(`${LOG_PREFIX} getPlayerRanking resultado (category=${category ?? 'Geral'}):`, out.length, 'linhas');
   return out;
 }
 

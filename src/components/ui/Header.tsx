@@ -15,6 +15,7 @@ export function Header({ title }: HeaderProps) {
   const handleLogoutConfirm = async () => {
     setShowLogoutConfirm(false);
     await signOut();
+    // signOut() em AuthContext faz location.href = '/' e recarrega a app
   };
 
   return (
@@ -30,18 +31,21 @@ export function Header({ title }: HeaderProps) {
             </h2>
           </div>
           <div className="flex flex-shrink-0 items-center gap-1 sm:gap-2">
+            {/* Sair: só no Header em telemóvel (ecrãs pequenos); no PC fica na BottomNav */}
             {session && (
-              <button
-                type="button"
-                onClick={handleLogoutClick}
-                className="flex items-center gap-1 sm:gap-1.5 py-2 px-2 sm:px-2.5 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
-                aria-label="Sair da sessão"
-              >
-                <LogOut className="w-4 h-4 sm:w-4 sm:h-4 shrink-0" />
-                <span className="text-[11px] sm:text-xs font-medium tracking-wide hidden sm:inline">
-                  Sair
-                </span>
-              </button>
+              <div className="flex md:hidden items-center">
+                <button
+                  type="button"
+                  onClick={handleLogoutClick}
+                  className="flex items-center gap-1 sm:gap-1.5 py-2 px-2 sm:px-2.5 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Sair da sessão"
+                >
+                  <LogOut className="w-4 h-4 sm:w-4 sm:h-4 shrink-0" />
+                  <span className="text-[11px] sm:text-xs font-medium tracking-wide hidden sm:inline">
+                    Sair
+                  </span>
+                </button>
+              </div>
             )}
             <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-[#1A237E] to-[#B71C1C] flex items-center justify-center text-lg sm:text-2xl ring-2 ring-white/60 shadow-[0_0_16px_rgba(255,255,255,0.2)] shrink-0">
               🎾

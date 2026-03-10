@@ -1,7 +1,9 @@
-import { Home, Users, Calendar, Trophy, Settings, History } from "lucide-react";
+import { useState } from "react";
+import { Home, Users, Calendar, Trophy, Settings, History, LogOut } from "lucide-react";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { PlayerRoles } from "../../domain/constants";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 export type NavTabId = "home" | "team" | "calendar" | "history" | "sport-management" | "admin";
 
@@ -16,7 +18,8 @@ const btnBase =
 
 export function BottomNav() {
   const { route, navigate } = useNavigation();
-  const { isAdmin, canManageSport, role } = useAuth();
+  const { isAdmin, canManageSport, role, signOut } = useAuth();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const showAdminTab = Boolean(role === PlayerRoles.admin || isAdmin);
   const showGestaoTab = Boolean(
@@ -90,7 +93,33 @@ export function BottomNav() {
             <span className="text-xs mt-0.5 truncate px-0.5">Admin</span>
           </button>
         )}
+
+        {/* Sair: visível só em ecrãs largos (PC); no telemóvel fica no Header */}
+        <button
+          type="button"
+          onClick={() => setShowLogoutConfirm(true)}
+          className={`hidden md:flex ${btnBase} text-gray-600 hover:text-red-600`}
+          aria-label="Sair da sessão"
+        >
+          <LogOut className="w-6 h-6 shrink-0" />
+          <span className="text-xs mt-0.5 truncate px-0.5">Sair</span>
+        </button>
       </div>
+
+      <ConfirmDialog
+        isOpen={showLogoutConfirm}
+        title="Sair da sessão"
+        message="Tem a certeza que deseja sair da sessão?"
+        confirmText="Sair"
+        cancelText="Cancelar"
+        variant="warning"
+        onConfirm={async () => {
+          setShowLogoutConfirm(false);
+          await signOut();
+          // signOut() em AuthContext faz location.href = '/' e recarrega a app
+        }}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </nav>
   );
 }
