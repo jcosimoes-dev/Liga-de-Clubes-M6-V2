@@ -68,10 +68,18 @@ export function LoginScreen() {
   };
 
   const handleResetPassword = async () => {
-    const e = email.trim().toLowerCase();
+    // .trim() evita "Email address is invalid" por espaços à frente/trás
+    const e = (email ?? '').trim().toLowerCase();
 
     if (!e) {
       showToast('Introduz o teu email acima e clica novamente.', 'info');
+      return;
+    }
+
+    // Validação básica de email antes de enviar ao Supabase (evita 400 por formato inválido)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(e)) {
+      showToast('Introduz um email válido (ex: nome@dominio.pt).', 'error');
       return;
     }
 
@@ -81,11 +89,19 @@ export function LoginScreen() {
       return;
     }
 
+    // Domínio configurado no Supabase Dashboard (Redirect URLs); tem de coincidir exatamente
+    const redirectTo = 'https://liga-clubes-m6.vercel.app/reset-password';
+
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(e, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo,
       });
-      if (error) throw error;
+      if (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[Login] resetPasswordForEmail Supabase error:', error.message, error.status, error);
+        }
+        throw error;
+      }
 
       showToast(
         'Email enviado! Verifica a caixa de entrada e clica no link para redefinir a palavra-passe.',
@@ -95,6 +111,11 @@ export function LoginScreen() {
       const msg = err?.message ?? '';
       if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('network')) {
         showToast('Falha de ligação. Verifica a internet e tenta novamente.', 'error');
+      } else if (err?.status === 400 || msg.toLowerCase().includes('redirect') || msg.toLowerCase().includes('url')) {
+        showToast(
+          'URL de redefinição não permitida. O administrador deve adicionar este site em Supabase (Auth → Redirect URLs).',
+          'error'
+        );
       } else {
         showToast(msg || 'Erro ao enviar email. Tenta novamente.', 'error');
       }
