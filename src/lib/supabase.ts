@@ -6,15 +6,13 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undef
 if (!supabaseUrl) throw new Error("Falta VITE_SUPABASE_URL no .env.local");
 if (!supabaseAnonKey) throw new Error("Falta VITE_SUPABASE_ANON_KEY no .env.local");
 
-// Supabase client (sem headers customizados para evitar 406)
+// Supabase client: storageKey nova para não reutilizar sessão antiga do Chrome (localStorage).
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
-
-    // ✅ não tentar refrescar token quando estás offline
-    autoRefreshToken: typeof navigator !== "undefined" ? navigator.onLine : true,
-
+    autoRefreshToken: true,
     detectSessionInUrl: true,
+    storageKey: "liga-m6-auth-token",
   },
 });
 

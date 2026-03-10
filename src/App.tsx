@@ -61,8 +61,8 @@ function AppContent() {
     };
   }, []);
 
-  // Curto-circuito: sem user e loading concluído → só Login (impede montar ecrã de jogo sem utilizador).
-  if (!loading && !user) {
+  // Guarda de rota: sem user e loading concluído → só Login (nunca montar ecrã de jogo sem utilizador).
+  if (!user && !loading) {
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', '/');
     }

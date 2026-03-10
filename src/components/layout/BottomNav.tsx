@@ -113,10 +113,9 @@ export function BottomNav() {
         confirmText="Sair"
         cancelText="Cancelar"
         variant="warning"
-        onConfirm={async () => {
-          setShowLogoutConfirm(false);
-          await signOut();
-          // signOut() em AuthContext faz location.href = '/' e recarrega a app
+        onConfirm={() => {
+          signOut();
+          // signOut() faz location.href = '/' e recarrega a app; modal fica visível até o reload
         }}
         onCancel={() => setShowLogoutConfirm(false)}
       />

@@ -241,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = refreshPlayer;
 
-  // Verificação de sessão no arranque: loading só passa a false DEPOIS de getSession() resolver (evita flash de rota errada).
+  // Inicial: loading só passa a false DEPOIS de getSession() devolver. Se sessão for nula, user fica null.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);

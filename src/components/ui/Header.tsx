@@ -12,10 +12,9 @@ export function Header({ title }: HeaderProps) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const handleLogoutClick = () => setShowLogoutConfirm(true);
-  const handleLogoutConfirm = async () => {
-    setShowLogoutConfirm(false);
-    await signOut();
-    // signOut() em AuthContext faz location.href = '/' e recarrega a app
+  const handleLogoutConfirm = () => {
+    signOut();
+    // signOut() faz location.href = '/' e recarrega a app; modal fica visível até o reload
   };
 
   return (
