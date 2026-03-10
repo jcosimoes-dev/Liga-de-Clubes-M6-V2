@@ -247,12 +247,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       if (cancelled) return;
-      setSession(s ?? null);
       if (!s?.user) {
+        setSession(null);
         setPlayer(null);
         setLoading(false);
         return;
       }
+      setSession(s);
       ensurePlayerProfile(s.user.id, s.user)
         .then((p) => {
           if (!cancelled) setPlayer(p);
@@ -344,6 +345,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     localStorage.clear();
+    sessionStorage.clear();
     if (typeof window !== 'undefined') {
       window.location.href = '/';
     }

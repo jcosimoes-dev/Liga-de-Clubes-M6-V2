@@ -61,6 +61,19 @@ function AppContent() {
     };
   }, []);
 
+  // Curto-circuito: sem user e loading concluído → só Login (impede montar ecrã de jogo sem utilizador).
+  if (!loading && !user) {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/');
+    }
+    return (
+      <div style={{ minHeight: '100vh' }}>
+        <ConnectionRestoredToast />
+        <NavigationProvider routes={PUBLIC_ROUTES_ONLY} initialRouteName="login" />
+      </div>
+    );
+  }
+
   if (isOffline && !session) {
     return <OfflineScreen />;
   }
@@ -69,19 +82,6 @@ function AppContent() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#121212]">
         <Loading size="lg" text="Carregando..." />
-      </div>
-    );
-  }
-
-  // Curto-circuito: loading false e user null → só LoginScreen (e register/reset para links). Pathname ignorado: forçar URL para /.
-  if (!user || !session) {
-    if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', '/');
-    }
-    return (
-      <div style={{ minHeight: '100vh' }}>
-        <ConnectionRestoredToast />
-        <NavigationProvider routes={PUBLIC_ROUTES_ONLY} initialRouteName="login" />
       </div>
     );
   }
