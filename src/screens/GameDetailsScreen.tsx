@@ -6,7 +6,9 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService, syncPlayerPoints } from '../services';
 import { PlayerRoles } from '../domain/constants';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CalendarPlus } from 'lucide-react';
+import { getCategoryFromPhase } from '../domain/categoryTheme';
+import { openGoogleCalendar } from '../lib/shareLinks';
 
 type Props = {
   id?: string;
@@ -166,7 +168,24 @@ export function GameDetailsScreen({ id }: Props) {
                 </p>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  fullWidth
+                  onClick={() =>
+                    openGoogleCalendar({
+                      gameType: getCategoryFromPhase(game.phase),
+                      opponentOrName: GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo',
+                      startsAt: game.starts_at,
+                      location: game.location || '',
+                      gameId: game.id,
+                    })
+                  }
+                  className="inline-flex items-center justify-center gap-2"
+                >
+                  <CalendarPlus className="w-4 h-4" />
+                  Adicionar ao meu Google Calendar
+                </Button>
                 <Button variant="ghost" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
                   <ArrowLeft className="w-4 h-4" />
                   Voltar

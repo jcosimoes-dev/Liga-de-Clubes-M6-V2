@@ -43,9 +43,11 @@ export function NavigationProvider({
   initialRouteName: string;
 }) {
   const [route, setRoute] = useState<RouteEntry>(() => {
-    if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
-      return { name: 'reset-password' };
-    }
+    if (typeof window === 'undefined') return { name: initialRouteName };
+    const pathname = window.location.pathname ?? '/';
+    if (pathname === '/reset-password') return { name: 'reset-password' };
+    const gameMatch = pathname.match(/\/jogos\/([^/]+)\/?$/);
+    if (gameMatch) return { name: 'game', params: { id: decodeURIComponent(gameMatch[1]) } };
     return { name: initialRouteName };
   });
 
@@ -102,6 +104,13 @@ export function NavigationProvider({
       }
       return { name, params };
     });
+    // Atualizar URL para /jogos/[id] quando navegar para o detalhe do jogo (link partilhável)
+    if (typeof window !== 'undefined' && name === 'game' && params?.id) {
+      const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '';
+      const base = pathname && pathname !== '/' ? pathname : '';
+      const gamePath = `${base}/jogos/${encodeURIComponent(String(params.id))}`;
+      window.history.pushState(null, '', gamePath);
+    }
   };
 
   const goBack = () => {

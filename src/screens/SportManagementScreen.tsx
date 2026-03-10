@@ -9,7 +9,8 @@ import { GamesService, AvailabilitiesService, PairsService, PlayersService, getP
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck } from 'lucide-react';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle } from 'lucide-react';
+import { buildWhatsAppShareUrl } from '../lib/shareLinks';
 
 export type GameType = 'Liga' | 'Torneio' | 'Mix' | 'Treino';
 
@@ -1049,17 +1050,38 @@ export function SportManagementScreen() {
                       selectedGame?.id === game.id ? 'ring-2 ring-offset-2 ring-blue-500 border-blue-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setGameToEdit(game);
-                      }}
-                      className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
-                      aria-label="Editar jogo"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
+                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = buildWhatsAppShareUrl({
+                            gameType: getCategoryFromPhase(game.phase),
+                            opponentOrName: GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo',
+                            startsAt: game.starts_at,
+                            location: game.location || '',
+                            gameId: game.id,
+                          });
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="p-1.5 rounded-lg bg-white/90 hover:bg-green-100 text-gray-600 hover:text-green-700 transition-colors shadow-sm"
+                        aria-label="Partilhar no WhatsApp"
+                        title="Partilhar no WhatsApp"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setGameToEdit(game);
+                        }}
+                        className="p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
+                        aria-label="Editar jogo"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
                     {isPastDate && (
                       <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
@@ -1233,17 +1255,38 @@ export function SportManagementScreen() {
                       selectedGameForSwap?.id === game.id ? 'ring-2 ring-offset-2 ring-amber-500 border-amber-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setGameToEdit(game);
-                      }}
-                      className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
-                      aria-label="Editar jogo"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
+                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = buildWhatsAppShareUrl({
+                            gameType: getCategoryFromPhase(game.phase),
+                            opponentOrName: GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo',
+                            startsAt: game.starts_at,
+                            location: game.location || '',
+                            gameId: game.id,
+                          });
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="p-1.5 rounded-lg bg-white/90 hover:bg-green-100 text-gray-600 hover:text-green-700 transition-colors shadow-sm"
+                        aria-label="Partilhar no WhatsApp"
+                        title="Partilhar no WhatsApp"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setGameToEdit(game);
+                        }}
+                        className="p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
+                        aria-label="Editar jogo"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
                     {isPastDate && (
                       <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
