@@ -6,9 +6,9 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService, syncPlayerPoints } from '../services';
 import { PlayerRoles } from '../domain/constants';
-import { ArrowLeft, CalendarPlus, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
-import { openGoogleCalendar, buildWhatsAppShareUrl } from '../lib/shareLinks';
+import { openGoogleCalendar } from '../lib/shareLinks';
 
 type Props = {
   id?: string;
@@ -32,7 +32,7 @@ function toNum(v: string | number | null | undefined): number | null {
 
 export function GameDetailsScreen({ id }: Props) {
   const { navigate, goBack } = useNavigation();
-  const { user, role, player } = useAuth();
+  const { user, role } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
   const isLoggedIn = Boolean(user?.id);
   // Admin, gestor, coordenador e capitão podem gravar resultados (capitão só jogos da sua equipa; RLS aplica).
@@ -123,11 +123,16 @@ export function GameDetailsScreen({ id }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
+  const gameTitle = game ? (GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo') : 'Jogo';
+  const startsAt = game?.starts_at ? new Date(game.starts_at) : null;
+  const dateStr = startsAt ? startsAt.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const timeStr = startsAt ? startsAt.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : '—';
+
   if (loading) {
     return (
       <Layout>
-        <Header title="Jogo" />
-        <div className="max-w-screen-sm mx-auto px-4 pt-4">
+        <Header title="Jogo" onBack={goBack} />
+        <div className="max-w-screen-sm mx-auto px-4 sm:px-6 pt-6">
           <Loading text="A carregar..." />
         </div>
       </Layout>
@@ -136,14 +141,14 @@ export function GameDetailsScreen({ id }: Props) {
 
   return (
     <Layout>
-      <Header title="Jogo" />
+      <Header title="Jogo" onBack={goBack} />
 
-      <div className="max-w-screen-sm mx-auto px-4 pt-4 space-y-4">
+      <div className="max-w-screen-sm mx-auto px-4 sm:px-6 pt-4 pb-8 space-y-6">
         {!game ? (
           <Card>
             <p className="text-sm text-gray-700">Não foi possível carregar o jogo.</p>
             <div className="mt-4">
-              <Button variant="primary" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
+              <Button variant="outline" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
                 <ArrowLeft className="w-4 h-4" />
                 Voltar
               </Button>
@@ -151,68 +156,74 @@ export function GameDetailsScreen({ id }: Props) {
           </Card>
         ) : (
           <>
-            <Card>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-gray-900">{GamesService.formatOpponentDisplay(game.opponent) || 'Adversário'}</h2>
-                  {game.status ? <Badge variant="default">{String(game.status)}</Badge> : null}
+            {/* Card principal do evento: barra lateral colorida, gradiente subtil, ícones com cor, badge success para aberta */}
+            <Card padding="none" className="overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-white to-gray-50/30">
+              <div className="flex min-h-[1px]">
+                <div className="w-1 shrink-0 bg-emerald-500 rounded-l-2xl" aria-hidden />
+                <div className="flex-1 p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
+                      {gameTitle}
+                    </h2>
+                    {game.status ? (
+                      (() => {
+                        const statusStr = String(game.status);
+                        const isOpen = /aberta|aberto|open|pendente|pending/i.test(statusStr);
+                        return isOpen ? (
+                          <span className="shrink-0 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                            {statusStr}
+                          </span>
+                        ) : (
+                          <Badge variant="default" className="shrink-0">{statusStr}</Badge>
+                        );
+                      })()
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-3 text-gray-700">
+                    <div className="flex items-center gap-2.5">
+                      <Calendar className="w-4 h-4 text-[#1A237E] shrink-0" aria-hidden />
+                      <span className="text-sm leading-snug">{dateStr}</span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <Clock className="w-4 h-4 text-[#1A237E] shrink-0" aria-hidden />
+                      <span className="text-sm leading-snug">{timeStr}</span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <MapPin className="w-4 h-4 text-[#1A237E] shrink-0" aria-hidden />
+                      <span className="text-sm leading-snug">{game.location || '—'}</span>
+                    </div>
+                  </div>
                 </div>
-
-                <p className="text-sm text-gray-700">
-                  <strong>Data:</strong>{' '}
-                  {game.starts_at ? new Date(game.starts_at).toLocaleString('pt-PT') : '—'}
-                </p>
-
-                <p className="text-sm text-gray-700">
-                  <strong>Local:</strong> {game.location || '—'}
-                </p>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-2">
-                <Button
-                  variant="outline"
-                  fullWidth
-                  onClick={() =>
-                    openGoogleCalendar({
-                      gameType: getCategoryFromPhase(game.phase),
-                      opponentOrName: GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo',
-                      startsAt: game.starts_at,
-                      location: game.location || '',
-                      gameId: game.id,
-                    })
-                  }
-                  className="inline-flex items-center justify-center gap-2"
-                >
-                  <CalendarPlus className="w-4 h-4" />
-                  Adicionar ao meu Google Calendar
-                </Button>
-                <Button
-                  variant="outline"
-                  fullWidth
-                  onClick={() => {
-                    const url = buildWhatsAppShareUrl(
-                      {
-                        gameType: getCategoryFromPhase(game.phase),
-                        opponentOrName: GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo',
-                        startsAt: game.starts_at,
-                        location: game.location || '',
-                        gameId: game.id,
-                      },
-                      player?.phone
-                    );
-                    window.open(url, '_blank', 'noopener,noreferrer');
-                  }}
-                  className="inline-flex items-center justify-center gap-2"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  Partilhar por WhatsApp
-                </Button>
-                <Button variant="ghost" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
-                  <ArrowLeft className="w-4 h-4" />
-                  Voltar
-                </Button>
               </div>
             </Card>
+
+            {/* Botão Google Calendar: estética premium, sombra elegante, ícone 4 cores Google, hover com elevação */}
+            <div className="mt-8">
+              <button
+                type="button"
+                onClick={() =>
+                  openGoogleCalendar({
+                    gameType: getCategoryFromPhase(game.phase),
+                    opponentOrName: gameTitle,
+                    startsAt: game.starts_at,
+                    location: game.location || '',
+                    gameId: game.id,
+                  })
+                }
+                className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border border-gray-200/90 rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-0.5 hover:border-gray-300 transition-all duration-200 ease-out opacity-100 text-gray-800 hover:bg-gray-50/80 font-semibold text-base"
+              >
+                {/* Mini logótipo 4 cores Google (Azul, Vermelho, Amarelo, Verde) */}
+                <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200/80 shadow-sm" aria-hidden>
+                  <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
+                    <span className="bg-[#4285F4]" />
+                    <span className="bg-[#EA4335]" />
+                    <span className="bg-[#FBBC05]" />
+                    <span className="bg-[#34A853]" />
+                  </span>
+                </span>
+                <span>Adicionar ao meu Google Calendar</span>
+              </button>
+            </div>
 
             {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '') && pairs.length > 0 && (
               <Card>
@@ -269,18 +280,49 @@ export function GameDetailsScreen({ id }: Props) {
             )}
 
             {confirmedPlayers.length > 0 && (
-              <Card>
-                <h3 className="text-base font-semibold text-gray-900 mb-2">Quem confirmou disponibilidade (Check verde)</h3>
-                <p className="text-sm text-gray-600 mb-2">Todos os jogadores que disseram que podiam jogar nesta jornada.</p>
-                <ul className="space-y-1">
-                  {confirmedPlayers.map((p: any) => (
-                    <li key={p.id} className="text-sm text-gray-700 flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-500" aria-hidden />
-                      {p.name ?? '—'}
-                      {p.federation_points != null ? ` (${p.federation_points} pts)` : ''}
-                    </li>
-                  ))}
-                </ul>
+              <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
+                <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
+                  🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado{confirmedPlayers.length !== 1 ? 's' : ''}
+                </p>
+                <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-gray-600" aria-hidden />
+                  Quem confirmou disponibilidade
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">Jogadores que disseram que podiam jogar nesta jornada.</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {confirmedPlayers.map((p: any, idx: number) => {
+                    const name = p.name ?? '—';
+                    const initials = name
+                      .split(/\s+/)
+                      .map((s: string) => s[0])
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .join('')
+                      .toUpperCase() || '?';
+                    const hue = (idx * 137) % 360;
+                    const bgColor = `hsl(${hue}, 55%, 45%)`;
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-center gap-2 p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm min-w-0"
+                      >
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
+                          style={{ backgroundColor: bgColor }}
+                          aria-hidden
+                        >
+                          {initials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium text-gray-900 text-sm block truncate">{name}</span>
+                          {p.federation_points != null && (
+                            <span className="text-[10px] text-gray-400">{p.federation_points} pts</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </Card>
             )}
 
@@ -500,6 +542,14 @@ export function GameDetailsScreen({ id }: Props) {
                 )}
               </Card>
             )}
+
+            {/* Botão Voltar (outline) no fundo */}
+            <div className="pt-2">
+              <Button variant="outline" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2 py-3">
+                <ArrowLeft className="w-4 h-4" />
+                Voltar
+              </Button>
+            </div>
           </>
         )}
 

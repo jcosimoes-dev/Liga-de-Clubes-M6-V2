@@ -5,9 +5,9 @@ import { ConfirmDialog } from './ConfirmDialog';
 
 interface HeaderProps {
   title: string;
-  /** Se definido, mostra botão Voltar que chama esta função (ex.: goBack para regressar ao ecrã anterior). */
+  /** Se definido, mostra botão Voltar (apenas no Mobile; no Desktop a seta não aparece). */
   onBack?: () => void;
-  /** Conteúdo opcional à direita (ex.: botão Recalcular Pontos). No PC fica alinhado à direita no Header. */
+  /** Conteúdo opcional à direita (ex.: botão Recalcular Pontos). No Desktop fica no extremo direito. */
   rightContent?: React.ReactNode;
 }
 
@@ -22,9 +22,9 @@ export function Header({ title, onBack, rightContent }: HeaderProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 bg-[#121212]/95 backdrop-blur-md shadow-lg">
+      <header className="sticky top-0 z-50 w-full bg-[#0d0d0d] shadow-lg">
         {/* Mobile: flex md:hidden — Voltar + título + Sair + bola */}
-        <div className="flex md:hidden px-4 py-3 items-center justify-between gap-2 w-full">
+        <div className="flex md:hidden flex-row justify-between items-center w-full px-4 py-3 gap-2">
           <div className="min-w-0 flex-1 flex items-center gap-2">
             {onBack && (
               <button
@@ -64,24 +64,9 @@ export function Header({ title, onBack, rightContent }: HeaderProps) {
           </div>
         </div>
 
-        {/* PC (Desktop): hidden md:flex — 100% largura. Esquerda: Voltar + título + bola. Direita: rightContent (ex. Recalcular Pontos). */}
-        <div className="hidden md:flex flex-row justify-between items-center w-full px-6 py-4 lg:px-10 gap-4">
-          <div className="flex items-center gap-4 min-w-0 flex-1">
-            {onBack && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onBack();
-                }}
-                className="p-2 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors shrink-0"
-                aria-label="Voltar ao ecrã anterior"
-                title="Voltar"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
+        {/* Desktop: hidden md:flex — Sem seta. Esquerda: título + bola (padding confortável). Direita: rightContent. Barra 100% largura. */}
+        <div className="hidden md:flex flex-row justify-between items-center w-full px-6 py-4 lg:px-10">
+          <div className="flex items-center gap-4 min-w-0 shrink-0">
             <h2 className="text-xl lg:text-2xl font-bold text-white leading-tight truncate">{title}</h2>
             <div className="w-12 h-12 lg:w-14 lg:h-14 rounded-full bg-gradient-to-br from-[#1A237E] to-[#B71C1C] flex items-center justify-center text-xl lg:text-2xl ring-2 ring-white/60 shadow-[0_0_16px_rgba(255,255,255,0.2)] shrink-0">
               🎾
