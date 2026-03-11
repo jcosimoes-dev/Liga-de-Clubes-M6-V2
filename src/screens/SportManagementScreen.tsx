@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, FormEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, FormEvent } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal, ConfirmDialog } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
@@ -100,6 +100,7 @@ export function SportManagementScreen() {
 
   const hasRestoredConvocationRef = useRef(false);
   const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
+  const TAB_STORAGE_KEY = 'liga-gestao-active-tab';
 
   // Dashboard de Performance (Coordenador: equipa + ranking com % disponibilidade)
   const [teamStats, setTeamStats] = useState<TeamPerformanceStats | null>(null);
@@ -119,8 +120,26 @@ export function SportManagementScreen() {
   const [rankingByCategory, setRankingByCategory] = useState<PlayerRankingRow[] | null>(null);
   const [rankingCategoryLoading, setRankingCategoryLoading] = useState(false);
 
-  // Tabs: Performance | Gestão Técnica | Convocatórias
-  const [activeTab, setActiveTab] = useState<'performance' | 'tecnica' | 'convocatorias'>('performance');
+  // Tabs: Performance | Gestão Técnica | Convocatórias (estado inicial a partir de localStorage para preservar ao voltar do WhatsApp)
+  const [activeTab, setActiveTabState] = useState<'performance' | 'tecnica' | 'convocatorias'>(() => {
+    if (typeof window === 'undefined') return 'performance';
+    try {
+      const t = localStorage.getItem('liga-gestao-active-tab');
+      if (t === 'tecnica' || t === 'convocatorias' || t === 'performance') return t;
+    } catch (_) {}
+    return 'performance';
+  });
+  const setActiveTab = (tab: 'performance' | 'tecnica' | 'convocatorias') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('liga-gestao-active-tab', tab);
+      if (typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '').endsWith('/gestao')) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab);
+        window.history.replaceState(null, '', url.pathname + url.search);
+      }
+    } catch (_) {}
+  };
   const [seasonStatsSortBy, setSeasonStatsSortBy] = useState<'disponibilidade' | 'pontos_liga'>('disponibilidade');
   const [seasonStatsSortAsc, setSeasonStatsSortAsc] = useState(false);
   const [statsFilter, setStatsFilter] = useState<'epoca' | 'mes'>('epoca');
@@ -178,13 +197,15 @@ export function SportManagementScreen() {
     }
   };
 
+  // Carregar jogos/dashboard só ao entrar na gestão. Não refazer quando player/team_id muda (ex.: sync de outro separador)
+  // para não resetar o ecrã de Convocatória Aberta enquanto o Admin envia notificações WhatsApp.
   useEffect(() => {
     if (canManageSport) {
       loadOpenGames();
       loadClosedGames();
       loadDashboard();
     }
-  }, [canManageSport, player?.team_id]);
+  }, [canManageSport]);
 
   /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
   useEffect(() => {
@@ -353,25 +374,37 @@ export function SportManagementScreen() {
     }
   };
 
+  // Quando selectedGame existe: carregar jogadores. Quando é null: só limpar se NÃO houver estado de convocatória em localStorage
+  // (evita apagar duplas/jogadores selecionados antes do efeito de restauro correr — ex.: ao voltar do WhatsApp).
   useEffect(() => {
     if (selectedGame) {
       loadAvailablePlayers(selectedGame.id);
-    } else {
-      setAvailablePlayers([]);
-      setSelectedPlayerIds(new Set());
-      setPairs([
-        { player1_id: '', player2_id: '' },
-        { player1_id: '', player2_id: '' },
-        { player1_id: '', player2_id: '' },
-      ]);
+      return;
     }
+    try {
+      const raw = localStorage.getItem(CONVOCATION_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw) as { selectedGameId?: string; pairs?: unknown[]; selectedPlayerIds?: unknown[] };
+        if (data?.selectedGameId && Array.isArray(data.pairs) && Array.isArray(data.selectedPlayerIds)) {
+          return; // não limpar; o efeito de restauro vai repor selectedGame/pairs/selectedPlayerIds
+        }
+      }
+    } catch (_) {}
+    setAvailablePlayers([]);
+    setSelectedPlayerIds(new Set());
+    setPairs([
+      { player1_id: '', player2_id: '' },
+      { player1_id: '', player2_id: '' },
+      { player1_id: '', player2_id: '' },
+    ]);
   }, [selectedGame?.id]);
 
   useEffect(() => {
     setSentConvocationWhatsAppIds(new Set());
   }, [selectedGame?.id]);
 
-  // Persistir estado das duplas em sessionStorage para não perder ao mudar de aba (ex.: abrir WhatsApp)
+  // Persistir dupla1, dupla2, dupla3 e jogadores selecionados no localStorage durante todo o processo (incl. envio WhatsApp).
+  // Regra de fecho: o quadro só fecha em (A) clique em Cancelar/X ou (B) após Fechar Convocatória com sucesso (e aí limpamos o localStorage).
   useEffect(() => {
     if (!selectedGame?.id) return;
     try {
@@ -380,15 +413,28 @@ export function SportManagementScreen() {
         pairs: [...pairs],
         selectedPlayerIds: Array.from(selectedPlayerIds),
       };
-      sessionStorage.setItem(CONVOCATION_STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(CONVOCATION_STORAGE_KEY, JSON.stringify(payload));
     } catch (_) {}
   }, [selectedGame?.id, pairs, selectedPlayerIds]);
 
-  // Restaurar estado das duplas após carregar jogos (ex.: após reload ou voltar da outra aba)
+  // Restaurar tab ativa a partir do URL (?tab=) ao montar (ex.: /gestao?tab=convocatorias)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'tecnica' || tabParam === 'convocatorias' || tabParam === 'performance') {
+      setActiveTabState(tabParam);
+      try {
+        localStorage.setItem(TAB_STORAGE_KEY, tabParam);
+      } catch (_) {}
+    }
+  }, []);
+
+  // Restaurar estado das duplas assim que os jogos estiverem carregados (useLayoutEffect para correr antes do paint e de outros efeitos que possam limpar).
+  useLayoutEffect(() => {
     if (gamesLoading || openGames.length === 0 || hasRestoredConvocationRef.current) return;
     try {
-      const raw = sessionStorage.getItem(CONVOCATION_STORAGE_KEY);
+      const raw = localStorage.getItem(CONVOCATION_STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw) as { selectedGameId?: string; pairs?: Array<{ player1_id: string; player2_id: string }>; selectedPlayerIds?: string[] };
       const gameId = data?.selectedGameId;
@@ -399,6 +445,15 @@ export function SportManagementScreen() {
       setSelectedGame(game);
       setPairs(data.pairs.length >= 3 ? data.pairs.slice(0, 3) : [...data.pairs, ...Array(3 - data.pairs.length).fill({ player1_id: '', player2_id: '' })].slice(0, 3));
       setSelectedPlayerIds(new Set(data.selectedPlayerIds));
+      setActiveTabState('convocatorias');
+      try {
+        localStorage.setItem(TAB_STORAGE_KEY, 'convocatorias');
+        if (typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '').endsWith('/gestao')) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', 'convocatorias');
+          window.history.replaceState(null, '', url.pathname + url.search);
+        }
+      } catch (_) {}
     } catch (_) {}
   }, [gamesLoading, openGames]);
 
@@ -408,9 +463,9 @@ export function SportManagementScreen() {
   const requiredPairs = Math.floor(minPlayers / 2);
 
   /**
-   * Quando 2, 4 ou 6 jogadores estão selecionados, calcula automaticamente as duplas por pontos (desc).
+   * Sugestão de duplas por pontos (só quando o utilizador clica no botão). Nunca recalcular automaticamente.
    */
-  useEffect(() => {
+  const applySugestaoDuplas = () => {
     const n = selectedPlayerIds.size;
     if ((n !== 2 && n !== 4 && n !== 6) || availablePlayers.length === 0) return;
     if (isLigaGame && n < 4) return;
@@ -427,7 +482,7 @@ export function SportManagementScreen() {
     }
     while (newPairs.length < 3) newPairs.push({ player1_id: '', player2_id: '' });
     setPairs(newPairs);
-  }, [selectedPlayerIds, availablePlayers, isLigaGame]);
+  };
 
   /** Duplas ordenadas por total de pontos (maior soma → menor) para exibição no Quadro de Duplas. */
   const sortedConvocatoryPairs = useMemo(() => {
@@ -446,7 +501,6 @@ export function SportManagementScreen() {
     try {
       const games = await GamesService.getOpenGames(true);
       setOpenGames(games);
-      if (!selectedGame) setSelectedGame(null);
     } catch (e) {
       showToast('Erro ao carregar jogos', 'error');
       setOpenGames([]);
@@ -617,10 +671,10 @@ export function SportManagementScreen() {
       // if (failed.length > 0) showToast(`${sent.length} email(s) enviado(s). Falha em: ${failed.join(', ')}. Usa "Partilhar via WhatsApp" em baixo.`, 'error');
       // else if (sent.length > 0) showToast(`Convocatória fechada e ${sent.length} email(s) de convocatória enviado(s).`, 'success');
       setConvocationShareInfo({ gameInfo, hadEmailFailures: false });
-      setSelectedGame(null);
       try {
-        sessionStorage.removeItem(CONVOCATION_STORAGE_KEY);
+        localStorage.removeItem(CONVOCATION_STORAGE_KEY);
       } catch (_) {}
+      setSelectedGame(null);
       await loadOpenGames();
       await loadClosedGames();
       await loadDashboard();
@@ -746,23 +800,26 @@ export function SportManagementScreen() {
 
   return (
     <Layout>
-      <div className="flex items-center justify-between gap-4 px-4 pt-4">
-        <Header title="Gestão de Jogos" onBack={goBack} />
-        {canRecalcularPontos && (
-          <button
-            type="button"
-            onClick={handleRecalcularPontos}
-            disabled={recalculatingPoints}
-            className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Recalcular Pontos Liga"
-            aria-label="Recalcular Pontos"
-          >
-            {recalculatingPoints ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
-            <span className="hidden sm:inline text-sm font-medium">Recalcular Pontos</span>
-          </button>
-        )}
-      </div>
-      <div className="max-w-screen-lg mx-auto px-4 pt-2 pb-6 space-y-6">
+      <Header
+        title="Gestão de Jogos"
+        onBack={goBack}
+        rightContent={
+          canRecalcularPontos ? (
+            <button
+              type="button"
+              onClick={handleRecalcularPontos}
+              disabled={recalculatingPoints}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+              title="Recalcular Pontos Liga"
+              aria-label="Recalcular Pontos"
+            >
+              {recalculatingPoints ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+              <span className="hidden sm:inline">Recalcular Pontos</span>
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="max-w-screen-lg mx-auto px-4 pt-4 pb-6 space-y-6">
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-200 -mb-px">
           <button
@@ -1206,9 +1263,11 @@ export function SportManagementScreen() {
               <div className="flex items-center gap-2 shrink-0">
                 <Button
                   type="button"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const url = buildWhatsAppConvocationUrl(convocationShareInfo.gameInfo);
-                    window.open(url, '_blank', 'noopener,noreferrer');
+                    window.open(url, '_blank', 'noreferrer');
                   }}
                   className="bg-green-600 hover:bg-green-700 text-white border-0 inline-flex items-center gap-2"
                 >
@@ -1242,11 +1301,25 @@ export function SportManagementScreen() {
                 const cat = getCategoryFromPhase(game.phase);
                 const styles = CATEGORY_STYLES[cat];
                 const isPastDate = new Date(game.starts_at) < new Date();
+                const isSameGame = selectedGame?.id === game.id;
                 return (
                   <button
                     key={game.id}
                     type="button"
-                    onClick={() => setSelectedGame(selectedGame?.id === game.id ? null : game)}
+                    onClick={() => {
+                      if (isSameGame) return;
+                      try {
+                        const raw = localStorage.getItem(CONVOCATION_STORAGE_KEY);
+                        if (raw) {
+                          const data = JSON.parse(raw) as { selectedGameId?: string; pairs?: Array<{ player1_id: string; player2_id: string }>; selectedPlayerIds?: string[] };
+                          if (data?.selectedGameId === game.id && Array.isArray(data.pairs) && Array.isArray(data.selectedPlayerIds)) {
+                            setPairs(data.pairs.length >= 3 ? data.pairs.slice(0, 3) : [...data.pairs, ...Array(3 - data.pairs.length).fill({ player1_id: '', player2_id: '' })].slice(0, 3));
+                            setSelectedPlayerIds(new Set(data.selectedPlayerIds));
+                          }
+                        }
+                      } catch (_) {}
+                      setSelectedGame(game);
+                    }}
                     className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
                       selectedGame?.id === game.id ? 'ring-2 ring-offset-2 ring-blue-500 border-blue-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
@@ -1270,6 +1343,7 @@ export function SportManagementScreen() {
                       <button
                         type="button"
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           const url = buildWhatsAppShareUrl({
                             gameType: getCategoryFromPhase(game.phase),
@@ -1278,7 +1352,7 @@ export function SportManagementScreen() {
                             location: game.location || '',
                             gameId: game.id,
                           });
-                          window.open(url, '_blank', 'noopener,noreferrer');
+                          window.open(url, '_blank', 'noreferrer');
                         }}
                         className="p-1.5 rounded-lg bg-white/90 hover:bg-green-100 text-gray-600 hover:text-green-700 transition-colors shadow-sm"
                         aria-label="Partilhar no WhatsApp"
@@ -1321,10 +1395,26 @@ export function SportManagementScreen() {
 
           {selectedGame && (
             <div className="mt-6 pt-6 border-t border-gray-200">
-              <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                Jogadores confirmados (status = confirmed)
-              </h3>
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Convocatória aberta — {selectedGame.opponent || 'Jogo'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedGame(null);
+                  }}
+                  className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
+                  aria-label="Cancelar e fechar convocatória (rascunho fica guardado)"
+                  title="Cancelar (o rascunho fica guardado)"
+                >
+                  <span className="text-xl leading-none">×</span>
+                </button>
+              </div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Jogadores confirmados (status = confirmed)</h4>
 
               {availablePlayers.length < minPlayers ? (
                 <p className="text-sm text-amber-700 mb-4">
@@ -1345,6 +1435,13 @@ export function SportManagementScreen() {
                   gameId: selectedGame.id,
                 };
                 return (
+                  <div
+                    className="mb-6"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    role="region"
+                    aria-label="Convocatória aberta"
+                  >
                   <div className="mb-6 rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
                     <div className="px-4 py-3 border-b border-gray-100">
                       <h4 className="text-sm font-semibold text-gray-800">Jogadores confirmados</h4>
@@ -1380,16 +1477,39 @@ export function SportManagementScreen() {
                       })}
                     </ul>
                   </div>
+                  </div>
                 );
               })()}
 
               {selectedPlayerIds.size >= minPlayers && (
                 <>
-                  <div className="rounded-xl border-2 border-blue-200 bg-blue-50/50 p-4 mb-6">
-                    <h4 className="text-base font-semibold text-gray-900 mb-1">Quadro de Duplas</h4>
-                    <p className="text-xs text-gray-600 mb-4">
-                      Calculado automaticamente: Dupla 1 = maior soma · Dupla 2 = intermédia · Dupla 3 = menor soma
-                    </p>
+                  {/* Isolar cliques (ex.: WhatsApp) para não propagar ao Router e manter o ecrã montado */}
+                  <div
+                    className="rounded-xl border-2 border-blue-200 bg-blue-50/50 p-4 mb-6"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    role="group"
+                    aria-label="Quadro de Duplas"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h4 className="text-base font-semibold text-gray-900 mb-1">Quadro de Duplas</h4>
+                        <p className="text-xs text-gray-600">
+                          Dupla 1 = maior soma · Dupla 2 = intermédia · Dupla 3 = menor soma. As duplas só mudam quando tu as alteras ou clicas em &quot;Sugestão de Duplas&quot;.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          applySugestaoDuplas();
+                        }}
+                        className="shrink-0 px-4 py-2 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium text-sm transition-colors"
+                      >
+                        Sugestão de Duplas
+                      </button>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {selectedGame && sortedConvocatoryPairs.map((ed, idx) => {
                         const label =
@@ -1443,8 +1563,8 @@ export function SportManagementScreen() {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         const url = buildWhatsAppDuplaConvocationUrl(gameInfoDupla, pl1.name ?? 'Jogador', duplaShort, pl1.phone);
-                                        window.open(url, '_blank', 'noopener,noreferrer');
                                         setSentConvocationWhatsAppIds((prev) => new Set(prev).add(pl1.id));
+                                        setTimeout(() => window.open(url, '_blank', 'noreferrer'), 0);
                                       }}
                                       disabled={sent1}
                                       className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-colors ${
@@ -1482,8 +1602,8 @@ export function SportManagementScreen() {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         const url = buildWhatsAppDuplaConvocationUrl(gameInfoDupla, pl2.name ?? 'Jogador', duplaShort, pl2.phone);
-                                        window.open(url, '_blank', 'noopener,noreferrer');
                                         setSentConvocationWhatsAppIds((prev) => new Set(prev).add(pl2.id));
+                                        setTimeout(() => window.open(url, '_blank', 'noreferrer'), 0);
                                       }}
                                       disabled={sent2}
                                       className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-colors ${
@@ -1561,6 +1681,7 @@ export function SportManagementScreen() {
                       <button
                         type="button"
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           const url = buildWhatsAppShareUrl({
                             gameType: getCategoryFromPhase(game.phase),
@@ -1569,7 +1690,7 @@ export function SportManagementScreen() {
                             location: game.location || '',
                             gameId: game.id,
                           });
-                          window.open(url, '_blank', 'noopener,noreferrer');
+                          window.open(url, '_blank', 'noreferrer');
                         }}
                         className="p-1.5 rounded-lg bg-white/90 hover:bg-green-100 text-gray-600 hover:text-green-700 transition-colors shadow-sm"
                         aria-label="Partilhar no WhatsApp"

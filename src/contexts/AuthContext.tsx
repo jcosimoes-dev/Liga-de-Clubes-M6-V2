@@ -271,6 +271,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Sincronizar sessão quando outro separador altera o localStorage (ex.: novo separador da App aberto pelo link WhatsApp).
+  // Evita que o separador do Admin faça reset para o início: apenas atualizamos a sessão a partir do storage, sem signOut.
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key == null || !e.key.includes('auth')) return;
+      supabase.auth.getSession().then(({ data: { session: s } }) => {
+        setSession(s ?? null);
+        if (!s?.user) {
+          setPlayer(null);
+          return;
+        }
+        ensurePlayerProfile(s.user.id, s.user)
+          .then((p) => setPlayer(p))
+          .catch(() => setPlayer(null));
+      });
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession ?? null);

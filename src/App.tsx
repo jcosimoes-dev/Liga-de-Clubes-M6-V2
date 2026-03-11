@@ -61,6 +61,18 @@ function AppContent() {
     };
   }, []);
 
+  // Ao abrir a App a partir do link do WhatsApp (?from=whatsapp), limpar o parâmetro da URL para não afetar outros separadores.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user) return;
+    const search = window.location.search || '';
+    if (!search.includes('from=whatsapp')) return;
+    const params = new URLSearchParams(search);
+    params.delete('from');
+    const newSearch = params.toString();
+    const cleanUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + (window.location.hash || '');
+    window.history.replaceState(null, '', cleanUrl);
+  }, [user]);
+
   // Guarda de rota: sem user e loading concluído → só Login (nunca montar ecrã de jogo sem utilizador).
   if (!user && !loading) {
     if (typeof window !== 'undefined') {

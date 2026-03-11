@@ -37,19 +37,23 @@ function getAppBase(): string {
 /**
  * Link para a página inicial da app (para partilhas).
  * Usa VITE_APP_URL ou https://liga-clubes-m6.vercel.app para que os links no WhatsApp/Calendar não usem localhost.
+ * @param fromWhatsApp Se true, adiciona ?from=whatsapp.
  */
-export function getAppBaseUrl(): string {
-  return getPublicAppBase();
+export function getAppBaseUrl(fromWhatsApp?: boolean): string {
+  const base = getPublicAppBase();
+  return fromWhatsApp ? `${base}?from=whatsapp` : base;
 }
 
 /**
  * Link para a página do jogo (para partilhas).
  * Usa o URL público da app (VITE_APP_URL ou default Vercel).
+ * @param fromWhatsApp Se true, adiciona ?from=whatsapp para a App processar sem forçar redirect noutros separadores.
  */
-export function getAppGameUrl(gameId: string): string {
+export function getAppGameUrl(gameId: string, fromWhatsApp?: boolean): string {
   if (!gameId) return getPublicAppBase();
   const base = getPublicAppBase();
-  return `${base}/jogos/${encodeURIComponent(String(gameId).trim())}`;
+  const path = `${base}/jogos/${encodeURIComponent(String(gameId).trim())}`;
+  return fromWhatsApp ? `${path}?from=whatsapp` : path;
 }
 
 /** URL absoluta do ecrã de Login (raiz da app, não a página atual). Usar após logout para redirect. */
@@ -86,7 +90,7 @@ export function buildWhatsAppShareUrl(info: GameShareInfo, phone?: string | null
   const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId, true) : getAppBaseUrl(true);
   const gameTypeLabel = String(info.gameType).trim() || 'Jogo';
   const opponent = String(info.opponentOrName).trim() || '—';
   const location = String(info.location).trim() || '—';
@@ -113,7 +117,7 @@ export function buildWhatsAppConvocationUrl(info: GameShareInfo, phone?: string 
   const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId, true) : getAppBaseUrl(true);
   const calendarUrl = buildGoogleCalendarUrl(info);
   const gameTypeLabel = String(info.gameType).trim() || 'Jogo';
   const opponent = String(info.opponentOrName).trim() || '—';
@@ -145,7 +149,7 @@ export function buildWhatsAppConvocationToPlayerUrl(info: GameShareInfo, playerN
   const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId, true) : getAppBaseUrl(true);
   const calendarUrl = buildGoogleCalendarUrl(info);
   const location = String(info.location).trim() || '—';
   const name = String(playerName).trim() || 'Jogador';
@@ -178,7 +182,7 @@ export function buildWhatsAppDuplaConvocationUrl(
 ): string {
   const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId, true) : getAppBaseUrl(true);
   const name = String(playerName).trim() || 'Jogador';
   const dupla = String(duplaLabel).trim() || 'dupla';
   const text = `Olá ${name}! 🎾 Foste convocado para a ${dupla} no jogo de ${dateStr}. Confirma aqui: ${appUrl}`;
