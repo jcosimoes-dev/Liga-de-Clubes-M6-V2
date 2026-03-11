@@ -6,9 +6,9 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService, syncPlayerPoints } from '../services';
 import { PlayerRoles } from '../domain/constants';
-import { ArrowLeft, CalendarPlus } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, MessageCircle } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
-import { openGoogleCalendar } from '../lib/shareLinks';
+import { openGoogleCalendar, buildWhatsAppShareUrl } from '../lib/shareLinks';
 
 type Props = {
   id?: string;
@@ -32,7 +32,7 @@ function toNum(v: string | number | null | undefined): number | null {
 
 export function GameDetailsScreen({ id }: Props) {
   const { navigate, goBack } = useNavigation();
-  const { user, role } = useAuth();
+  const { user, role, player } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
   const isLoggedIn = Boolean(user?.id);
   // Admin, gestor, coordenador e capitão podem gravar resultados (capitão só jogos da sua equipa; RLS aplica).
@@ -185,6 +185,27 @@ export function GameDetailsScreen({ id }: Props) {
                 >
                   <CalendarPlus className="w-4 h-4" />
                   Adicionar ao meu Google Calendar
+                </Button>
+                <Button
+                  variant="outline"
+                  fullWidth
+                  onClick={() => {
+                    const url = buildWhatsAppShareUrl(
+                      {
+                        gameType: getCategoryFromPhase(game.phase),
+                        opponentOrName: GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo',
+                        startsAt: game.starts_at,
+                        location: game.location || '',
+                        gameId: game.id,
+                      },
+                      player?.phone
+                    );
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                  className="inline-flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Partilhar por WhatsApp
                 </Button>
                 <Button variant="ghost" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
                   <ArrowLeft className="w-4 h-4" />

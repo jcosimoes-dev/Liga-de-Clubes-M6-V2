@@ -200,14 +200,19 @@ export function CompleteProfileScreen() {
         <div className="space-y-4">
           <Card>
             <div className="space-y-3">
-              <Input
-                label="Telemóvel (obrigatório)"
-                type="tel"
-                value={form.phone}
-                onChange={(e: any) => setForm((s) => ({ ...s, phone: e.target.value }))}
-                placeholder="912 345 678 ou +351 912 345 678"
-                required
-              />
+              <div>
+                <Input
+                  label="Telemóvel (obrigatório)"
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e: any) => setForm((s) => ({ ...s, phone: e.target.value }))}
+                  placeholder="912 345 678 ou +351 912 345 678"
+                  required
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Ex.: 912 345 678 ou +351 912 345 678 — usado para envio de convites por WhatsApp. Podes usar espaços ou traços; o prefixo 351 é opcional.
+                </p>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Lado Preferido</label>

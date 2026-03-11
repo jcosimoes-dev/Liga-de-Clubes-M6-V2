@@ -4,6 +4,16 @@
  */
 
 import type { GameCategory } from '../domain/categoryTheme';
+import { formatWhatsAppNumber } from './phone';
+
+/** URL público da app para partilhas (WhatsApp, Google Calendar). Evita localhost nos links. */
+const DEFAULT_PUBLIC_APP_URL = 'https://liga-clubes-m6.vercel.app';
+
+function getPublicAppBase(): string {
+  const raw = (typeof import.meta !== 'undefined' && (import.meta as { env?: { VITE_APP_URL?: string } }).env?.VITE_APP_URL) ?? '';
+  const base = (typeof raw === 'string' ? raw : '').trim() || DEFAULT_PUBLIC_APP_URL;
+  return base.replace(/\/+$/, '');
+}
 
 /** Formata data para o formato exigido pelo Google Calendar (UTC): YYYYMMDDTHHmmssZ */
 function toGoogleCalendarDateUTC(d: Date): string {
@@ -16,23 +26,29 @@ function toGoogleCalendarDateUTC(d: Date): string {
   return `${y}${m}${day}T${h}${min}${sec}Z`;
 }
 
-/** Base da app (origem + pathname sem trailing slash, ou só origem se pathname for /) */
+/** Base da app (origem + pathname). Usado apenas para redirects em browser (ex.: getLoginUrl). */
 function getAppBase(): string {
-  if (typeof window === 'undefined') return '';
+  if (typeof window === 'undefined') return getPublicAppBase();
   const origin = window.location.origin ?? '';
   const path = (window.location.pathname ?? '/').replace(/\/+$/, '') || '';
   return path && path !== '/' ? `${origin}${path}` : origin;
 }
 
-/** Link para a página inicial da app */
+/**
+ * Link para a página inicial da app (para partilhas).
+ * Usa VITE_APP_URL ou https://liga-clubes-m6.vercel.app para que os links no WhatsApp/Calendar não usem localhost.
+ */
 export function getAppBaseUrl(): string {
-  return getAppBase();
+  return getPublicAppBase();
 }
 
-/** Link para a página específica do jogo (ex: /jogos/[id]) para confirmar presença */
+/**
+ * Link para a página do jogo (para partilhas).
+ * Usa o URL público da app (VITE_APP_URL ou default Vercel).
+ */
 export function getAppGameUrl(gameId: string): string {
-  if (!gameId || typeof window === 'undefined') return getAppBase();
-  const base = getAppBase();
+  if (!gameId) return getPublicAppBase();
+  const base = getPublicAppBase();
   return `${base}/jogos/${encodeURIComponent(String(gameId).trim())}`;
 }
 
@@ -64,8 +80,9 @@ export interface GameShareInfo {
 /**
  * Gera o URL do WhatsApp para partilhar o jogo.
  * Inclui: Tipo, Data, Hora, Local e link da app para confirmar presença.
+ * @param phone Número do destinatário (opcional). Se válido, abre wa.me/NUMBER; senão wa.me (seletor geral).
  */
-export function buildWhatsAppShareUrl(info: GameShareInfo): string {
+export function buildWhatsAppShareUrl(info: GameShareInfo, phone?: string | null): string {
   const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
@@ -82,7 +99,70 @@ export function buildWhatsAppShareUrl(info: GameShareInfo): string {
     `Confirmar presença na App: ${appUrl}`,
   ];
   const text = lines.join('\n');
-  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+  const num = formatWhatsAppNumber(phone);
+  const base = num ? `https://wa.me/${num}` : 'https://wa.me';
+  return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * Gera o URL do WhatsApp para partilhar a convocatória (equivalente ao email).
+ * Inclui: Tipo, Data, Hora, Local, link para adicionar ao Google Calendar e link da App.
+ * @param phone Número do destinatário (opcional). Se válido, abre wa.me/NUMBER; senão wa.me.
+ */
+export function buildWhatsAppConvocationUrl(info: GameShareInfo, phone?: string | null): string {
+  const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
+  const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const calendarUrl = buildGoogleCalendarUrl(info);
+  const gameTypeLabel = String(info.gameType).trim() || 'Jogo';
+  const opponent = String(info.opponentOrName).trim() || '—';
+  const location = String(info.location).trim() || '—';
+
+  const lines = [
+    `*Convocatória*`,
+    `*${gameTypeLabel}* — ${opponent}`,
+    `📅 ${dateStr} às ${timeStr}`,
+    `📍 ${location}`,
+    '',
+    `📆 Adicionar ao Google Calendar:`,
+    calendarUrl,
+    '',
+    `✅ Confirmar presença na App: ${appUrl}`,
+  ];
+  const text = lines.join('\n');
+  const num = formatWhatsAppNumber(phone);
+  const base = num ? `https://wa.me/${num}` : 'https://wa.me';
+  return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * Gera o URL do WhatsApp para enviar convocatória a um jogador (mensagem personalizada).
+ * Inclui: saudação com nome, local, data/hora, link da App e link do Google Calendar.
+ * @param phone Número do jogador (opcional). Se válido, abre wa.me/NUMBER; senão wa.me (seletor geral, sem erro ao clicar).
+ */
+export function buildWhatsAppConvocationToPlayerUrl(info: GameShareInfo, playerName: string, phone?: string | null): string {
+  const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
+  const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const calendarUrl = buildGoogleCalendarUrl(info);
+  const location = String(info.location).trim() || '—';
+  const name = String(playerName).trim() || 'Jogador';
+
+  const lines = [
+    `Olá ${name}! 🎾 Estás convocado para o jogo no ${location}!`,
+    '',
+    `Data: ${dateStr} às ${timeStr}`,
+    '',
+    `Confirma a tua presença na App: ${appUrl}`,
+    '',
+    `Adiciona já ao teu calendário: ${calendarUrl}`,
+  ];
+  const text = lines.join('\n');
+  const num = formatWhatsAppNumber(phone);
+  const base = num ? `https://wa.me/${num}` : 'https://wa.me';
+  return `${base}?text=${encodeURIComponent(text)}`;
 }
 
 /**

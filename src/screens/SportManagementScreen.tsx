@@ -9,8 +9,10 @@ import { GamesService, AvailabilitiesService, PairsService, PlayersService, getP
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2 } from 'lucide-react';
-import { buildWhatsAppShareUrl } from '../lib/shareLinks';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle } from 'lucide-react';
+import { buildWhatsAppShareUrl, buildWhatsAppConvocationUrl, buildWhatsAppConvocationToPlayerUrl, buildGoogleCalendarUrl, getAppGameUrl } from '../lib/shareLinks';
+import type { GameShareInfo } from '../lib/shareLinks';
+import { sendConvocationEmail } from '../services/emailService';
 
 export type GameType = 'Liga' | 'Torneio' | 'Mix' | 'Treino';
 
@@ -91,6 +93,10 @@ export function SportManagementScreen() {
   const [gameToEdit, setGameToEdit] = useState<any | null>(null);
   const [gameToDelete, setGameToDelete] = useState<any | null>(null);
   const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
+  /** Após fechar convocatória: mostra botão "Partilhar via WhatsApp" (opção secundária ou quando o email falha). */
+  const [convocationShareInfo, setConvocationShareInfo] = useState<{ gameInfo: GameShareInfo; hadEmailFailures: boolean } | null>(null);
+  /** Jogadores a quem o Admin já clicou "Enviar Convocatória via WhatsApp" neste jogo (evita duplicações visuais). */
+  const [sentConvocationWhatsAppIds, setSentConvocationWhatsAppIds] = useState<Set<string>>(new Set());
 
   // Dashboard de Performance (Coordenador: equipa + ranking com % disponibilidade)
   const [teamStats, setTeamStats] = useState<TeamPerformanceStats | null>(null);
@@ -358,6 +364,10 @@ export function SportManagementScreen() {
     }
   }, [selectedGame?.id]);
 
+  useEffect(() => {
+    setSentConvocationWhatsAppIds(new Set());
+  }, [selectedGame?.id]);
+
   /** Liga = phase Qualificação | Regionais | Nacionais → mínimo 4 jogadores; outros → mínimo 2. */
   const isLigaGame = selectedGame && ['Qualificação', 'Regionais', 'Nacionais'].includes(String(selectedGame.phase ?? ''));
   const minPlayers = isLigaGame ? 4 : 2;
@@ -547,6 +557,32 @@ export function SportManagementScreen() {
         return;
       }
       showToast('Convocatória fechada com sucesso', 'success');
+      const gameInfo = {
+        gameType: getCategoryFromPhase(selectedGame.phase),
+        opponentOrName: GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo',
+        startsAt: selectedGame.starts_at,
+        location: selectedGame.location || '',
+        gameId: selectedGame.id,
+      };
+      // --- E-mail suspenso: sendConvocationEmail desativado (sem domínio verificado no Resend só envia para o dono). ---
+      // const calendarUrl = buildGoogleCalendarUrl(gameInfo);
+      // const appUrl = getAppGameUrl(selectedGame.id);
+      // const startsAt = new Date(selectedGame.starts_at);
+      // const gameDate = startsAt.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+      // const gameTitle = `${getCategoryFromPhase(selectedGame.phase)} — ${GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo'}`;
+      // const playerIdsInPairs = new Set<string>();
+      // sortedConvocatoryPairs.filter((ed) => ed.pair.player1_id && ed.pair.player2_id).forEach((ed) => { playerIdsInPairs.add(ed.pair.player1_id); playerIdsInPairs.add(ed.pair.player2_id); });
+      // const sent: string[] = []; const failed: string[] = [];
+      // for (const playerId of playerIdsInPairs) {
+      //   const pl = availablePlayers.find((p: any) => p.id === playerId) as { email?: string; name?: string } | undefined;
+      //   const email = pl?.email?.trim();
+      //   if (!email || !email.includes('@')) continue;
+      //   const result = await sendConvocationEmail({ to: email, playerName: pl?.name || 'Jogador', gameTitle, gameDate, gameTime, gameLocation: selectedGame.location || '', appUrl, calendarUrl });
+      //   if (result.ok) sent.push(pl?.name || email); else failed.push(pl?.name || email);
+      // }
+      // if (failed.length > 0) showToast(`${sent.length} email(s) enviado(s). Falha em: ${failed.join(', ')}. Usa "Partilhar via WhatsApp" em baixo.`, 'error');
+      // else if (sent.length > 0) showToast(`Convocatória fechada e ${sent.length} email(s) de convocatória enviado(s).`, 'success');
+      setConvocationShareInfo({ gameInfo, hadEmailFailures: false });
       setSelectedGame(null);
       await loadOpenGames();
       await loadClosedGames();
@@ -1121,6 +1157,40 @@ export function SportManagementScreen() {
             Jogos com data já passada continuam aqui até serem concluídos ou fechados — usa o ícone de lápis para adiar ou alterar o local.
           </p>
 
+          {convocationShareInfo && (
+            <div className="mb-4 p-4 rounded-xl border-2 border-green-200 bg-green-50/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800">
+                  {convocationShareInfo.hadEmailFailures
+                    ? 'Alguns e-mails não foram enviados (ex.: sem domínio verificado no Resend). Partilha a convocatória via WhatsApp para garantir que todos recebem.'
+                    : 'Partilha também a convocatória via WhatsApp — inclui o link do Google Calendar e o link da App.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    const url = buildWhatsAppConvocationUrl(convocationShareInfo.gameInfo);
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                  className="bg-green-600 hover:bg-green-700 text-white border-0 inline-flex items-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Partilhar Convocatória via WhatsApp
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setConvocationShareInfo(null)}
+                  className="p-2 rounded-lg text-gray-500 hover:bg-green-100 hover:text-gray-700 transition-colors"
+                  aria-label="Fechar"
+                  title="Fechar"
+                >
+                  <span className="text-lg leading-none">×</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {gamesLoading ? (
             <Loading text="A carregar..." />
           ) : openGames.length === 0 ? (
@@ -1229,23 +1299,99 @@ export function SportManagementScreen() {
                 </p>
               )}
 
-              <div className="flex flex-wrap gap-2 mb-6">
-                {availablePlayers.map((p: any) => {
-                  const sel = selectedPlayerIds.has(p.id);
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => togglePlayer(p.id)}
-                      className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        sel ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                      }`}
-                    >
-                      {p.name} ({p.federation_points ?? 0} pts)
-                    </button>
-                  );
-                })}
-              </div>
+              {selectedGame && (() => {
+                const gameInfoForShare: GameShareInfo = {
+                  gameType: getCategoryFromPhase(selectedGame.phase),
+                  opponentOrName: GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo',
+                  startsAt: selectedGame.starts_at,
+                  location: selectedGame.location || '',
+                  gameId: selectedGame.id,
+                };
+                const selectedCount = selectedPlayerIds.size;
+                const sendToAllSelected = () => {
+                  Array.from(selectedPlayerIds).forEach((id) => {
+                    const pl = availablePlayers.find((x: any) => x.id === id);
+                    if (pl) {
+                      const url = buildWhatsAppConvocationToPlayerUrl(gameInfoForShare, pl.name ?? 'Jogador', pl.phone);
+                      window.open(url, '_blank', 'noopener,noreferrer');
+                      setSentConvocationWhatsAppIds((prev) => new Set(prev).add(id));
+                    }
+                  });
+                  if (selectedCount > 0) showToast(`A abrir WhatsApp para ${selectedCount} jogador(es)...`, 'success');
+                };
+                return (
+                  <div className="mb-6 rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-800">Jogadores confirmados</h4>
+                        <p className="text-xs text-gray-500 mt-0.5">Clica na linha para selecionar para as duplas · Ícone WhatsApp para enviar convite</p>
+                      </div>
+                      {selectedCount >= minPlayers && (
+                        <button
+                          type="button"
+                          onClick={sendToAllSelected}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+                          title="Abre o WhatsApp para cada jogador selecionado"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          Enviar para todos os selecionados ({selectedCount})
+                        </button>
+                      )}
+                    </div>
+                    <ul className="divide-y divide-gray-100">
+                      {availablePlayers.map((p: any) => {
+                        const sel = selectedPlayerIds.has(p.id);
+                        const sent = sentConvocationWhatsAppIds.has(p.id);
+                        return (
+                          <li
+                            key={p.id}
+                            className={`flex items-center justify-between gap-4 px-4 py-3 transition-colors ${
+                              sel ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => togglePlayer(p.id)}
+                              className="flex-1 flex items-center justify-between gap-3 text-left min-w-0"
+                            >
+                              <span className="font-medium text-gray-900 truncate">{p.name}</span>
+                              <span className="text-sm text-gray-500 shrink-0">{p.federation_points ?? 0} pts</span>
+                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="flex items-center justify-center w-8 h-8 rounded-full" aria-hidden>
+                                {sel ? (
+                                  <Check className="w-5 h-5 text-blue-600" aria-label="Selecionado" />
+                                ) : (
+                                  <Circle className="w-5 h-5 text-gray-300" aria-label="Não selecionado" />
+                                )}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const url = buildWhatsAppConvocationToPlayerUrl(gameInfoForShare, p.name ?? 'Jogador', p.phone);
+                                  window.open(url, '_blank', 'noopener,noreferrer');
+                                  setSentConvocationWhatsAppIds((prev) => new Set(prev).add(p.id));
+                                }}
+                                disabled={sent}
+                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors shrink-0 ${
+                                  sent
+                                    ? 'bg-green-100 text-green-700 cursor-default'
+                                    : 'bg-green-500 hover:bg-green-600 text-white hover:ring-2 hover:ring-green-300'
+                                }`}
+                                title={sent ? 'Convite já enviado' : 'Enviar Convite'}
+                                aria-label={sent ? 'Convite já enviado' : 'Enviar Convite'}
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
 
               {selectedPlayerIds.size >= minPlayers && (
                 <>
