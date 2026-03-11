@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, FormEvent } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal, ConfirmDialog } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
@@ -97,6 +97,9 @@ export function SportManagementScreen() {
   const [convocationShareInfo, setConvocationShareInfo] = useState<{ gameInfo: GameShareInfo; hadEmailFailures: boolean } | null>(null);
   /** Jogadores a quem o Admin já clicou "Enviar Convocatória via WhatsApp" neste jogo (evita duplicações visuais). */
   const [sentConvocationWhatsAppIds, setSentConvocationWhatsAppIds] = useState<Set<string>>(new Set());
+
+  const hasRestoredConvocationRef = useRef(false);
+  const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
 
   // Dashboard de Performance (Coordenador: equipa + ranking com % disponibilidade)
   const [teamStats, setTeamStats] = useState<TeamPerformanceStats | null>(null);
@@ -368,6 +371,37 @@ export function SportManagementScreen() {
     setSentConvocationWhatsAppIds(new Set());
   }, [selectedGame?.id]);
 
+  // Persistir estado das duplas em sessionStorage para não perder ao mudar de aba (ex.: abrir WhatsApp)
+  useEffect(() => {
+    if (!selectedGame?.id) return;
+    try {
+      const payload = {
+        selectedGameId: selectedGame.id,
+        pairs: [...pairs],
+        selectedPlayerIds: Array.from(selectedPlayerIds),
+      };
+      sessionStorage.setItem(CONVOCATION_STORAGE_KEY, JSON.stringify(payload));
+    } catch (_) {}
+  }, [selectedGame?.id, pairs, selectedPlayerIds]);
+
+  // Restaurar estado das duplas após carregar jogos (ex.: após reload ou voltar da outra aba)
+  useEffect(() => {
+    if (gamesLoading || openGames.length === 0 || hasRestoredConvocationRef.current) return;
+    try {
+      const raw = sessionStorage.getItem(CONVOCATION_STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as { selectedGameId?: string; pairs?: Array<{ player1_id: string; player2_id: string }>; selectedPlayerIds?: string[] };
+      const gameId = data?.selectedGameId;
+      if (!gameId || !Array.isArray(data.pairs) || !Array.isArray(data.selectedPlayerIds)) return;
+      const game = openGames.find((g: any) => g.id === gameId);
+      if (!game) return;
+      hasRestoredConvocationRef.current = true;
+      setSelectedGame(game);
+      setPairs(data.pairs.length >= 3 ? data.pairs.slice(0, 3) : [...data.pairs, ...Array(3 - data.pairs.length).fill({ player1_id: '', player2_id: '' })].slice(0, 3));
+      setSelectedPlayerIds(new Set(data.selectedPlayerIds));
+    } catch (_) {}
+  }, [gamesLoading, openGames]);
+
   /** Liga = phase Qualificação | Regionais | Nacionais → mínimo 4 jogadores; outros → mínimo 2. */
   const isLigaGame = selectedGame && ['Qualificação', 'Regionais', 'Nacionais'].includes(String(selectedGame.phase ?? ''));
   const minPlayers = isLigaGame ? 4 : 2;
@@ -584,6 +618,9 @@ export function SportManagementScreen() {
       // else if (sent.length > 0) showToast(`Convocatória fechada e ${sent.length} email(s) de convocatória enviado(s).`, 'success');
       setConvocationShareInfo({ gameInfo, hadEmailFailures: false });
       setSelectedGame(null);
+      try {
+        sessionStorage.removeItem(CONVOCATION_STORAGE_KEY);
+      } catch (_) {}
       await loadOpenGames();
       await loadClosedGames();
       await loadDashboard();
@@ -660,7 +697,7 @@ export function SportManagementScreen() {
   if (!canManageSport) {
     return (
       <Layout>
-        <Header title="Gestão de Jogos" />
+        <Header title="Gestão de Jogos" onBack={goBack} />
         <div className="max-w-screen-sm mx-auto px-4 pt-4">
           <RestrictedAccessModal
             isOpen
@@ -710,7 +747,7 @@ export function SportManagementScreen() {
   return (
     <Layout>
       <div className="flex items-center justify-between gap-4 px-4 pt-4">
-        <Header title="Gestão de Jogos" />
+        <Header title="Gestão de Jogos" onBack={goBack} />
         {canRecalcularPontos && (
           <button
             type="button"

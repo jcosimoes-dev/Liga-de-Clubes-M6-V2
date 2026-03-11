@@ -47,6 +47,7 @@ export function NavigationProvider({
     const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '/';
     if (pathname === '/reset-password' || pathname.endsWith('/reset-password')) return { name: 'reset-password' };
     if (pathname === '/login' || pathname.endsWith('/login')) return { name: 'login' };
+    if (pathname === '/gestao' || pathname.endsWith('/gestao')) return { name: 'sport-management' };
     const gameMatch = pathname.match(/\/jogos\/([^/]+)\/?$/);
     if (gameMatch) return { name: 'game', params: { id: decodeURIComponent(gameMatch[1]) } };
     return { name: initialRouteName };
@@ -113,24 +114,42 @@ export function NavigationProvider({
       }
       return { name, params };
     });
-    // Atualizar URL para /jogos/[id] quando navegar para o detalhe do jogo (link partilhável)
-    if (typeof window !== 'undefined' && name === 'game' && params?.id) {
+    // Atualizar URL para manter rota ao recarregar/voltar da outra aba
+    if (typeof window !== 'undefined') {
       const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '';
       const base = pathname && pathname !== '/' ? pathname : '';
-      const gamePath = `${base}/jogos/${encodeURIComponent(String(params.id))}`;
-      window.history.pushState(null, '', gamePath);
+      if (name === 'game' && params?.id) {
+        const gamePath = `${base}/jogos/${encodeURIComponent(String(params.id))}`;
+        window.history.pushState(null, '', gamePath);
+      } else if (name === 'sport-management') {
+        const gestaoPath = base ? `${base}/gestao` : '/gestao';
+        window.history.pushState(null, '', gestaoPath);
+      }
     }
   };
 
   const goBack = () => {
     const stack = historyStackRef.current;
+    let previous: RouteEntry;
     if (stack.length > 0) {
-      const previous = stack.pop()!;
+      previous = stack.pop()!;
       setRoute(previous);
     } else {
-      setRoute({ name: 'home' });
+      previous = { name: 'home' };
+      setRoute(previous);
     }
-    if (typeof window !== 'undefined') window.scrollTo(0, 0);
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+      const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '/';
+      const base = pathname && pathname !== '/' ? pathname : '';
+      if (previous.name === 'game' && previous.params?.id) {
+        window.history.replaceState(null, '', base ? `${base}/jogos/${encodeURIComponent(String(previous.params.id))}` : `/jogos/${encodeURIComponent(String(previous.params.id))}`);
+      } else if (previous.name === 'sport-management') {
+        window.history.replaceState(null, '', base ? `${base}/gestao` : '/gestao');
+      } else {
+        window.history.replaceState(null, '', base || '/');
+      }
+    }
   };
 
   // Sem sessão em rota protegida: mostrar Login imediatamente (evita flash do ecrã anterior)
