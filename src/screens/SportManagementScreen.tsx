@@ -10,7 +10,7 @@ import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStats
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle } from 'lucide-react';
-import { buildWhatsAppShareUrl, buildWhatsAppConvocationUrl, buildWhatsAppConvocationToPlayerUrl, buildGoogleCalendarUrl, getAppGameUrl } from '../lib/shareLinks';
+import { buildWhatsAppShareUrl, buildWhatsAppConvocationUrl, buildWhatsAppDuplaConvocationUrl, buildGoogleCalendarUrl, getAppGameUrl } from '../lib/shareLinks';
 import type { GameShareInfo } from '../lib/shareLinks';
 import { sendConvocationEmail } from '../services/emailService';
 
@@ -1307,41 +1307,15 @@ export function SportManagementScreen() {
                   location: selectedGame.location || '',
                   gameId: selectedGame.id,
                 };
-                const selectedCount = selectedPlayerIds.size;
-                const sendToAllSelected = () => {
-                  Array.from(selectedPlayerIds).forEach((id) => {
-                    const pl = availablePlayers.find((x: any) => x.id === id);
-                    if (pl) {
-                      const url = buildWhatsAppConvocationToPlayerUrl(gameInfoForShare, pl.name ?? 'Jogador', pl.phone);
-                      window.open(url, '_blank', 'noopener,noreferrer');
-                      setSentConvocationWhatsAppIds((prev) => new Set(prev).add(id));
-                    }
-                  });
-                  if (selectedCount > 0) showToast(`A abrir WhatsApp para ${selectedCount} jogador(es)...`, 'success');
-                };
                 return (
                   <div className="mb-6 rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-800">Jogadores confirmados</h4>
-                        <p className="text-xs text-gray-500 mt-0.5">Clica na linha para selecionar para as duplas · Ícone WhatsApp para enviar convite</p>
-                      </div>
-                      {selectedCount >= minPlayers && (
-                        <button
-                          type="button"
-                          onClick={sendToAllSelected}
-                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
-                          title="Abre o WhatsApp para cada jogador selecionado"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          Enviar para todos os selecionados ({selectedCount})
-                        </button>
-                      )}
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <h4 className="text-sm font-semibold text-gray-800">Jogadores confirmados</h4>
+                      <p className="text-xs text-gray-500 mt-0.5">Clica na linha para selecionar para as duplas. Envia o convite pelo ícone WhatsApp no Quadro de Duplas.</p>
                     </div>
                     <ul className="divide-y divide-gray-100">
                       {availablePlayers.map((p: any) => {
                         const sel = selectedPlayerIds.has(p.id);
-                        const sent = sentConvocationWhatsAppIds.has(p.id);
                         return (
                           <li
                             key={p.id}
@@ -1357,34 +1331,13 @@ export function SportManagementScreen() {
                               <span className="font-medium text-gray-900 truncate">{p.name}</span>
                               <span className="text-sm text-gray-500 shrink-0">{p.federation_points ?? 0} pts</span>
                             </button>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="flex items-center justify-center w-8 h-8 rounded-full" aria-hidden>
-                                {sel ? (
-                                  <Check className="w-5 h-5 text-blue-600" aria-label="Selecionado" />
-                                ) : (
-                                  <Circle className="w-5 h-5 text-gray-300" aria-label="Não selecionado" />
-                                )}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const url = buildWhatsAppConvocationToPlayerUrl(gameInfoForShare, p.name ?? 'Jogador', p.phone);
-                                  window.open(url, '_blank', 'noopener,noreferrer');
-                                  setSentConvocationWhatsAppIds((prev) => new Set(prev).add(p.id));
-                                }}
-                                disabled={sent}
-                                className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors shrink-0 ${
-                                  sent
-                                    ? 'bg-green-100 text-green-700 cursor-default'
-                                    : 'bg-green-500 hover:bg-green-600 text-white hover:ring-2 hover:ring-green-300'
-                                }`}
-                                title={sent ? 'Convite já enviado' : 'Enviar Convite'}
-                                aria-label={sent ? 'Convite já enviado' : 'Enviar Convite'}
-                              >
-                                <MessageCircle className="w-4 h-4" />
-                              </button>
-                            </div>
+                            <span className="flex items-center justify-center w-8 h-8 rounded-full shrink-0" aria-hidden>
+                              {sel ? (
+                                <Check className="w-5 h-5 text-blue-600" aria-label="Selecionado" />
+                              ) : (
+                                <Circle className="w-5 h-5 text-gray-300" aria-label="Não selecionado" />
+                              )}
+                            </span>
                           </li>
                         );
                       })}
@@ -1401,9 +1354,21 @@ export function SportManagementScreen() {
                       Calculado automaticamente: Dupla 1 = maior soma · Dupla 2 = intermédia · Dupla 3 = menor soma
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {sortedConvocatoryPairs.filter((ed) => ed.pair.player1_id && ed.pair.player2_id).map((ed, idx) => {
+                      {selectedGame && sortedConvocatoryPairs.map((ed, idx) => {
                         const label =
                           idx === 0 ? 'Dupla 1 (maior soma)' : idx === 1 ? 'Dupla 2 (média)' : 'Dupla 3 (menor soma)';
+                        const duplaShort = `Dupla ${idx + 1}`;
+                        const gameInfoDupla: GameShareInfo = {
+                          gameType: getCategoryFromPhase(selectedGame.phase),
+                          opponentOrName: GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo',
+                          startsAt: selectedGame.starts_at,
+                          location: selectedGame.location || '',
+                          gameId: selectedGame.id,
+                        };
+                        const pl1 = availablePlayers.find((x: any) => x.id === ed.pair.player1_id);
+                        const pl2 = availablePlayers.find((x: any) => x.id === ed.pair.player2_id);
+                        const sent1 = pl1 ? sentConvocationWhatsAppIds.has(pl1.id) : false;
+                        const sent2 = pl2 ? sentConvocationWhatsAppIds.has(pl2.id) : false;
                         return (
                           <div
                             key={ed.originalIdx}
@@ -1417,39 +1382,83 @@ export function SportManagementScreen() {
                             </div>
                             <div className="p-4 space-y-3 flex-1">
                               <div className="space-y-2">
-                                <select
-                                  aria-label="Jogador 1"
-                                  value={ed.pair.player1_id}
-                                  onChange={(e) => assignPair(ed.originalIdx, 'player1_id', e.target.value)}
-                                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                >
-                                  <option value="">Jogador 1...</option>
-                                  {Array.from(selectedPlayerIds).map((id) => {
-                                    const pl = availablePlayers.find((x: any) => x.id === id);
-                                    return (
-                                      <option key={id} value={id} disabled={ed.pair.player2_id === id}>
-                                        {pl?.name} ({pl?.federation_points ?? 0} pts)
-                                      </option>
-                                    );
-                                  })}
-                                </select>
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    aria-label="Jogador 1"
+                                    value={ed.pair.player1_id}
+                                    onChange={(e) => assignPair(ed.originalIdx, 'player1_id', e.target.value)}
+                                    className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                  >
+                                    <option value="">Jogador 1...</option>
+                                    {Array.from(selectedPlayerIds).map((id) => {
+                                      const pl = availablePlayers.find((x: any) => x.id === id);
+                                      return (
+                                        <option key={id} value={id} disabled={ed.pair.player2_id === id}>
+                                          {pl?.name} ({pl?.federation_points ?? 0} pts)
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                  {ed.pair.player1_id && pl1 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const url = buildWhatsAppDuplaConvocationUrl(gameInfoDupla, pl1.name ?? 'Jogador', duplaShort, pl1.phone);
+                                        window.open(url, '_blank', 'noopener,noreferrer');
+                                        setSentConvocationWhatsAppIds((prev) => new Set(prev).add(pl1.id));
+                                      }}
+                                      disabled={sent1}
+                                      className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-colors ${
+                                        sent1 ? 'bg-gray-200 text-gray-500 cursor-default' : 'bg-green-500 hover:bg-green-600 text-white'
+                                      }`}
+                                      title={sent1 ? 'Convite enviado' : 'Enviar convite por WhatsApp'}
+                                      aria-label={sent1 ? 'Convite enviado' : 'Enviar convite por WhatsApp'}
+                                    >
+                                      {sent1 ? <Check className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
+                                    </button>
+                                  )}
+                                </div>
                                 <span className="flex justify-center text-amber-600 font-medium text-xs">+</span>
-                                <select
-                                  aria-label="Jogador 2"
-                                  value={ed.pair.player2_id}
-                                  onChange={(e) => assignPair(ed.originalIdx, 'player2_id', e.target.value)}
-                                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                >
-                                  <option value="">Jogador 2...</option>
-                                  {Array.from(selectedPlayerIds).map((id) => {
-                                    const pl = availablePlayers.find((x: any) => x.id === id);
-                                    return (
-                                      <option key={id} value={id} disabled={ed.pair.player1_id === id}>
-                                        {pl?.name} ({pl?.federation_points ?? 0} pts)
-                                      </option>
-                                    );
-                                  })}
-                                </select>
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    aria-label="Jogador 2"
+                                    value={ed.pair.player2_id}
+                                    onChange={(e) => assignPair(ed.originalIdx, 'player2_id', e.target.value)}
+                                    className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                  >
+                                    <option value="">Jogador 2...</option>
+                                    {Array.from(selectedPlayerIds).map((id) => {
+                                      const pl = availablePlayers.find((x: any) => x.id === id);
+                                      return (
+                                        <option key={id} value={id} disabled={ed.pair.player1_id === id}>
+                                          {pl?.name} ({pl?.federation_points ?? 0} pts)
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                  {ed.pair.player2_id && pl2 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const url = buildWhatsAppDuplaConvocationUrl(gameInfoDupla, pl2.name ?? 'Jogador', duplaShort, pl2.phone);
+                                        window.open(url, '_blank', 'noopener,noreferrer');
+                                        setSentConvocationWhatsAppIds((prev) => new Set(prev).add(pl2.id));
+                                      }}
+                                      disabled={sent2}
+                                      className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-colors ${
+                                        sent2 ? 'bg-gray-200 text-gray-500 cursor-default' : 'bg-green-500 hover:bg-green-600 text-white'
+                                      }`}
+                                      title={sent2 ? 'Convite enviado' : 'Enviar convite por WhatsApp'}
+                                      aria-label={sent2 ? 'Convite enviado' : 'Enviar convite por WhatsApp'}
+                                    >
+                                      {sent2 ? <Check className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1459,6 +1468,7 @@ export function SportManagementScreen() {
                   </div>
 
                   <Button
+                    type="button"
                     fullWidth
                     onClick={handleCloseConvocatory}
                     disabled={!allPairsValid || !allPlayersUsed || saving}

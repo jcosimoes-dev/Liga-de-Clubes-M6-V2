@@ -166,6 +166,28 @@ export function buildWhatsAppConvocationToPlayerUrl(info: GameShareInfo, playerN
 }
 
 /**
+ * Gera o URL do WhatsApp para notificar um jogador da sua dupla (mensagem curta).
+ * Mensagem: "Olá [Nome]! 🎾 Foste convocado para a [Dupla X] no jogo de [Data]. Confirma aqui: [URL]"
+ * @param duplaLabel Ex.: "Dupla 1", "Dupla 2", "Dupla 3"
+ */
+export function buildWhatsAppDuplaConvocationUrl(
+  info: GameShareInfo,
+  playerName: string,
+  duplaLabel: string,
+  phone?: string | null
+): string {
+  const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
+  const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
+  const name = String(playerName).trim() || 'Jogador';
+  const dupla = String(duplaLabel).trim() || 'dupla';
+  const text = `Olá ${name}! 🎾 Foste convocado para a ${dupla} no jogo de ${dateStr}. Confirma aqui: ${appUrl}`;
+  const num = formatWhatsAppNumber(phone);
+  const base = num ? `https://wa.me/${num}` : 'https://wa.me';
+  return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+/**
  * Gera o URL do Google Calendar para adicionar o evento.
  * Abrir em nova janela. Datas em UTC para o Google aceitar sem erros.
  */
