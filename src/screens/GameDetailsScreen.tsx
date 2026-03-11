@@ -128,6 +128,12 @@ export function GameDetailsScreen({ id }: Props) {
   const dateStr = startsAt ? startsAt.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
   const timeStr = startsAt ? startsAt.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : '—';
 
+  const gameStatus = (game?.status ?? '').toLowerCase();
+  const isOpenOrPending = /convocatoria_aberta|aberta|aberto|pendente|pending/.test(gameStatus);
+  const isFinalOrCompleted = /finalizado|concluido|final|completed|closed|convocatoria_fechada/.test(gameStatus);
+  const hasResults = Object.keys(results).length > 0;
+  const showGoogleCalendar = isOpenOrPending && !isFinalOrCompleted && !hasResults;
+
   if (loading) {
     return (
       <Layout>
@@ -169,13 +175,22 @@ export function GameDetailsScreen({ id }: Props) {
                       (() => {
                         const statusStr = String(game.status);
                         const isOpen = /aberta|aberto|open|pendente|pending/i.test(statusStr);
-                        return isOpen ? (
-                          <span className="shrink-0 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                            {statusStr}
-                          </span>
-                        ) : (
-                          <Badge variant="default" className="shrink-0">{statusStr}</Badge>
-                        );
+                        const isHistorical = /finalizado|concluido|final|completed/i.test(statusStr);
+                        if (isOpen) {
+                          return (
+                            <span className="shrink-0 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                              {statusStr}
+                            </span>
+                          );
+                        }
+                        if (isHistorical) {
+                          return (
+                            <span className="shrink-0 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-700">
+                              {statusStr}
+                            </span>
+                          );
+                        }
+                        return <Badge variant="default" className="shrink-0">{statusStr}</Badge>;
                       })()
                     ) : null}
                   </div>
@@ -197,33 +212,34 @@ export function GameDetailsScreen({ id }: Props) {
               </div>
             </Card>
 
-            {/* Botão Google Calendar: estética premium, sombra elegante, ícone 4 cores Google, hover com elevação */}
-            <div className="mt-8">
-              <button
-                type="button"
-                onClick={() =>
-                  openGoogleCalendar({
-                    gameType: getCategoryFromPhase(game.phase),
-                    opponentOrName: gameTitle,
-                    startsAt: game.starts_at,
-                    location: game.location || '',
-                    gameId: game.id,
-                  })
-                }
-                className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border border-gray-200/90 rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-0.5 hover:border-gray-300 transition-all duration-200 ease-out opacity-100 text-gray-800 hover:bg-gray-50/80 font-semibold text-base"
-              >
-                {/* Mini logótipo 4 cores Google (Azul, Vermelho, Amarelo, Verde) */}
-                <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200/80 shadow-sm" aria-hidden>
-                  <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
-                    <span className="bg-[#4285F4]" />
-                    <span className="bg-[#EA4335]" />
-                    <span className="bg-[#FBBC05]" />
-                    <span className="bg-[#34A853]" />
+            {/* Botão Google Calendar: só para jogos em convocatória aberta ou pendente; escondido no histórico */}
+            {showGoogleCalendar && (
+              <div className="mt-8">
+                <button
+                  type="button"
+                  onClick={() =>
+                    openGoogleCalendar({
+                      gameType: getCategoryFromPhase(game.phase),
+                      opponentOrName: gameTitle,
+                      startsAt: game.starts_at,
+                      location: game.location || '',
+                      gameId: game.id,
+                    })
+                  }
+                  className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border border-gray-200/90 rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-0.5 hover:border-gray-300 transition-all duration-200 ease-out opacity-100 text-gray-800 hover:bg-gray-50/80 font-semibold text-base"
+                >
+                  <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200/80 shadow-sm" aria-hidden>
+                    <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
+                      <span className="bg-[#4285F4]" />
+                      <span className="bg-[#EA4335]" />
+                      <span className="bg-[#FBBC05]" />
+                      <span className="bg-[#34A853]" />
+                    </span>
                   </span>
-                </span>
-                <span>Adicionar ao meu Google Calendar</span>
-              </button>
-            </div>
+                  <span>Adicionar ao meu Google Calendar</span>
+                </button>
+              </div>
+            )}
 
             {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '') && pairs.length > 0 && (
               <Card>

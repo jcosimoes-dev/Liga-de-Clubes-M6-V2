@@ -29,14 +29,14 @@ function generateRandomPassword(length = 8): string {
   return out;
 }
 
-/** Estilo único para botões de ação principal no Admin (mesmo azul e tamanho) */
+/** Botões premium: cores sólidas, sombra, rounded-xl */
 const BTN_PRIMARY =
-  'w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+  'w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
 const BTN_PRIMARY_INLINE =
-  'py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-/** Inputs/selects modernos: bordas finas, padding, focus cinza e ring */
+  'py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
+/** Inputs/selects: fundo cinza claro, bordas arredondadas */
 const INPUT_MODERN =
-  'w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:outline-none transition-colors text-gray-900 disabled:opacity-60';
+  'w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:outline-none transition-colors text-gray-900 disabled:opacity-60';
 
 export function AdminScreen() {
   const { player, isAdmin } = useAuth();
@@ -132,18 +132,18 @@ export function AdminScreen() {
   return (
     <Layout>
       <Header title="Administração" />
-      <div className="max-w-screen-md mx-auto px-4 sm:px-6 pt-6 pb-24">
+      <div className="max-w-screen-md mx-auto px-4 sm:px-6 pt-6 pb-24 bg-gray-50 min-h-screen">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Header: fino e elegante, badge alinhado à direita */}
-          <Card className="shadow-sm rounded-xl md:col-span-2 border border-gray-100" padding="none">
-            <div className="px-5 py-3 flex items-center justify-between gap-4">
+          {/* Header: título robusto "Painel de Controlo" */}
+          <Card className="shadow-md rounded-2xl md:col-span-2 border border-gray-200 bg-white" padding="none">
+            <div className="px-5 py-4 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-slate-600" />
+                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-[#1A237E]/10 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5 text-[#1A237E]" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-sm font-medium text-gray-900 truncate">{player?.name}</h2>
-                  <p className="text-xs text-gray-500">Painel de controlo</p>
+                  <h2 className="text-base font-bold text-gray-900 truncate">{player?.name}</h2>
+                  <p className="text-sm font-semibold text-[#1A237E] tracking-tight">Painel de Controlo</p>
                 </div>
               </div>
               <Badge variant="admin" size="sm" className="flex-shrink-0 text-[10px] font-semibold tracking-wider uppercase">
@@ -152,115 +152,128 @@ export function AdminScreen() {
             </div>
           </Card>
 
-          {/* Card: Criar Jogador — anatomia: topo ícone+título, meio descrição, baixo botão */}
-          <Card className="shadow-sm rounded-xl border border-gray-100 flex flex-col min-h-[260px]">
-            <div className="p-6 flex flex-col flex-1">
-              <div className="flex items-center gap-2">
-                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <UserPlus className="w-4 h-4 text-blue-600" />
+          {/* Card: Criar Jogador — barra azul, hover, ícone vibrante */}
+          <Card className="shadow-md rounded-2xl border border-gray-200 flex flex-col min-h-[260px] overflow-hidden hover:-translate-y-1 hover:shadow-xl transition-all duration-200" padding="none">
+            <div className="flex min-h-[1px]">
+              <div className="w-1 shrink-0 bg-blue-500 rounded-l-2xl" aria-hidden />
+              <div className="flex-1 p-6 flex flex-col flex-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center">
+                    <UserPlus className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-900">Criar Jogador</h3>
                 </div>
-                <h3 className="text-base font-medium text-gray-900">Criar Jogador</h3>
-              </div>
-              <p className="text-sm text-gray-500 mt-1.5">Novo utilizador na equipa (email e perfil).</p>
-              <div className="flex justify-center items-center my-4 flex-1 min-h-[8rem]">
-                <img
-                  src="/pwa192.png"
-                  alt="Logótipo da Liga"
-                  className="w-40 h-40 rounded-full object-cover object-center shadow-sm"
-                />
-              </div>
-              <div className="mt-auto pt-6">
-                <Button onClick={() => setShowAddModal(true)} className={BTN_PRIMARY}>
-                  Adicionar Jogador
-                </Button>
+                <p className="text-sm text-gray-500 mt-1.5">Novo utilizador na equipa (email e perfil).</p>
+                <div className="flex justify-center items-center my-4 flex-1 min-h-[8rem]">
+                  <img
+                    src="/pwa192.png"
+                    alt="Logótipo da Liga"
+                    className="w-40 h-40 rounded-full object-cover object-center shadow-sm"
+                  />
+                </div>
+                <div className="mt-auto pt-6">
+                  <Button onClick={() => setShowAddModal(true)} className={BTN_PRIMARY}>
+                    Adicionar Jogador
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
 
-          {/* Card: Gerir Funções — anatomia: topo ícone+título, meio descrição, formulário, botão em baixo */}
-          <Card className="shadow-sm rounded-xl border border-gray-100 flex flex-col min-h-[260px]">
-            <div className="p-6 flex flex-col flex-1">
-              <div className="flex items-center gap-2">
-                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-amber-600" />
-                </div>
-                <h3 className="text-base font-medium text-gray-900">Gerir Funções (Roles)</h3>
-              </div>
-              <p className="text-sm text-gray-500 mt-1.5">Alterar função de um jogador.</p>
-
-              <div className="mt-4 space-y-3 flex-1">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Selecionar Jogador</label>
-                  <select
-                    value={selectedPlayerId}
-                    onChange={(e) => setSelectedPlayerId(e.target.value)}
-                    className={INPUT_MODERN}
-                    disabled={promotingRole}
-                  >
-                    <option value="">Escolha um jogador...</option>
-                    {players.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Função (Role)</label>
-                  <select
-                    value={selectedRole}
-                    onChange={(e) => setSelectedRole(e.target.value as PlayerRole)}
-                    className={INPUT_MODERN}
-                    disabled={promotingRole}
-                  >
-                    <option value={PlayerRoles.jogador}>Jogador</option>
-                    <option value={PlayerRoles.capitao}>Capitão</option>
-                    <option value={PlayerRoles.coordenador}>Coordenador</option>
-                    <option value={PlayerRoles.admin}>Administrador</option>
-                  </select>
-                </div>
-                {promotionSuccess && (
-                  <div className="p-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
-                    {promotionSuccess}
+          {/* Card: Gerir Funções — barra amarelo/laranja, legenda com badges */}
+          <Card className="shadow-md rounded-2xl border border-gray-200 flex flex-col min-h-[260px] overflow-hidden hover:-translate-y-1 hover:shadow-xl transition-all duration-200" padding="none">
+            <div className="flex min-h-[1px]">
+              <div className="w-1 shrink-0 bg-amber-500 rounded-l-2xl" aria-hidden />
+              <div className="flex-1 p-6 flex flex-col flex-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center">
+                    <ShieldCheck className="w-5 h-5 text-amber-600" />
                   </div>
-                )}
-                {roleError && (
-                  <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-                    {roleError}
-                  </div>
-                )}
-              </div>
+                  <h3 className="text-lg font-bold text-gray-900">Gerir Funções (Roles)</h3>
+                </div>
+                <p className="text-sm text-gray-500 mt-1.5">Alterar função de um jogador.</p>
 
-              <div className="mt-auto pt-4">
-                <Button
-                  onClick={handleUpdateRole}
-                  disabled={!selectedPlayerId || promotingRole}
-                  className={BTN_PRIMARY}
-                >
-                  {promotingRole ? 'A guardar...' : 'Guardar Role'}
-                </Button>
-                <p className="text-xs text-gray-500 mt-2">
-                  Jogador: Início, Calendário, Equipa. Capitão: + Gestão. Coordenador: + Pontos Fed. Admin: controlo total.
-                </p>
+                <div className="mt-4 space-y-3 flex-1">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Selecionar Jogador</label>
+                    <select
+                      value={selectedPlayerId}
+                      onChange={(e) => setSelectedPlayerId(e.target.value)}
+                      className={INPUT_MODERN}
+                      disabled={promotingRole}
+                    >
+                      <option value="">Escolha um jogador...</option>
+                      {players.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Função (Role)</label>
+                    <select
+                      value={selectedRole}
+                      onChange={(e) => setSelectedRole(e.target.value as PlayerRole)}
+                      className={INPUT_MODERN}
+                      disabled={promotingRole}
+                    >
+                      <option value={PlayerRoles.jogador}>Jogador</option>
+                      <option value={PlayerRoles.capitao}>Capitão</option>
+                      <option value={PlayerRoles.coordenador}>Coordenador</option>
+                      <option value={PlayerRoles.admin}>Administrador</option>
+                    </select>
+                  </div>
+                  {promotionSuccess && (
+                    <div className="p-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
+                      {promotionSuccess}
+                    </div>
+                  )}
+                  {roleError && (
+                    <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                      {roleError}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-auto pt-4">
+                  <Button
+                    onClick={handleUpdateRole}
+                    disabled={!selectedPlayerId || promotingRole}
+                    className={BTN_PRIMARY}
+                  >
+                    {promotingRole ? 'A guardar...' : 'Guardar Role'}
+                  </Button>
+                  <p className="text-xs text-gray-600 mt-3 font-medium">Legenda de funções:</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700">Jogador</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-800">Capitão</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-800">Coordenador</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800">Gestor</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-200 text-slate-800">Admin</span>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>
 
-        {/* Card: Redefinir palavra-passe — anatomia: topo ícone+título, meio descrição, formulário em baixo */}
-        <Card className="shadow-sm rounded-xl border border-gray-100 flex flex-col min-h-[260px]">
-          <div className="p-6 flex flex-col flex-1">
-            <div className="flex items-center gap-2">
-              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-                <Key className="w-4 h-4 text-red-600" />
+        {/* Card: Redefinir palavra-passe — barra vermelho/rosa, ícone vibrante; overflow-visible para o dropdown não ser cortado */}
+        <Card className="shadow-md rounded-2xl border border-gray-200 flex flex-col min-h-[260px] overflow-visible hover:-translate-y-1 hover:shadow-xl transition-all duration-200 md:col-span-2" padding="none">
+          <div className="flex min-h-[1px] overflow-visible">
+            <div className="w-1 shrink-0 bg-rose-500 rounded-l-2xl" aria-hidden />
+            <div className="flex-1 p-6 flex flex-col flex-1 overflow-visible">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center">
+                  <Key className="w-5 h-5 text-rose-600" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">Redefinir palavra-passe</h3>
               </div>
-              <h3 className="text-base font-medium text-gray-900">Redefinir palavra-passe</h3>
-            </div>
-            <p className="text-sm text-gray-500 mt-1.5">Escolhe um jogador, redefine a password e envia por WhatsApp.</p>
+              <p className="text-sm text-gray-500 mt-1.5">Escolhe um jogador, redefine a password e envia por WhatsApp.</p>
 
-            <div className="mt-4 flex-1 flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Escolher jogador</label>
-              <div className="relative">
-            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-400 focus-within:bg-gray-50 transition-colors">
+              <div className="mt-4 flex-1 flex flex-col overflow-visible">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Escolher jogador</label>
+                <div className="relative overflow-visible">
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-400 focus-within:bg-white transition-colors">
               <Search className="w-4 h-4 text-gray-400 ml-3 flex-shrink-0" aria-hidden />
               <input
                 type="text"
@@ -301,13 +314,13 @@ export function AdminScreen() {
               return (
                 <>
                   <div
-                    className="fixed inset-0 z-10"
+                    className="fixed inset-0 z-40"
                     aria-hidden
                     onClick={() => setPlayerDropdownOpen(false)}
                   />
                   <ul
                     role="listbox"
-                    className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-xl border border-gray-200 bg-white shadow-lg py-1"
+                    className="absolute left-0 right-0 top-full z-50 mt-1 w-full max-h-56 overflow-auto rounded-xl border border-gray-300 bg-white shadow-xl py-1"
                   >
                     {filtered.map((p) => (
                       <li
@@ -427,7 +440,9 @@ export function AdminScreen() {
             </Card>
           )}
 
+              </div>
             </div>
+          </div>
             {resetModalData && (
               <div
                 className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
@@ -510,7 +525,6 @@ export function AdminScreen() {
               </div>
             </div>
             )}
-          </div>
         </Card>
 
         <AddPlayerModal

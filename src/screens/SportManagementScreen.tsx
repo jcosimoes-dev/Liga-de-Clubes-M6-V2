@@ -9,7 +9,7 @@ import { GamesService, AvailabilitiesService, PairsService, PlayersService, getP
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle } from 'lucide-react';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle, TrendingUp, Settings, ClipboardList } from 'lucide-react';
 import { buildWhatsAppShareUrl, buildWhatsAppConvocationUrl, buildWhatsAppDuplaConvocationUrl, buildGoogleCalendarUrl, getAppGameUrl } from '../lib/shareLinks';
 import type { GameShareInfo } from '../lib/shareLinks';
 import { sendConvocationEmail } from '../services/emailService';
@@ -791,12 +791,26 @@ export function SportManagementScreen() {
   const dispPctColor = (pct: number) =>
     pct > 80 ? 'text-green-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600';
 
+  /** Cor da Eficácia: Verde 100%, Amarelo/Laranja 50–70%, Cinzento 0% */
+  const eficaciaColor = (pct: number) => {
+    if (pct >= 100) return 'text-green-600 font-semibold';
+    if (pct >= 50) return 'text-amber-600 font-medium';
+    return 'text-gray-500';
+  };
+
+  const STATS_AVATAR_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-violet-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500'];
+
   const canRecalcularPontos = role === PlayerRoles.admin || role === PlayerRoles.coordenador;
 
-  const tabStyles = (tab: 'performance' | 'tecnica' | 'convocatorias') =>
-    activeTab === tab
-      ? 'border-b-2 border-blue-600 text-blue-700 font-semibold'
-      : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300';
+  const tabStyles = (tab: 'performance' | 'tecnica' | 'convocatorias') => {
+    const isActive = activeTab === tab;
+    return [
+      'flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm transition-all duration-200',
+      isActive
+        ? 'bg-blue-50 text-[#1A237E] font-bold shadow-sm border-b-[3px] border-[#1A237E] rounded-b-xl'
+        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800 font-medium',
+    ].join(' ');
+  };
 
   return (
     <Layout>
@@ -820,30 +834,38 @@ export function SportManagementScreen() {
         }
       />
       <div className="max-w-screen-lg mx-auto px-4 pt-4 pb-6 space-y-6">
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-200 -mb-px">
-          <button
-            type="button"
-            onClick={() => setActiveTab('performance')}
-            className={`px-4 py-3 text-sm transition-colors ${tabStyles('performance')}`}
-          >
-            Performance
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('tecnica')}
-            className={`px-4 py-3 text-sm transition-colors ${tabStyles('tecnica')}`}
-          >
-            Gestão Técnica
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('convocatorias')}
-            className={`px-4 py-3 text-sm transition-colors ${tabStyles('convocatorias')}`}
-          >
-            Convocatórias
-          </button>
-        </div>
+        {/* Tabs: card branco, pílulas com ícones, estado ativo com linha inferior */}
+        <Card className="p-2 bg-white shadow-sm border border-gray-100 rounded-2xl">
+          <div className="flex gap-1 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActiveTab('performance')}
+              className={tabStyles('performance')}
+              aria-pressed={activeTab === 'performance'}
+            >
+              <TrendingUp className="w-4 h-4 shrink-0 opacity-80" aria-hidden />
+              <span>Performance</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('tecnica')}
+              className={tabStyles('tecnica')}
+              aria-pressed={activeTab === 'tecnica'}
+            >
+              <Settings className="w-4 h-4 shrink-0 opacity-80" aria-hidden />
+              <span>Gestão Técnica</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('convocatorias')}
+              className={tabStyles('convocatorias')}
+              aria-pressed={activeTab === 'convocatorias'}
+            >
+              <ClipboardList className="w-4 h-4 shrink-0 opacity-80" aria-hidden />
+              <span>Convocatórias</span>
+            </button>
+          </div>
+        </Card>
 
         {/* Tab 1: Performance — Equipa + Ranking Individual */}
         {activeTab === 'performance' && (
@@ -1046,24 +1068,24 @@ export function SportManagementScreen() {
             {dashboardLoading ? (
               <div className="mt-4 py-6 text-center text-gray-500">A carregar...</div>
             ) : (
-              <div className="mt-4 overflow-x-auto">
+              <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 overflow-hidden">
                 <table className="w-full text-sm border-collapse min-w-[520px]">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 font-semibold text-gray-700">Jogador</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Disp.</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Conv.</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Taxa Escolha</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">V–D</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Eficácia</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Liga M6</th>
-                      <th className="text-center py-2 px-2 font-semibold text-gray-700" title="Muita disponibilidade, poucas convocatórias">Rodar</th>
+                    <tr className="bg-gray-100/90 border-b border-gray-200">
+                      <th className="text-left py-3 px-4 font-bold text-gray-800">Jogador</th>
+                      <th className="text-right py-3 px-4 font-bold text-gray-800 tabular-nums">Disp.</th>
+                      <th className="text-right py-3 px-4 font-bold text-gray-800 tabular-nums">Conv.</th>
+                      <th className="text-right py-3 px-4 font-bold text-gray-800">Taxa Escolha</th>
+                      <th className="text-right py-3 px-4 font-bold text-gray-800">V–D</th>
+                      <th className="text-right py-3 px-4 font-bold text-gray-800">Eficácia</th>
+                      <th className="text-right py-3 px-4 font-bold text-gray-800">Liga M6</th>
+                      <th className="text-center py-3 px-4 font-bold text-gray-800" title="Muita disponibilidade, poucas convocatórias">Rodar</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes).length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-6 text-center text-gray-500">Nenhum dado ainda.</td>
+                        <td colSpan={8} className="py-8 text-center text-gray-500">Nenhum dado ainda.</td>
                       </tr>
                     ) : (
                       (() => {
@@ -1074,31 +1096,51 @@ export function SportManagementScreen() {
                           const vb = key === 'disponibilidade' ? b.disponibilidade : b.pontos_liga;
                           return seasonStatsSortAsc ? va - vb : vb - va;
                         });
-                        return sorted.map((row) => (
-                          <tr
-                            key={row.player_id}
-                            className={`border-b border-gray-100 hover:bg-gray-50/50 ${row.highlight_rodar ? 'bg-amber-50/80' : ''}`}
-                          >
-                            <td className="py-2.5 px-3 font-medium text-gray-900">{row.name}</td>
-                            <td className={`py-2.5 px-3 text-right font-medium ${dispPctColor(row.disp_pct ?? 0)}`} title={row.disp_pct != null ? `${row.disponibilidade} de ${statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
-                              {row.disp_pct != null ? `${row.disponibilidade} (${row.disp_pct}%)` : row.disponibilidade}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-gray-700">{row.convocatorias}</td>
-                            <td className="py-2.5 px-3 text-right text-gray-700">{row.taxa_escolha}%</td>
-                            <td className="py-2.5 px-3 text-right text-gray-700">{row.wins}V – {row.losses}D</td>
-                            <td className="py-2.5 px-3 text-right text-gray-700">{row.eficacia}%</td>
-                            <td className="py-2.5 px-3 text-right font-semibold text-amber-700">{row.pontos_liga}</td>
-                            <td className="py-2.5 px-2 text-center">
-                              {row.highlight_rodar ? (
-                                <span className="inline-flex items-center gap-1 text-amber-700" title="Muita disponibilidade, poucas convocatórias">
-                                  <UserCheck className="w-4 h-4" aria-hidden />
-                                </span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ));
+                        return sorted.map((row, index) => {
+                          const initials = (row.name || '?').trim().split(/\s+/).map((s: string) => s[0]).slice(0, 2).join('').toUpperCase() || '?';
+                          const avatarBg = STATS_AVATAR_COLORS[index % STATS_AVATAR_COLORS.length];
+                          const isEven = index % 2 === 0;
+                          return (
+                            <tr
+                              key={row.player_id}
+                              className={`border-b border-gray-100 transition-colors duration-150 hover:bg-blue-50/70 hover:shadow-inner ${row.highlight_rodar ? 'bg-amber-50/60' : ''} ${isEven ? 'bg-gray-50/40' : 'bg-white'}`}
+                            >
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-3">
+                                  <span className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${avatarBg}`} aria-hidden>
+                                    {initials}
+                                  </span>
+                                  <span className="font-medium text-gray-900">{row.name}</span>
+                                </div>
+                              </td>
+                              <td className={`py-3 px-4 text-right font-medium tabular-nums ${dispPctColor(row.disp_pct ?? 0)}`} title={row.disp_pct != null ? `${row.disponibilidade} de ${statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
+                                {row.disp_pct != null ? `${row.disponibilidade} (${row.disp_pct}%)` : row.disponibilidade}
+                              </td>
+                              <td className="py-3 px-4 text-right text-gray-700 tabular-nums font-medium">{row.convocatorias}</td>
+                              <td className="py-3 px-4 text-right text-gray-700 tabular-nums">{row.taxa_escolha}%</td>
+                              <td className="py-3 px-4 text-right tabular-nums">
+                                <span className="text-green-600 font-semibold">{row.wins}V</span>
+                                <span className="text-gray-400 mx-0.5">–</span>
+                                <span className="text-red-600 font-semibold">{row.losses}D</span>
+                              </td>
+                              <td className={`py-3 px-4 text-right tabular-nums ${eficaciaColor(row.eficacia ?? 0)}`}>
+                                {row.eficacia}%
+                              </td>
+                              <td className="py-3 px-4 text-right font-semibold text-amber-700 tabular-nums">{row.pontos_liga}</td>
+                              <td className="py-3 px-4 text-center">
+                                {row.highlight_rodar ? (
+                                  <span className="inline-flex items-center justify-center text-orange-500" title="Muita disponibilidade, poucas convocatórias — considerar rodar">
+                                    <UserCheck className="w-5 h-5" aria-hidden />
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center text-gray-400">
+                                    <UserCheck className="w-5 h-5" aria-hidden />
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        });
                       })()
                     )}
                   </tbody>
