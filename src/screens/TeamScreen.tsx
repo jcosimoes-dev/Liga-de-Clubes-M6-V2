@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, Badge, Loading, Button, Input, ConfirmDialog, Toast, ToastType, Header } from '../components/ui';
 import { PlayersService } from '../services';
@@ -29,6 +29,8 @@ export function TeamScreen() {
   const [changePasswordNew, setChangePasswordNew] = useState('');
   const [changePasswordConfirm, setChangePasswordConfirm] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
+  /** Ordenação da lista (admin): por Total (Liga+FPP) ou só por FPP */
+  const [sortByPoints, setSortByPoints] = useState<'total' | 'federation'>('total');
 
   const showToast = (message: string, type: ToastType = 'success') => {
     setToast({ message, type });
@@ -48,8 +50,7 @@ export function TeamScreen() {
         data = await PlayersService.getTeamPlayers(currentPlayer?.team_id);
       }
       const activeOnly = data.filter((p: any) => p?.is_active === true);
-      const sorted = activeOnly.sort((a: { federation_points: number }, b: { federation_points: number }) => (b.federation_points ?? 0) - (a.federation_points ?? 0));
-      setPlayers(sorted);
+      setPlayers(activeOnly);
     } catch {
       setPlayers([]);
     } finally {
@@ -59,6 +60,15 @@ export function TeamScreen() {
 
   const isOwnProfile = (player: any) => player.user_id === currentPlayer?.user_id || player.id === currentPlayer?.id;
   const canEdit = (player: any) => isOwnProfile(player) || isAdmin;
+
+  const totalPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
+  const displayPlayers = useMemo(() => {
+    const list = [...players];
+    if (isAdmin && sortByPoints === 'total') {
+      return list.sort((a, b) => totalPoints(b) - totalPoints(a));
+    }
+    return list.sort((a, b) => (b.federation_points ?? 0) - (a.federation_points ?? 0));
+  }, [players, isAdmin, sortByPoints]);
 
   const startEdit = (player: any) => {
     setEditingId(player.id);
@@ -309,8 +319,28 @@ export function TeamScreen() {
           </div>
         )}
 
+        {isAdmin && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">Ordenar por:</span>
+            <button
+              type="button"
+              onClick={() => setSortByPoints('total')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${sortByPoints === 'total' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              Total
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortByPoints('federation')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${sortByPoints === 'federation' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              FPP
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {players.map((player, index) => (
+        {displayPlayers.map((player, index) => (
           <Card key={player.id} padding="none" className="overflow-hidden rounded-2xl hover:shadow-lg transition-all bg-white shadow-sm p-0">
             {editingId === player.id ? (
               <div className="space-y-4 p-4">
@@ -385,9 +415,10 @@ export function TeamScreen() {
                   </span>
                 </div>
 
-                <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200/80 w-fit">
-                  <Trophy className="w-5 h-5 text-amber-600 shrink-0" aria-hidden />
-                  <span className="text-base font-bold text-amber-900">{player.federation_points ?? 0} pts</span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                  <span className="font-medium text-gray-700">Liga: <span className="font-semibold text-amber-700 tabular-nums">{player.liga_points ?? 0}</span></span>
+                  <span className="font-medium text-gray-700">FPP: <span className="font-semibold text-gray-900 tabular-nums">{player.federation_points ?? 0}</span></span>
+                  <span className="font-medium text-gray-700">Total: <span className="font-bold text-amber-900 tabular-nums">{totalPoints(player)}</span></span>
                 </div>
 
                 {player.preferred_side && (

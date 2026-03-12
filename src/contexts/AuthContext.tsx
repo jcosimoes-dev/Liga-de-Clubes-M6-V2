@@ -19,6 +19,8 @@ export type Player = {
 
   role?: string | null;
   team_id?: string | null;
+  /** Pontos Liga M6 (calculados: Vitória=10, Derrota=3). Só leitura. */
+  liga_points?: number | null;
 
   is_active?: boolean | null;
   profile_completed?: boolean | null;

@@ -229,8 +229,16 @@ export function CompleteProfileScreen() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pontos Acumulados Liga</label>
+                <div className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
+                  {player?.liga_points != null && Number.isFinite(Number(player.liga_points)) ? Number(player.liga_points) : 0}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">Calculado pela App (Vitória=10, Presença=3). Apenas leitura.</p>
+              </div>
+
               <Input
-                label="Pontos de Federação"
+                label="Pontos de Federação (FPP)"
                 type="number"
                 value={form.federation_points}
                 onChange={(e: any) =>
@@ -238,6 +246,16 @@ export function CompleteProfileScreen() {
                 }
                 placeholder="0"
               />
+              <p className="text-xs text-gray-500 -mt-1">
+                O teu Total combina os pontos ganhos nesta App com o teu ranking nacional oficial.
+              </p>
+
+              <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-4">
+                <label className="block text-sm font-semibold text-gray-800 mb-1">Total de Pontos (Liga + FPP)</label>
+                <p className="text-xl font-bold text-amber-900 tabular-nums">
+                  {(player?.liga_points != null && Number.isFinite(Number(player.liga_points)) ? Number(player.liga_points) : 0) + (Number.isFinite(form.federation_points) ? form.federation_points : 0)}
+                </p>
+              </div>
 
               <Button fullWidth variant="primary" onClick={onSubmit} disabled={saving}>
                 {saving ? 'A guardar...' : 'Guardar'}
