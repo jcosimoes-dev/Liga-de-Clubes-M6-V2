@@ -35,26 +35,41 @@ interface ResultRow {
 }
 
 /**
- * Determina se a dupla ganhou com base no número de SETS ganhos (melhor de 3).
- * Cada set: casa > fora → +1 set ganho; casa < fora → +1 set perdido.
- * Vitória = 2 sets ganhos (ou mais), Derrota = 1 ou 0 sets ganhos.
- * Vitória = +10 pts, Derrota = +3 pts.
+ * Considera um set válido para contagem (não 0-0).
+ * Sets 0-0 são ignorados: não contam como ganhos nem perdidos.
  */
-function isPairWin(r: ResultRow): boolean {
+function isEmptySet(casa: number | null, fora: number | null): boolean {
+  return casa === 0 && fora === 0;
+}
+
+/**
+ * Conta sets ganhos e perdidos de um resultado. Ignora sets 0-0.
+ * Derrota só conta quando o adversário (fora) é estritamente maior que casa.
+ */
+function countSetsWonLost(r: ResultRow): { setsWon: number; setsLost: number } {
   let setsWon = 0;
   let setsLost = 0;
-  if (r.set1_casa != null && r.set1_fora != null) {
-    if (Number(r.set1_casa) > Number(r.set1_fora)) setsWon += 1;
-    else setsLost += 1;
-  }
-  if (r.set2_casa != null && r.set2_fora != null) {
-    if (Number(r.set2_casa) > Number(r.set2_fora)) setsWon += 1;
-    else setsLost += 1;
-  }
-  if (r.set3_casa != null && r.set3_fora != null) {
-    if (Number(r.set3_casa) > Number(r.set3_fora)) setsWon += 1;
-    else setsLost += 1;
-  }
+  const count = (casa: number | null, fora: number | null) => {
+    if (casa == null || fora == null) return;
+    if (isEmptySet(casa, fora)) return;
+    const c = Number(casa);
+    const f = Number(fora);
+    if (c > f) setsWon += 1;
+    else if (f > c) setsLost += 1;
+  };
+  count(r.set1_casa, r.set1_fora);
+  count(r.set2_casa, r.set2_fora);
+  count(r.set3_casa, r.set3_fora);
+  return { setsWon, setsLost };
+}
+
+/**
+ * Determina se a dupla ganhou com base no número de SETS ganhos (melhor de 3).
+ * Sets 0-0 são ignorados. Só conta como set perdido quando fora > casa.
+ * Vitória = 2+ sets ganhos, Derrota = 1 ou 0 sets ganhos.
+ */
+function isPairWin(r: ResultRow): boolean {
+  const { setsWon, setsLost } = countSetsWonLost(r);
   return setsWon > setsLost;
 }
 
@@ -220,24 +235,15 @@ export interface PlayerRankingRow {
 
 /**
  * Calcula se a equipa ganhou o jogo com base nos resultados (maioria de sets ganhos por dupla).
- * Usado quando team_points não está preenchido na BD.
+ * Ignora sets 0-0; só conta set perdido quando fora > casa.
  */
 function teamWonFromResults(rows: ResultRow[]): boolean {
   let setsWon = 0;
   let setsLost = 0;
   for (const r of rows) {
-    if (r.set1_casa != null && r.set1_fora != null) {
-      if (Number(r.set1_casa) > Number(r.set1_fora)) setsWon += 1;
-      else setsLost += 1;
-    }
-    if (r.set2_casa != null && r.set2_fora != null) {
-      if (Number(r.set2_casa) > Number(r.set2_fora)) setsWon += 1;
-      else setsLost += 1;
-    }
-    if (r.set3_casa != null && r.set3_fora != null) {
-      if (Number(r.set3_casa) > Number(r.set3_fora)) setsWon += 1;
-      else setsLost += 1;
-    }
+    const { setsWon: w, setsLost: l } = countSetsWonLost(r);
+    setsWon += w;
+    setsLost += l;
   }
   return setsWon > setsLost;
 }

@@ -5,11 +5,11 @@ import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/c
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
-import { GamesService, AvailabilitiesService, PairsService, PlayersService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints, OFFICIAL_M6_TEAM_ID } from '../services';
+import { GamesService, AvailabilitiesService, PairsService, PlayersService, ResultsService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints, OFFICIAL_M6_TEAM_ID } from '../services';
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
-import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle, TrendingUp, Settings, ClipboardList } from 'lucide-react';
+import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle, TrendingUp, Settings, ClipboardList, ClipboardCheck } from 'lucide-react';
 import { buildWhatsAppShareUrl, buildWhatsAppConvocationUrl, buildWhatsAppDuplaConvocationUrl, buildGoogleCalendarUrl, getAppGameUrl } from '../lib/shareLinks';
 import type { GameShareInfo } from '../lib/shareLinks';
 import { sendConvocationEmail } from '../services/emailService';
@@ -97,6 +97,14 @@ export function SportManagementScreen() {
   const [convocationShareInfo, setConvocationShareInfo] = useState<{ gameInfo: GameShareInfo; hadEmailFailures: boolean } | null>(null);
   /** Jogadores a quem o Admin já clicou "Enviar Convocatória via WhatsApp" neste jogo (evita duplicações visuais). */
   const [sentConvocationWhatsAppIds, setSentConvocationWhatsAppIds] = useState<Set<string>>(new Set());
+
+  // Registo de Resultado (jogos com duplas fechadas ou data passada)
+  const [selectedGameForResult, setSelectedGameForResult] = useState<any | null>(null);
+  const [resultPairs, setResultPairs] = useState<any[]>([]);
+  const [resultFormResults, setResultFormResults] = useState<Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }>>({});
+  const [resultFormSaving, setResultFormSaving] = useState(false);
+  const [resultFormConfirmOpen, setResultFormConfirmOpen] = useState(false);
+  const [resultFormLoading, setResultFormLoading] = useState(false);
 
   const hasRestoredConvocationRef = useRef(false);
   const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
@@ -251,7 +259,7 @@ export function SportManagementScreen() {
       (async () => {
         const { data: raw } = await supabase
           .from('players')
-          .select('id, name, federation_points, is_active')
+          .select('id, name, federation_points, liga_points, is_active')
           .eq('is_active', true)
           .neq('email', GESTOR_HIDE_EMAIL);
         setRawPlayers(Array.isArray(raw) ? raw : []);
@@ -292,13 +300,14 @@ export function SportManagementScreen() {
     );
   };
 
+  const totalRawPlayerPoints = (pl: any) => (pl?.liga_points ?? 0) + (pl?.federation_points ?? 0);
   const sortedPairsForDisplay = useMemo(() => {
     if (!editablePairsForSwap?.length || !rawPlayers?.length) return [];
     return [...editablePairsForSwap]
       .map((ed) => {
         const p1 = rawPlayers.find((pl: any) => pl.id === ed.player1_id);
         const p2 = rawPlayers.find((pl: any) => pl.id === ed.player2_id);
-        const total = (p1?.federation_points ?? 0) + (p2?.federation_points ?? 0);
+        const total = totalRawPlayerPoints(p1) + totalRawPlayerPoints(p2);
         return { ...ed, total, p1, p2 };
       })
       .sort((a, b) => b.total - a.total);
@@ -462,6 +471,15 @@ export function SportManagementScreen() {
   const minPlayers = isLigaGame ? 4 : 2;
   const requiredPairs = Math.floor(minPlayers / 2);
 
+  /** Total de pontos (Liga + FPP) — mesma lógica que Perfil e Equipa */
+  const totalPlayerPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
+
+  /** Jogadores disponíveis ordenados por Total (maior primeiro) para o Coordenador */
+  const sortedAvailablePlayers = useMemo(
+    () => [...availablePlayers].sort((a, b) => totalPlayerPoints(b) - totalPlayerPoints(a)),
+    [availablePlayers]
+  );
+
   /**
    * Sugestão de duplas por pontos (só quando o utilizador clica no botão). Nunca recalcular automaticamente.
    */
@@ -474,7 +492,7 @@ export function SportManagementScreen() {
       .map((id) => availablePlayers.find((p: any) => p.id === id))
       .filter(Boolean) as any[];
     if (selected.length !== n) return;
-    const byPoints = [...selected].sort((a, b) => (b.federation_points ?? 0) - (a.federation_points ?? 0));
+    const byPoints = [...selected].sort((a, b) => totalPlayerPoints(b) - totalPlayerPoints(a));
     const pairCount = Math.floor(n / 2);
     const newPairs: Array<{ player1_id: string; player2_id: string }> = [];
     for (let i = 0; i < pairCount; i++) {
@@ -484,13 +502,13 @@ export function SportManagementScreen() {
     setPairs(newPairs);
   };
 
-  /** Duplas ordenadas por total de pontos (maior soma → menor) para exibição no Quadro de Duplas. */
+  /** Duplas ordenadas por total de pontos (Liga+FPP, maior soma → menor) para exibição no Quadro de Duplas. */
   const sortedConvocatoryPairs = useMemo(() => {
     return [...pairs]
       .map((pair, idx) => {
         const p1 = availablePlayers.find((x: any) => x.id === pair.player1_id);
         const p2 = availablePlayers.find((x: any) => x.id === pair.player2_id);
-        const total = (p1?.federation_points ?? 0) + (p2?.federation_points ?? 0);
+        const total = totalPlayerPoints(p1) + totalPlayerPoints(p2);
         return { pair, total, p1, p2, originalIdx: idx };
       })
       .sort((a, b) => b.total - a.total);
@@ -529,6 +547,105 @@ export function SportManagementScreen() {
       setClosedGames([]);
     } finally {
       setClosedGamesLoading(false);
+    }
+  };
+
+  const defaultSetRow = {
+    set1_casa: 0,
+    set1_fora: 0,
+    set2_casa: 0,
+    set2_fora: 0,
+    set3_casa: null as number | null,
+    set3_fora: null as number | null,
+  };
+  const toNumResult = (v: string | number | null | undefined): number | null => {
+    if (v === '' || v === undefined || v === null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && Number.isInteger(n) ? n : null;
+  };
+  /** Valor para mostrar no input: aceita 0 como válido (não tratar como vazio). */
+  const setInputDisplay = (v: number | null | undefined): number | '' =>
+    typeof v === 'number' ? v : '';
+
+  useEffect(() => {
+    if (!selectedGameForResult?.id) {
+      setResultPairs([]);
+      setResultFormResults({});
+      return;
+    }
+    let cancelled = false;
+    setResultFormLoading(true);
+    (async () => {
+      try {
+        const [pairsData, resData] = await Promise.all([
+          PairsService.getByGame(selectedGameForResult.id),
+          ResultsService.getByGame(selectedGameForResult.id),
+        ]);
+        if (cancelled) return;
+        const pairList = Array.isArray(pairsData) ? pairsData : [];
+        setResultPairs(pairList);
+        const resMap: Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }> = {};
+        for (const r of resData ?? []) {
+          const pid = (r as { pair_id?: string }).pair_id;
+          if (pid)
+            resMap[pid] = {
+              set1_casa: (r as any).set1_casa ?? 0,
+              set1_fora: (r as any).set1_fora ?? 0,
+              set2_casa: (r as any).set2_casa ?? 0,
+              set2_fora: (r as any).set2_fora ?? 0,
+              set3_casa: (r as any).set3_casa ?? null,
+              set3_fora: (r as any).set3_fora ?? null,
+            };
+        }
+        setResultFormResults(resMap);
+      } catch (e) {
+        if (!cancelled) showToast('Erro ao carregar duplas/resultados', 'error');
+      } finally {
+        if (!cancelled) setResultFormLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedGameForResult?.id]);
+
+  const handleSaveResultConfirm = async () => {
+    const game = selectedGameForResult;
+    if (!game?.id || !player?.user_id) return;
+    setResultFormConfirmOpen(false);
+    setResultFormSaving(true);
+    try {
+      const createdBy = String(player.user_id).trim();
+      for (const pair of resultPairs) {
+        const pairId = pair?.id ?? '';
+        const res = resultFormResults[pairId] ?? defaultSetRow;
+        const s1c = toNumResult(res.set1_casa);
+        const s1f = toNumResult(res.set1_fora);
+        const s2c = toNumResult(res.set2_casa);
+        const s2f = toNumResult(res.set2_fora);
+        if (s1c === null || s1c === undefined || s1f === null || s1f === undefined || s2c === null || s2c === undefined || s2f === null || s2f === undefined) continue;
+        await ResultsService.upsertResult({
+          game_id: game.id,
+          pair_id: pairId,
+          created_by: createdBy,
+          set1_casa: Number(s1c),
+          set1_fora: Number(s1f),
+          set2_casa: Number(s2c),
+          set2_fora: Number(s2f),
+          ...(toNumResult(res.set3_casa) != null && toNumResult(res.set3_fora) != null
+            ? { set3_casa: Number(res.set3_casa), set3_fora: Number(res.set3_fora) }
+            : {}),
+        });
+      }
+      await GamesService.complete(game.id);
+      await syncPlayerPoints(player?.team_id ?? game?.team_id ?? OFFICIAL_M6_TEAM_ID);
+      showToast('Resultados guardados. Pontos atualizados (10 vitória / 3 derrota).', 'success');
+      setSelectedGameForResult(null);
+      setResultPairs([]);
+      setResultFormResults({});
+      await loadClosedGames();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Erro ao gravar resultados', 'error');
+    } finally {
+      setResultFormSaving(false);
     }
   };
 
@@ -1487,10 +1604,10 @@ export function SportManagementScreen() {
                   <div className="mb-6 rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
                     <div className="px-4 py-3 border-b border-gray-100">
                       <h4 className="text-sm font-semibold text-gray-800">Jogadores confirmados</h4>
-                      <p className="text-xs text-gray-500 mt-0.5">Clica na linha para selecionar para as duplas. Envia o convite pelo ícone WhatsApp no Quadro de Duplas.</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Ordenados por Total (Liga + FPP). Clica na linha para selecionar para as duplas. Envia o convite pelo ícone WhatsApp no Quadro de Duplas.</p>
                     </div>
                     <ul className="divide-y divide-gray-100">
-                      {availablePlayers.map((p: any) => {
+                      {sortedAvailablePlayers.map((p: any) => {
                         const sel = selectedPlayerIds.has(p.id);
                         return (
                           <li
@@ -1505,7 +1622,7 @@ export function SportManagementScreen() {
                               className="flex-1 flex items-center justify-between gap-3 text-left min-w-0"
                             >
                               <span className="font-medium text-gray-900 truncate">{p.name}</span>
-                              <span className="text-sm text-gray-500 shrink-0">{p.federation_points ?? 0} pts</span>
+                              <span className="text-sm text-gray-600 shrink-0 font-medium tabular-nums">Total: {totalPlayerPoints(p)} pts</span>
                             </button>
                             <span className="flex items-center justify-center w-8 h-8 rounded-full shrink-0" aria-hidden>
                               {sel ? (
@@ -1593,7 +1710,7 @@ export function SportManagementScreen() {
                                       const pl = availablePlayers.find((x: any) => x.id === id);
                                       return (
                                         <option key={id} value={id} disabled={ed.pair.player2_id === id}>
-                                          {pl?.name} ({pl?.federation_points ?? 0} pts)
+                                          {pl?.name} (Total: {pl ? totalPlayerPoints(pl) : 0} pts)
                                         </option>
                                       );
                                     })}
@@ -1632,7 +1749,7 @@ export function SportManagementScreen() {
                                       const pl = availablePlayers.find((x: any) => x.id === id);
                                       return (
                                         <option key={id} value={id} disabled={ed.pair.player1_id === id}>
-                                          {pl?.name} ({pl?.federation_points ?? 0} pts)
+                                          {pl?.name} (Total: {pl ? totalPlayerPoints(pl) : 0} pts)
                                         </option>
                                       );
                                     })}
@@ -1684,6 +1801,245 @@ export function SportManagementScreen() {
               )}
             </div>
           )}
+        </CategoryCard>
+
+        {/* Registo de Resultado — jogos com duplas fechadas ou data passada */}
+        <CategoryCard
+          category="Liga"
+          header={
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5" />
+              Registo de Resultado
+            </h2>
+          }
+        >
+          <p className="text-sm text-gray-600 mb-4">
+            Regista os parciais (sets) dos jogos com convocatória já fechada. O card só está ativo quando o jogo tem duplas definidas ou a data já passou. Após gravar, o jogo fica <strong>Finalizado</strong> e os pontos (10 vitória / 3 derrota) são atualizados automaticamente.
+          </p>
+
+          {closedGamesLoading ? (
+            <Loading text="A carregar jogos..." />
+          ) : closedGames.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhum jogo com convocatória fechada para registar resultado.</p>
+          ) : (
+            <div className="space-y-4">
+              <div className={GRID_CLASSES}>
+                {closedGames.map((game: any) => {
+                  const cat = getCategoryFromPhase(game.phase);
+                  const styles = CATEGORY_STYLES[cat];
+                  const isPastDate = new Date(game.starts_at) < new Date();
+                  const isSelected = selectedGameForResult?.id === game.id;
+                  return (
+                    <button
+                      key={game.id}
+                      type="button"
+                      onClick={() => setSelectedGameForResult(isSelected ? null : game)}
+                      className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all hover:shadow-xl ${
+                        isSelected ? 'ring-2 ring-offset-2 ring-emerald-500 border-emerald-500' : isPastDate ? 'border-amber-400 bg-amber-50/30' : 'border-transparent'
+                      }`}
+                    >
+                      <div className={`px-3 py-2 ${styles.headerGradient} text-white text-sm font-semibold`}>
+                        {GamesService.formatOpponentDisplay(game.opponent)}
+                      </div>
+                      <div className="p-3 bg-white">
+                        <span className="text-xs text-gray-600">
+                          {new Date(game.starts_at).toLocaleDateString('pt-PT')} — {game.location}
+                        </span>
+                        {isPastDate && (
+                          <div className="mt-2 flex items-center gap-1 text-amber-700 text-xs font-medium">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            Data passada
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedGameForResult && (
+                <div className="mt-6 pt-6 border-t border-gray-200 rounded-xl border border-gray-200 overflow-hidden shadow-md bg-white">
+                  <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 border-b border-gray-200">
+                    <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                      <ClipboardCheck className="w-5 h-5 text-emerald-600" />
+                      Resultados — {selectedGameForResult.opponent || 'Jogo'}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedGameForResult(null); setResultFormResults({}); }}
+                      className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors shrink-0"
+                      aria-label="Fechar"
+                      title="Fechar"
+                    >
+                      <span className="text-xl leading-none">×</span>
+                    </button>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    <p className="text-sm text-gray-600">
+                      Introduz os resultados de cada dupla. Set 1 e Set 2 são obrigatórios. Set 3 só se o resultado for 1-1.
+                    </p>
+                    {resultFormLoading ? (
+                      <Loading text="A carregar duplas..." />
+                    ) : resultPairs.length === 0 ? (
+                      <p className="text-sm text-amber-700">Este jogo ainda não tem duplas definidas. Fecha a convocatória primeiro.</p>
+                    ) : (
+                      <>
+                        <div className="space-y-4">
+                          {resultPairs.map((pair: any) => {
+                            const pairId = pair?.id ?? '';
+                            const res = resultFormResults[pairId] ?? defaultSetRow;
+                            const p1 = pair?.player1?.name ?? '—';
+                            const p2 = pair?.player2?.name ?? '—';
+                            return (
+                              <div key={pairId} className="p-4 rounded-xl border border-gray-200 bg-gray-50 space-y-3">
+                                <div className="font-medium text-gray-900">{p1} + {p2}</div>
+                                <div className="grid grid-cols-3 gap-3">
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Set 1 (casa - fora)</label>
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={7}
+                                        placeholder="6"
+                                        value={setInputDisplay(res.set1_casa)}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                                        onChange={(e) => setResultFormResults((prev) => ({
+                                          ...prev,
+                                          [pairId]: { ...defaultSetRow, ...prev[pairId], set1_casa: toNumResult(e.target.value) ?? 0 },
+                                        }))}
+                                      />
+                                      <span className="flex items-center">-</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={7}
+                                        placeholder="4"
+                                        value={setInputDisplay(res.set1_fora)}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                                        onChange={(e) => setResultFormResults((prev) => ({
+                                          ...prev,
+                                          [pairId]: { ...defaultSetRow, ...prev[pairId], set1_fora: toNumResult(e.target.value) ?? 0 },
+                                        }))}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Set 2 (casa - fora)</label>
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={7}
+                                        placeholder="6"
+                                        value={setInputDisplay(res.set2_casa)}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                                        onChange={(e) => setResultFormResults((prev) => ({
+                                          ...prev,
+                                          [pairId]: { ...defaultSetRow, ...prev[pairId], set2_casa: toNumResult(e.target.value) ?? 0 },
+                                        }))}
+                                      />
+                                      <span className="flex items-center">-</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={7}
+                                        placeholder="4"
+                                        value={setInputDisplay(res.set2_fora)}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                                        onChange={(e) => setResultFormResults((prev) => ({
+                                          ...prev,
+                                          [pairId]: { ...defaultSetRow, ...prev[pairId], set2_fora: toNumResult(e.target.value) ?? 0 },
+                                        }))}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Set 3 (opcional)</label>
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={7}
+                                        placeholder="—"
+                                        value={setInputDisplay(res.set3_casa ?? undefined)}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                                        onChange={(e) => setResultFormResults((prev) => ({
+                                          ...prev,
+                                          [pairId]: { ...defaultSetRow, ...prev[pairId], set3_casa: toNumResult(e.target.value) },
+                                        }))}
+                                      />
+                                      <span className="flex items-center">-</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={7}
+                                        placeholder="—"
+                                        value={setInputDisplay(res.set3_fora ?? undefined)}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500"
+                                        onChange={(e) => setResultFormResults((prev) => ({
+                                          ...prev,
+                                          [pairId]: { ...defaultSetRow, ...prev[pairId], set3_fora: toNumResult(e.target.value) },
+                                        }))}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <Button
+                          fullWidth
+                          className="mt-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg rounded-xl font-semibold"
+                          disabled={resultFormSaving}
+                          onClick={() => {
+                            const is66 = (c: number | null | undefined, f: number | null | undefined) =>
+                              c === 6 && f === 6;
+                            for (const pair of resultPairs) {
+                              const res = resultFormResults[pair?.id ?? ''] ?? defaultSetRow;
+                              const s1c = toNumResult(res.set1_casa);
+                              const s1f = toNumResult(res.set1_fora);
+                              const s2c = toNumResult(res.set2_casa);
+                              const s2f = toNumResult(res.set2_fora);
+                              const s3c = toNumResult(res.set3_casa);
+                              const s3f = toNumResult(res.set3_fora);
+                              if (s1c !== null && s1f !== null && is66(s1c, s1f)) {
+                                showToast('Em caso de 6-6, insira o resultado do tie-break (ex: 7-6 ou 6-7).', 'error');
+                                return;
+                              }
+                              if (s2c !== null && s2f !== null && is66(s2c, s2f)) {
+                                showToast('Em caso de 6-6, insira o resultado do tie-break (ex: 7-6 ou 6-7).', 'error');
+                                return;
+                              }
+                              if (s3c !== null && s3f !== null && is66(s3c, s3f)) {
+                                showToast('Em caso de 6-6, insira o resultado do tie-break (ex: 7-6 ou 6-7).', 'error');
+                                return;
+                              }
+                            }
+                            setResultFormConfirmOpen(true);
+                          }}
+                        >
+                          {resultFormSaving ? 'A guardar...' : 'Gravar Resultado'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <ConfirmDialog
+            isOpen={resultFormConfirmOpen}
+            title="Confirmar gravação"
+            message="Tem a certeza de que os dados estão corretos? O jogo ficará Finalizado e os pontos (10 vitória / 3 derrota) serão atualizados."
+            confirmText="Gravar"
+            cancelText="Cancelar"
+            variant="warning"
+            onCancel={() => setResultFormConfirmOpen(false)}
+            onConfirm={handleSaveResultConfirm}
+          />
         </CategoryCard>
 
         {/* Substituição de emergência — trocar jogador em duplas (convocatória já fechada) */}
@@ -1851,7 +2207,7 @@ export function SportManagementScreen() {
                               const suffix = confirmed ? ' (Confirmado)' : ' (Suplente)';
                               return (
                                 <option key={pl.id} value={pl.id} style={{ color: confirmed ? '#15803d' : '#dc2626' }}>
-                                  {prefix}{pl.name} ({pl.federation_points ?? 0} pts){suffix}
+                                  {prefix}{pl.name} (Total: {totalRawPlayerPoints(pl)} pts){suffix}
                                 </option>
                               );
                             })}
@@ -1872,7 +2228,7 @@ export function SportManagementScreen() {
                               const suffix = confirmed ? ' (Confirmado)' : ' (Suplente)';
                               return (
                                 <option key={pl.id} value={pl.id} style={{ color: confirmed ? '#15803d' : '#dc2626' }}>
-                                  {prefix}{pl.name} ({pl.federation_points ?? 0} pts){suffix}
+                                  {prefix}{pl.name} (Total: {totalRawPlayerPoints(pl)} pts){suffix}
                                 </option>
                               );
                             })}

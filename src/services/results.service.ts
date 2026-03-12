@@ -138,7 +138,7 @@ export const ResultsService = {
       throw new Error('created_by inválido');
     }
     const toInt = (v: number | string | null | undefined): number | null => {
-      if (v == null || v === '') return null;
+      if (v === '' || v === undefined || v === null) return null;
       const n = Number(v);
       return Number.isFinite(n) && Number.isInteger(n) ? n : null;
     };
@@ -149,6 +149,15 @@ export const ResultsService = {
     if (s1c == null || s1f == null || s2c == null || s2f == null) {
       throw new Error('Set 1 e Set 2 são obrigatórios (valores inteiros)');
     }
+    const is66 = (c: number | null, f: number | null) => c === 6 && f === 6;
+    if (is66(s1c, s1f) || is66(s2c, s2f)) {
+      throw new Error('Em caso de 6-6, insira o resultado do tie-break (ex: 7-6 ou 6-7).');
+    }
+    const s3c = toInt(result.set3_casa);
+    const s3f = toInt(result.set3_fora);
+    if (s3c != null && s3f != null && is66(s3c, s3f)) {
+      throw new Error('Em caso de 6-6, insira o resultado do tie-break (ex: 7-6 ou 6-7).');
+    }
     const payload: Record<string, string | number> = {
       game_id: gameId,
       pair_id: pairId,
@@ -158,8 +167,6 @@ export const ResultsService = {
       set2_casa: Number(s2c),
       set2_fora: Number(s2f),
     };
-    const s3c = toInt(result.set3_casa);
-    const s3f = toInt(result.set3_fora);
     if (s3c != null && s3f != null) {
       payload.set3_casa = Number(s3c);
       payload.set3_fora = Number(s3f);
@@ -251,21 +258,24 @@ export const ResultsService = {
 
     if (error) throw error;
 
+    const isEmptySet = (c: number | null, f: number | null) => c === 0 && f === 0;
+    const countSet = (casa: number | null, fora: number | null, tw: { w: number; l: number }) => {
+      if (casa == null || fora == null) return;
+      if (isEmptySet(casa, fora)) return;
+      const c = Number(casa);
+      const f = Number(fora);
+      if (c > f) tw.w += 1;
+      else if (f > c) tw.l += 1;
+    };
     let totalSetsWon = 0;
     let totalSetsLost = 0;
     (data ?? []).forEach((r: Record<string, number | null>) => {
-      if (r.set1_casa != null && r.set1_fora != null) {
-        if (Number(r.set1_casa) > Number(r.set1_fora)) totalSetsWon += 1;
-        else totalSetsLost += 1;
-      }
-      if (r.set2_casa != null && r.set2_fora != null) {
-        if (Number(r.set2_casa) > Number(r.set2_fora)) totalSetsWon += 1;
-        else totalSetsLost += 1;
-      }
-      if (r.set3_casa != null && r.set3_fora != null) {
-        if (Number(r.set3_casa) > Number(r.set3_fora)) totalSetsWon += 1;
-        else totalSetsLost += 1;
-      }
+      const acc = { w: totalSetsWon, l: totalSetsLost };
+      countSet(r.set1_casa, r.set1_fora, acc);
+      countSet(r.set2_casa, r.set2_fora, acc);
+      countSet(r.set3_casa, r.set3_fora, acc);
+      totalSetsWon = acc.w;
+      totalSetsLost = acc.l;
     });
 
     return {

@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
-import { Card, Button, Header, Loading, Toast, ToastType, Badge, ConfirmDialog } from '../components/ui';
+import { Card, Button, Header, Loading, Toast, ToastType, Badge } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
-import { GamesService, PairsService, ResultsService, AvailabilitiesService, syncPlayerPoints } from '../services';
-import { PlayerRoles } from '../domain/constants';
+import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
 import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
 import { openGoogleCalendar } from '../lib/shareLinks';
@@ -14,50 +13,19 @@ type Props = {
   id?: string;
 };
 
-function getErrorMessage(err: unknown): string {
-  if (!err) return 'Erro inesperado';
-  if (err instanceof Error) return err.message || 'Erro inesperado';
-  if (typeof err === 'object' && err && 'message' in err) {
-    const m = (err as any).message;
-    return typeof m === 'string' ? m : 'Erro inesperado';
-  }
-  return String(err);
-}
-
-function toNum(v: string | number | null | undefined): number | null {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) && Number.isInteger(n) ? n : null;
-}
-
 export function GameDetailsScreen({ id }: Props) {
-  const { navigate, goBack } = useNavigation();
-  const { user, role } = useAuth();
+  const { goBack } = useNavigation();
+  const { user } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
-  const isLoggedIn = Boolean(user?.id);
-  // Admin, gestor, coordenador e capitão podem gravar resultados (capitão só jogos da sua equipa; RLS aplica).
-  const canSaveResults = role === PlayerRoles.admin || role === PlayerRoles.gestor || role === PlayerRoles.coordenador || role === PlayerRoles.capitao;
-  const isReadOnlyByRole = !canSaveResults;
 
   const [loading, setLoading] = useState(true);
   const [game, setGame] = useState<any>(null);
   const [pairs, setPairs] = useState<any[]>([]);
   const [confirmedPlayers, setConfirmedPlayers] = useState<any[]>([]);
   const [results, setResults] = useState<Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }>>({});
-  const [saving, setSaving] = useState(false);
-  const [showConfirmGravar, setShowConfirmGravar] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
-
-  const defaultSetRow = {
-    set1_casa: 0,
-    set1_fora: 0,
-    set2_casa: 0,
-    set2_fora: 0,
-    set3_casa: null as number | null,
-    set3_fora: null as number | null,
-  };
 
   useEffect(() => {
     if (!gameId) {
@@ -259,15 +227,15 @@ export function GameDetailsScreen({ id }: Props) {
                       setsStr = s3 ? `${s1}, ${s2}, ${s3}` : `${s1}, ${s2}`;
                       let setsWon = 0;
                       let setsLost = 0;
-                      if (res.set1_casa != null && res.set1_fora != null) {
-                        if (Number(res.set1_casa) > Number(res.set1_fora)) setsWon += 1; else setsLost += 1;
-                      }
-                      if (res.set2_casa != null && res.set2_fora != null) {
-                        if (Number(res.set2_casa) > Number(res.set2_fora)) setsWon += 1; else setsLost += 1;
-                      }
-                      if (res.set3_casa != null && res.set3_fora != null) {
-                        if (Number(res.set3_casa) > Number(res.set3_fora)) setsWon += 1; else setsLost += 1;
-                      }
+                      const isEmptySet = (c: number, f: number) => c === 0 && f === 0;
+                      const count = (casa: number, fora: number) => {
+                        if (isEmptySet(casa, fora)) return;
+                        if (casa > fora) setsWon += 1;
+                        else if (fora > casa) setsLost += 1;
+                      };
+                      count(res.set1_casa ?? 0, res.set1_fora ?? 0);
+                      count(res.set2_casa ?? 0, res.set2_fora ?? 0);
+                      if (res.set3_casa != null && res.set3_fora != null) count(res.set3_casa, res.set3_fora);
                       outcome = setsWon > setsLost ? 'Vitória' : 'Derrota';
                     }
                     return (
@@ -342,222 +310,7 @@ export function GameDetailsScreen({ id }: Props) {
               </Card>
             )}
 
-            {['convocatoria_fechada', 'closed'].includes(game.status ?? '') && pairs.length > 0 && (
-              <Card>
-                <h3 className="text-base font-semibold text-gray-900 mb-4">Quadro de Resultados</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Introduz os resultados de cada dupla. Set 1 e Set 2 são obrigatórios. Set 3 só se o resultado for 1-1.
-                </p>
-                <div className="space-y-6">
-                  {pairs.map((pair: any) => {
-                    const pairId = pair?.id ?? '';
-                    const res = results[pairId] ?? defaultSetRow;
-                    const p1 = pair.player1?.name ?? '—';
-                    const p2 = pair.player2?.name ?? '—';
-                    const isReadOnly = isReadOnlyByRole;
-                    return (
-                      <div key={pairId} className="p-4 rounded-lg border border-gray-200 bg-gray-50 space-y-3" data-pair-id={pairId}>
-                        <div className="font-medium text-gray-900">
-                          {p1} + {p2}
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <label className="block text-xs text-gray-600 mb-1">Set 1 (casa - fora)</label>
-                            <div className="flex gap-1">
-                              <input
-                                type="number"
-                                min={0}
-                                max={7}
-                                placeholder="6"
-                                value={res.set1_casa ?? ''}
-                                readOnly={isReadOnly}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                onChange={(e) => {
-                                  const v = toNum(e.target.value);
-                                  setResults((prev) => ({
-                                    ...prev,
-                                    [pairId]: {
-                                      ...defaultSetRow,
-                                      ...prev[pairId],
-                                      set1_casa: v ?? 0,
-                                    },
-                                  }));
-                                }}
-                              />
-                              <span className="flex items-center">-</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={7}
-                                placeholder="4"
-                                value={res.set1_fora ?? ''}
-                                readOnly={isReadOnly}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                onChange={(e) => {
-                                  const v = toNum(e.target.value);
-                                  setResults((prev) => ({
-                                    ...prev,
-                                    [pairId]: { ...defaultSetRow, ...prev[pairId], set1_fora: v ?? 0 },
-                                  }));
-                                }}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-600 mb-1">Set 2 (casa - fora)</label>
-                            <div className="flex gap-1">
-                              <input
-                                type="number"
-                                min={0}
-                                max={7}
-                                placeholder="6"
-                                value={res.set2_casa ?? ''}
-                                readOnly={isReadOnly}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                onChange={(e) => {
-                                  const v = toNum(e.target.value);
-                                  setResults((prev) => ({
-                                    ...prev,
-                                    [pairId]: { ...defaultSetRow, ...prev[pairId], set2_casa: v ?? 0 },
-                                  }));
-                                }}
-                              />
-                              <span className="flex items-center">-</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={7}
-                                placeholder="4"
-                                value={res.set2_fora ?? ''}
-                                readOnly={isReadOnly}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                onChange={(e) => {
-                                  const v = toNum(e.target.value);
-                                  setResults((prev) => ({
-                                    ...prev,
-                                    [pairId]: { ...defaultSetRow, ...prev[pairId], set2_fora: v ?? 0 },
-                                  }));
-                                }}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-600 mb-1">Set 3 (opcional)</label>
-                            <div className="flex gap-1">
-                              <input
-                                type="number"
-                                min={0}
-                                max={7}
-                                placeholder="—"
-                                value={res.set3_casa ?? ''}
-                                readOnly={isReadOnly}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                onChange={(e) => {
-                                  const v = toNum(e.target.value);
-                                  setResults((prev) => ({
-                                    ...prev,
-                                    [pairId]: { ...defaultSetRow, ...prev[pairId], set3_casa: v },
-                                  }));
-                                }}
-                              />
-                              <span className="flex items-center">-</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={7}
-                                placeholder="—"
-                                value={res.set3_fora ?? ''}
-                                readOnly={isReadOnly}
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                onChange={(e) => {
-                                  const v = toNum(e.target.value);
-                                  setResults((prev) => ({
-                                    ...prev,
-                                    [pairId]: { ...defaultSetRow, ...prev[pairId], set3_fora: v },
-                                  }));
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {canSaveResults && (
-                  <>
-                    <Button
-                      fullWidth
-                      className="mt-4"
-                      disabled={saving || !isLoggedIn || ['concluido', 'completed', 'final'].includes(game.status ?? '')}
-                      onClick={() => {
-                        if (!gameId || saving) return;
-                        if (!isLoggedIn || !user?.id) {
-                          showToast('Não estás autenticado. Inicia sessão para guardar resultados.', 'error');
-                          return;
-                        }
-                        setShowConfirmGravar(true);
-                      }}
-                    >
-                      {saving ? 'A guardar...' : !isLoggedIn ? 'Inicia sessão para guardar' : ['concluido', 'completed', 'final'].includes(game.status ?? '') ? 'Resultados Guardados' : 'Gravar Resultados'}
-                    </Button>
-                    <ConfirmDialog
-                      isOpen={showConfirmGravar}
-                      title="Confirmar gravação"
-                      message="Tem a certeza de que os dados estão corretos? Esta ação irá encerrar o jogo."
-                      confirmText="OK"
-                      cancelText="Cancelar"
-                      variant="warning"
-                      onCancel={() => setShowConfirmGravar(false)}
-                      onConfirm={() => {
-                        setShowConfirmGravar(false);
-                        if (!gameId || !user?.id) return;
-                        const createdBy = String(user.id).trim();
-                        setSaving(true);
-                        (async () => {
-                          try {
-                            for (const pair of pairs) {
-                              const r = results[pair.id] ?? defaultSetRow;
-                              const s1c = toNum(r.set1_casa);
-                              const s1f = toNum(r.set1_fora);
-                              const s2c = toNum(r.set2_casa);
-                              const s2f = toNum(r.set2_fora);
-                              const s3c = toNum(r.set3_casa);
-                              const s3f = toNum(r.set3_fora);
-                              if (s1c == null || s1f == null || s2c == null || s2f == null) continue;
-                              const pairId = pair?.id && String(pair.id).trim() ? String(pair.id).trim() : null;
-                              if (!pairId) continue;
-                              const payload = {
-                                game_id: gameId,
-                                pair_id: pairId,
-                                created_by: createdBy,
-                                set1_casa: Number(s1c),
-                                set1_fora: Number(s1f),
-                                set2_casa: Number(s2c),
-                                set2_fora: Number(s2f),
-                                ...(s3c != null && s3f != null ? { set3_casa: Number(s3c), set3_fora: Number(s3f) } : {}),
-                              };
-                              await ResultsService.upsertResult(payload);
-                            }
-                            await GamesService.complete(gameId);
-                            await syncPlayerPoints(game?.team_id);
-                            setGame((prev: any) => (prev ? { ...prev, status: 'final' } : prev));
-                            showToast('Resultados guardados', 'success');
-                            setResults({});
-                            setSaving(false);
-                            navigate({ name: 'sport-management' });
-                          } catch (e) {
-                            console.error('[GameDetailsScreen] Erro ao guardar:', e);
-                            showToast(getErrorMessage(e), 'error');
-                            setSaving(false);
-                          }
-                        })();
-                      }}
-                    />
-                  </>
-                )}
-              </Card>
-            )}
+            {/* Registo de resultados: fazer na Gestão de Jogos (aba Convocatórias) — card "Registo de Resultado". */}
 
             {/* Botão Voltar (outline) no fundo */}
             <div className="pt-2">
