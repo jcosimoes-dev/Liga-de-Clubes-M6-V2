@@ -19,6 +19,7 @@ import { OfflineScreen } from './screens/OfflineScreen';
 import OfflineBanner from './components/OfflineBanner';
 import InstallAppPrompt from './components/InstallAppPrompt';
 import ConnectionRestoredToast from './components/ConnectionRestoredToast';
+import { WelcomeModal, getHasSeenWelcome } from './components/WelcomeModal';
 import { Loading } from './components/ui/Loading';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -50,6 +51,11 @@ const ALL_ROUTES = {
 function AppContent() {
   const { session, loading, user } = useAuth();
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+
+  useEffect(() => {
+    if (user?.id && !getHasSeenWelcome()) setShowWelcomeModal(true);
+  }, [user?.id]);
 
   useEffect(() => {
     const update = () => setIsOffline(!navigator.onLine);
@@ -105,6 +111,7 @@ function AppContent() {
         <NavigationProvider routes={ALL_ROUTES} initialRouteName="login" />
         <OfflineBanner />
         <InstallAppPrompt />
+        <WelcomeModal isOpen={showWelcomeModal} onClose={() => setShowWelcomeModal(false)} />
       </div>
     </ProtectedRoute>
   );
