@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Button, Badge, Loading, Header, Toast, ToastType } from '../components/ui';
 import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/categoryTheme';
@@ -8,16 +8,29 @@ import { GamesService } from '../services';
 import { supabase } from '../lib/supabase';
 import { Calendar, MapPin, Users, Trophy, UserCircle } from 'lucide-react';
 
+type OpenGamesTab = 'liga' | 'outros';
+
 export function HomeScreen() {
   const { user, session, player, isAdmin, loading: authLoading, refreshPlayer } = useAuth();
   const { route, navigate } = useNavigation();
   const profileRefreshedRef = useRef(false);
 
   const [openGames, setOpenGames] = useState<any[]>([]);
+  const [openGamesTab, setOpenGamesTab] = useState<OpenGamesTab>('liga');
   const [gamesPlayed, setGamesPlayed] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+
+  const ligaGames = useMemo(
+    () => openGames.filter((g) => getCategoryFromPhase(g.phase) === 'Liga'),
+    [openGames]
+  );
+  const outrosGames = useMemo(
+    () => openGames.filter((g) => getCategoryFromPhase(g.phase) !== 'Liga'),
+    [openGames]
+  );
+  const filteredOpenGames = openGamesTab === 'liga' ? ligaGames : outrosGames;
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
 
   useEffect(() => {
@@ -194,9 +207,41 @@ export function HomeScreen() {
             Consulta os jogos com convocatória aberta. Confirma a tua presença no Calendário.
           </p>
 
-          {openGames.length > 0 ? (
+          {/* Tabs Liga M6 / Outros Eventos */}
+          <div className="mb-4 p-2 bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setOpenGamesTab('liga')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  openGamesTab === 'liga'
+                    ? 'bg-green-50 text-green-800 shadow-sm border-b-[3px] border-green-600 rounded-b-xl'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+                }`}
+              >
+                <span aria-hidden>🏆</span>
+                <span>Liga M6</span>
+                <span className="tabular-nums">({ligaGames.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpenGamesTab('outros')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  openGamesTab === 'outros'
+                    ? 'bg-blue-50 text-blue-800 shadow-sm border-b-[3px] border-blue-600 rounded-b-xl'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+                }`}
+              >
+                <span aria-hidden>🎾</span>
+                <span>Outros Eventos</span>
+                <span className="tabular-nums">({outrosGames.length})</span>
+              </button>
+            </div>
+          </div>
+
+          {filteredOpenGames.length > 0 ? (
             <div className={GRID_CLASSES}>
-              {openGames.map((game: any) => {
+              {filteredOpenGames.map((game: any) => {
                 const cat = getCategoryFromPhase(game.phase);
                 const styles = CATEGORY_STYLES[cat];
                 return (
@@ -232,8 +277,20 @@ export function HomeScreen() {
           ) : (
             <div className="text-center py-6">
               <Calendar className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-gray-600 font-medium">Sem jogos em aberto</p>
-              <p className="text-xs text-gray-500 mt-1">Novos jogos aparecerão aqui quando criados</p>
+              <p className="text-gray-600 font-medium">
+                {openGames.length === 0
+                  ? 'Sem jogos em aberto'
+                  : openGamesTab === 'liga'
+                    ? 'Sem jogos da Liga em aberto'
+                    : 'Sem outros eventos em aberto'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {openGames.length === 0
+                  ? 'Novos jogos aparecerão aqui quando criados'
+                  : openGamesTab === 'liga'
+                    ? 'Jogos de Qualificação, Regionais e Nacionais aparecerão aqui'
+                    : 'Torneios, Mixes e Treinos aparecerão aqui'}
+              </p>
             </div>
           )}
         </CategoryCard>
