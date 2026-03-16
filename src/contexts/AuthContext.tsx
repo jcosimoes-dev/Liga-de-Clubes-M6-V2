@@ -61,6 +61,19 @@ const AuthContext = createContext<AuthCtx | null>(null);
 
 const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
+/** Hardcoded Admin for project owner. Este e-mail recebe sempre role 'admin', ignorando a BD. */
+const HARDCODED_ADMIN_EMAIL = 'jco.simoes@gmail.com';
+
+/** Aplica role admin para o e-mail do dono do projeto, ignorando o valor da BD. */
+function applyHardcodedAdmin(profile: Player | null, email: string | null | undefined): Player | null {
+  if (!profile) return profile;
+  // Hardcoded Admin for project owner.
+  if ((email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
+    return { ...profile, role: PlayerRoles.admin };
+  }
+  return profile;
+}
+
 /**
  * Lê o perfil do utilizador da tabela players (coluna role: 'admin' | 'gestor' | 'coordenador' | 'capitao' | 'jogador').
  * A role é usada para menus e rotas (Gestão de Jogos para admin/coordenador/capitão). Aceita 'coordinator' (EN) → coordenador.
@@ -109,7 +122,7 @@ async function fetchPlayerByUserId(userId: string): Promise<Player | null> {
  */
 async function ensurePlayerProfile(userId: string, authUser: { email?: string | null; user_metadata?: Record<string, unknown> }): Promise<Player | null> {
   let profile = await fetchPlayerByUserId(userId);
-  if (profile) return profile;
+  if (profile) return applyHardcodedAdmin(profile, authUser.email);
 
   const email = (authUser.email ?? '').trim().toLowerCase();
   const name = (authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? email?.split('@')[0] ?? 'Utilizador').toString().trim() || 'Utilizador';
@@ -143,7 +156,7 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
   }
 
   profile = await fetchPlayerByUserId(userId);
-  return profile;
+  return applyHardcodedAdmin(profile, authUser.email);
 }
 
 /**
