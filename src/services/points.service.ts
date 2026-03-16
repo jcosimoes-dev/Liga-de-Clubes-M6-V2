@@ -260,12 +260,11 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
     console.log(`${LOG_PREFIX} getTeamPerformanceStats sem teamId válido`);
     return EMPTY_TEAM_STATS;
   }
-  const effectiveTeamId = teamId || OFFICIAL_M6_TEAM_ID;
-
+  try {
   const { data: games, error } = await supabase
     .from('games')
     .select('id, status, team_points, no_show')
-    .eq('team_id', effectiveTeamId)
+    .eq('team_id', teamId)
     .in('status', [...STATUS_TEAM_PERFORMANCE]);
 
   if (error) {
@@ -340,7 +339,7 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
 
   const totalPoints = wins * 3 + losses * 1;
 
-  console.log(`${LOG_PREFIX} getTeamPerformanceStats teamId=${effectiveTeamId} jogos=${list.length} V=${wins} D=${losses} F=${noShows} pts=${totalPoints}`);
+  console.log(`${LOG_PREFIX} getTeamPerformanceStats teamId=${teamId} jogos=${list.length} V=${wins} D=${losses} F=${noShows} pts=${totalPoints}`);
 
   return {
     wins,
@@ -349,6 +348,10 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
     totalPoints,
     record: `${wins}-${losses}-${noShows}`,
   };
+  } catch (e) {
+    console.error(`${LOG_PREFIX} getTeamPerformanceStats exceção:`, e);
+    return EMPTY_TEAM_STATS;
+  }
 }
 
 export interface GetPlayerRankingOptions {
@@ -368,7 +371,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   }
   const category = options?.category || 'Geral';
   console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId, 'category:', category);
-
+  try {
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
     .select('id, team_id, status, phase')
@@ -521,6 +524,10 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
 
   console.log(`${LOG_PREFIX} getPlayerRanking resultado (category=${category ?? 'Geral'}):`, out.length, 'linhas');
   return out;
+  } catch (e) {
+    console.error(`${LOG_PREFIX} getPlayerRanking exceção:`, e);
+    return [];
+  }
 }
 
 /** Status considerado "check verde" para disponibilidade */
@@ -597,12 +604,12 @@ export async function getSeasonStats(
   teamId: string,
   options?: GetSeasonStatsOptions
 ): Promise<GetSeasonStatsResult> {
-  if (!teamId) return { rows: [], totalGamesInPeriod: 0 };
+  if (!teamId || typeof teamId !== 'string') return { rows: [], totalGamesInPeriod: 0 };
 
   const { startDate, endDate, category: optCategory } = options ?? {};
   const category = optCategory || 'Geral';
   console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId, options ? { startDate, endDate, category } : 'sem filtro');
-
+  try {
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
     .select('id, game_date, starts_at, phase')
@@ -760,6 +767,10 @@ export async function getSeasonStats(
     rows: rows.sort((a, b) => b.disponibilidade - a.disponibilidade),
     totalGamesInPeriod,
   };
+  } catch (e) {
+    console.error(`${LOG_PREFIX} getSeasonStats exceção:`, e);
+    return { rows: [], totalGamesInPeriod: 0 };
+  }
 }
 
 /**

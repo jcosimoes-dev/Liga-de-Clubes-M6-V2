@@ -233,12 +233,20 @@ function computeCanManageFederationPoints(player: Player | null): boolean {
 
 /** Chaves de localStorage que podem guardar teamId antigo — limpar no login do dono para evitar 404. */
 const POSSIBLE_TEAM_CACHE_KEYS = ['app-team-id', 'liga-m6-team-id', 'team_id', 'selectedTeamId'];
+/** ID de equipa que já não existe na BD — forçar reset para o dono do projeto. */
+const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 
 function clearOwnerStaleTeamCache(): void {
   if (typeof window === 'undefined') return;
   try {
     POSSIBLE_TEAM_CACHE_KEYS.forEach((key) => window.localStorage.removeItem(key));
-    Object.keys(window.localStorage).filter((k) => /team/i.test(k)).forEach((k) => window.localStorage.removeItem(k));
+    Object.keys(window.localStorage)
+      .filter((k) => /team/i.test(k))
+      .forEach((k) => window.localStorage.removeItem(k));
+    // Limpar qualquer chave cujo valor seja o ID de equipa inválido
+    Object.keys(window.localStorage).forEach((k) => {
+      if (window.localStorage.getItem(k) === DEAD_TEAM_ID) window.localStorage.removeItem(k);
+    });
   } catch {
     // ignore
   }

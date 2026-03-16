@@ -5,7 +5,7 @@ import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/c
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
-import { GamesService, AvailabilitiesService, PairsService, PlayersService, ResultsService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints, OFFICIAL_M6_TEAM_ID } from '../services';
+import { GamesService, AvailabilitiesService, PairsService, PlayersService, ResultsService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints } from '../services';
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
@@ -51,7 +51,8 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
 export function SportManagementScreen() {
   const { player, canManageSport, role, loading: authLoading } = useAuth();
   const isHardcodedAdmin = role === PlayerRoles.admin;
-  const effectiveTeamId = player?.team_id ?? (isHardcodedAdmin ? OFFICIAL_M6_TEAM_ID : undefined);
+  // Admin sem equipa: não usar OFFICIAL_M6_TEAM_ID (pode não existir na BD). Usar undefined para não chamar APIs com ID inválido.
+  const effectiveTeamId = player?.team_id ?? (isHardcodedAdmin ? undefined : undefined);
   const { navigate, goBack } = useNavigation();
   const [gameType, setGameType] = useState<GameType>('Liga');
   const [ligaPhase, setLigaPhase] = useState<LigaPhase>('Qualificação');
@@ -177,24 +178,33 @@ export function SportManagementScreen() {
 
   const loadDashboard = async () => {
     const tid = effectiveTeamId;
-    if (!tid || !canManageSport) return;
     setDashboardLoading(true);
+    if (!tid || !canManageSport) {
+      setRanking([]);
+      setTeamStats(null);
+      setSeasonStatsEpoca([]);
+      setSeasonStatsMes([]);
+      setTotalGamesEpoca(0);
+      setTotalGamesMes(0);
+      setDashboardLoading(false);
+      return;
+    }
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     try {
       const [rankData, teamData, seasonEpoca, seasonMes] = await Promise.all([
         getPlayerRanking(tid),
-        getTeamPerformanceStats(OFFICIAL_M6_TEAM_ID),
+        getTeamPerformanceStats(tid),
         getSeasonStats(tid),
         getSeasonStats(tid, { startDate: thirtyDaysAgo, endDate: now }),
       ]);
-      setRanking(rankData);
-      setTeamStats(teamData);
-      setSeasonStatsEpoca(seasonEpoca.rows);
-      setSeasonStatsMes(seasonMes.rows);
-      setTotalGamesEpoca(seasonEpoca.totalGamesInPeriod);
-      setTotalGamesMes(seasonMes.totalGamesInPeriod);
+      setRanking(Array.isArray(rankData) ? rankData : []);
+      setTeamStats(teamData ?? null);
+      setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
+      setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
+      setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
+      setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
     } catch {
       setRanking([]);
       setTeamStats(null);
@@ -638,7 +648,7 @@ export function SportManagementScreen() {
         });
       }
       await GamesService.complete(game.id);
-      await syncPlayerPoints(player?.team_id ?? game?.team_id ?? OFFICIAL_M6_TEAM_ID);
+      await syncPlayerPoints(player?.team_id ?? game?.team_id ?? undefined);
       showToast('Resultados guardados. Pontos atualizados (10 vitória / 3 derrota).', 'success');
       setSelectedGameForResult(null);
       setResultPairs([]);
@@ -1022,7 +1032,7 @@ export function SportManagementScreen() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 py-4 text-center text-gray-500">Sem dados disponíveis</div>
+                <div className="mt-4 py-4 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</div>
               )}
             </div>
           </Card>
@@ -1101,7 +1111,7 @@ export function SportManagementScreen() {
                     <tbody>
                       {rankingWithDisp.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-4 text-center text-gray-500">Sem dados disponíveis</td>
+                          <td colSpan={7} className="py-4 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</td>
                         </tr>
                       ) : (
                         (() => {
@@ -1204,7 +1214,7 @@ export function SportManagementScreen() {
                   <tbody>
                     {(statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes).length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-gray-500">Sem dados disponíveis</td>
+                        <td colSpan={8} className="py-8 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</td>
                       </tr>
                     ) : (
                       (() => {
@@ -1453,8 +1463,8 @@ export function SportManagementScreen() {
           ) : openGames.length === 0 ? (
             <div className="text-center py-6">
               <Lock className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-gray-600 font-medium">Sem jogos em aberto</p>
-              <p className="text-xs text-gray-500 mt-1">Cria um jogo acima para abrir convocatória</p>
+              <p className="text-gray-600 font-medium">{effectiveTeamId ? 'Sem jogos em aberto' : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}</p>
+              <p className="text-xs text-gray-500 mt-1">{effectiveTeamId ? 'Cria um jogo acima para abrir convocatória' : 'Vai ao Painel Admin para criar a equipa e os jogadores.'}</p>
             </div>
           ) : (
             <div className={GRID_CLASSES}>
@@ -1822,7 +1832,7 @@ export function SportManagementScreen() {
           {closedGamesLoading ? (
             <Loading text="A carregar jogos..." />
           ) : closedGames.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum jogo com convocatória fechada para registar resultado.</p>
+            <p className="text-sm text-gray-500">{effectiveTeamId ? 'Nenhum jogo com convocatória fechada para registar resultado.' : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}</p>
           ) : (
             <div className="space-y-4">
               <div className={GRID_CLASSES}>
@@ -2061,7 +2071,7 @@ export function SportManagementScreen() {
           {closedGamesLoading ? (
             <Loading text="A carregar jogos..." />
           ) : closedGames.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum jogo com convocatória fechada.</p>
+            <p className="text-sm text-gray-500">{effectiveTeamId ? 'Nenhum jogo com convocatória fechada.' : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}</p>
           ) : (
             <div className={GRID_CLASSES + ' mb-4'}>
               {closedGames.map((game: any) => {
