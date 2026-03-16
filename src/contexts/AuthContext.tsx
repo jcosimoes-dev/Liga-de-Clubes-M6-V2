@@ -108,20 +108,11 @@ async function fetchPlayerByUserId(userId: string): Promise<Player | null> {
     throw error;
   }
   const raw = data as Record<string, unknown> | null;
-  if (import.meta.env.DEV && raw) {
-    console.log('[AuthContext] Colunas da tabela players:', Object.keys(raw));
-  }
-
   const roleValue = raw?.role ?? (raw as { user_role?: string })?.user_role ?? null;
   const profile: Player | null = raw
     ? { ...raw, role: roleValue } as Player
     : null;
 
-  // Avisar só quando a role está em falta na BD (null/vazia), não quando é 'jogador' (válido)
-  const roleMissing = profile && (roleValue == null || String(roleValue).trim() === '');
-  if (roleMissing) {
-    console.warn('[AuthContext] A role na BD está vazia para este utilizador. Verifica a coluna role (ou user_role) na tabela players.');
-  }
   return profile;
 }
 
@@ -162,7 +153,6 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
     .upsert(payload, { onConflict: 'user_id', ignoreDuplicates: true });
 
   if (upsertError) {
-    console.warn('[AuthContext] upsert perfil base falhou (RLS/constraint):', upsertError.message);
     if ((authUser.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
       return syntheticOwnerProfile(userId, authUser);
     }
@@ -266,21 +256,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canManageSport = isOwnerEmail || computeCanManageSport(player);
   const canManageFederationPoints = isOwnerEmail || computeCanManageFederationPoints(player);
 
-  // Debug (apenas em desenvolvimento): role e permissões
-  useEffect(() => {
-    if (!player || !import.meta.env.DEV) return;
-    console.log('[AuthContext] Perfil carregado:', { role: player.role, normalizado: role, isAdmin, canManageSport });
-  }, [player?.id, player?.role, role, isAdmin, canManageSport]);
-
-  // Avisar só quando a role está em falta na BD (não quando é 'jogador', que é válido)
-  useEffect(() => {
-    if (!player) return;
-    const roleMissing = player.role == null || String(player.role).trim() === '';
-    if (roleMissing) {
-      console.warn('[AuthContext] A role na BD está vazia. Menus Admin/Gestão podem ficar escondidos. Verifica a coluna role na tabela players.');
-    }
-  }, [player?.id, player?.role]);
-
   // Limpeza de memória: ao detetar login do dono, limpar teamId antigo do localStorage para evitar 404
   useEffect(() => {
     if (user?.email && isOwnerEmail) clearOwnerStaleTeamCache();
@@ -315,7 +290,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (!cancelled) setPlayer(applyHardcodedAdmin(p, s?.user?.email));
         })
         .catch((e) => {
-          console.error('[AuthContext] ensurePlayerProfile error:', e);
           if (!cancelled) {
             if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
               setPlayer(syntheticOwnerProfile(s.user.id, s.user));
@@ -375,7 +349,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setPlayer(applyHardcodedAdmin(p, newSession?.user?.email));
         })
         .catch((e) => {
-          console.error('[AuthContext] ensurePlayerProfile error:', e);
           if ((newSession?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
             setPlayer(syntheticOwnerProfile(newSession.user.id, newSession.user));
           } else {

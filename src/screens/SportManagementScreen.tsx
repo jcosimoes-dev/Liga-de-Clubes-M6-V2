@@ -48,9 +48,15 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
  * Gestão de Jogos: apenas JOGOS (Criar/Abrir Convocatória).
  * phase na BD: Liga → Qualificação|Regionais|Nacionais; outros → Torneio|Mix|Treino.
  */
+const OWNER_EMAIL = 'jco.simoes@gmail.com';
+const isOwnerEmail = (email: string | null | undefined) =>
+  (email ?? '').trim().toLowerCase() === OWNER_EMAIL;
+
 export function SportManagementScreen() {
-  const { player, canManageSport, role, loading: authLoading } = useAuth();
+  const { player, user, canManageSport, role, loading: authLoading } = useAuth();
   const isHardcodedAdmin = role === PlayerRoles.admin;
+  /** Forçar acesso para o dono do projeto e para role admin; bypass de equipa quando team_id é nulo. */
+  const canManage = isOwnerEmail(user?.email) || role === PlayerRoles.admin || canManageSport;
   // Admin sem equipa: não usar OFFICIAL_M6_TEAM_ID (pode não existir na BD). Usar undefined para não chamar APIs com ID inválido.
   const effectiveTeamId = player?.team_id ?? (isHardcodedAdmin ? undefined : undefined);
   const { navigate, goBack } = useNavigation();
@@ -819,7 +825,9 @@ export function SportManagementScreen() {
     e.preventDefault();
     setGameError('');
     if (authLoading) return;
-    if (!player?.id) {
+    // Bypass: dono do projeto pode criar convocatória mesmo sem perfil/equipa na BD (usa user.id como created_by se necessário).
+    const createdBy = player?.id ?? (isOwnerEmail(user?.email) ? user?.id : null);
+    if (!createdBy) {
       setGameError('Perfil ainda a carregar ou não encontrado. Espera ou faz logout e login.');
       return;
     }
@@ -849,7 +857,7 @@ export function SportManagementScreen() {
         location,
         phase,
         team_id: effectiveTeamId ?? player?.team_id ?? null,
-        created_by: player.id,
+        created_by: createdBy,
       };
       const game = await GamesService.create(gameData);
 
@@ -877,7 +885,7 @@ export function SportManagementScreen() {
     }
   };
 
-  if (!canManageSport) {
+  if (!canManage) {
     return (
       <Layout>
         <Header title="Gestão de Jogos" onBack={goBack} />
@@ -1398,10 +1406,10 @@ export function SportManagementScreen() {
             <Button
               type="submit"
               fullWidth
-              disabled={loading || authLoading}
+              disabled={loading || (!isOwnerEmail(user?.email) && !(role === PlayerRoles.admin) && authLoading)}
               className={CATEGORY_STYLES[gameType].buttonClasses}
             >
-              {authLoading ? 'A carregar perfil...' : loading ? 'A criar...' : 'Criar e Abrir Convocatória'}
+              {!isOwnerEmail(user?.email) && role !== PlayerRoles.admin && authLoading ? 'A carregar perfil...' : loading ? 'A criar...' : 'Criar e Abrir Convocatória'}
             </Button>
           </form>
         </CategoryCard>

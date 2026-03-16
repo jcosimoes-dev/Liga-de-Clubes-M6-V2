@@ -56,8 +56,9 @@ export function NavigationProvider({
   const historyStackRef = useRef<RouteEntry[]>([]);
   const MAX_HISTORY = 50;
 
-  const { role, session, mustChangePassword, player, canManageSport } = useAuth();
+  const { role, session, user, mustChangePassword, player, canManageSport } = useAuth();
   const isAdmin = (role || '').trim() === PlayerRoles.admin;
+  const isOwnerEmail = (user?.email ?? '').trim().toLowerCase() === 'jco.simoes@gmail.com';
 
   const PUBLIC_ROUTES: RouteName[] = ['login', 'register', 'reset-password'];
   const isPublicRoute = PUBLIC_ROUTES.includes(route.name);
@@ -88,7 +89,7 @@ export function NavigationProvider({
 
   const allowedForRole = [
     ...ROUTES_ALLOWED_FOR_PLAYER,
-    ...(canManageSport ? ROUTES_FOR_SPORT_MANAGEMENT : []),
+    ...(canManageSport || isOwnerEmail ? ROUTES_FOR_SPORT_MANAGEMENT : []),
     ...(isAdmin ? ['admin'] : []),
   ];
   const isForbidden = route.name != null && !allowedForRole.includes(route.name);
