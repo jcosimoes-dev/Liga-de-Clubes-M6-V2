@@ -64,14 +64,25 @@ const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 /** Hardcoded Admin for project owner. Este e-mail recebe sempre role 'admin', ignorando a BD. */
 const HARDCODED_ADMIN_EMAIL = 'jco.simoes@gmail.com';
 
-/** Aplica role admin para o e-mail do dono do projeto, ignorando o valor da BD. */
+/** Aplica role admin e team_id null para o dono do projeto, ignorando a BD. Garante acesso total mesmo sem equipa. */
 function applyHardcodedAdmin(profile: Player | null, email: string | null | undefined): Player | null {
-  if (!profile) return profile;
+  const isOwner = (email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
   // Hardcoded Admin for project owner.
-  if ((email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
-    return { ...profile, role: PlayerRoles.admin };
+  if (isOwner && profile) {
+    return { ...profile, role: PlayerRoles.admin, team_id: null };
   }
   return profile;
+}
+
+/** Perfil mínimo para o dono do projeto quando a BD falha ou está vazia — garante que Admin/Gestão continuam acessíveis. */
+function syntheticOwnerProfile(userId: string, authUser: { email?: string | null }): Player {
+  return {
+    id: userId,
+    user_id: userId,
+    name: (authUser.email ?? 'Admin').split('@')[0] || 'Admin',
+    role: PlayerRoles.admin,
+    team_id: null,
+  } as Player;
 }
 
 /**
@@ -152,6 +163,9 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
 
   if (upsertError) {
     console.warn('[AuthContext] upsert perfil base falhou (RLS/constraint):', upsertError.message);
+    if ((authUser.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
+      return syntheticOwnerProfile(userId, authUser);
+    }
     return null;
   }
 
@@ -275,7 +289,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
         .catch((e) => {
           console.error('[AuthContext] ensurePlayerProfile error:', e);
-          if (!cancelled) setPlayer(null);
+          if (!cancelled) {
+            if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
+              setPlayer(syntheticOwnerProfile(s.user.id, s.user));
+            } else {
+              setPlayer(null);
+            }
+          }
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -299,7 +319,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         ensurePlayerProfile(s.user.id, s.user)
           .then((p) => setPlayer(p))
-          .catch(() => setPlayer(null));
+          .catch(() => {
+            if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
+              setPlayer(syntheticOwnerProfile(s.user.id, s.user));
+            } else {
+              setPlayer(null);
+            }
+          });
       });
     };
     window.addEventListener('storage', handleStorage);
@@ -323,7 +349,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
         .catch((e) => {
           console.error('[AuthContext] ensurePlayerProfile error:', e);
-          setPlayer(null);
+          if ((newSession?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
+            setPlayer(syntheticOwnerProfile(newSession.user.id, newSession.user));
+          } else {
+            setPlayer(null);
+          }
         })
         .finally(() => {
           setLoading(false);

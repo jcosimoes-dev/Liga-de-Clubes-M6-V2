@@ -50,6 +50,8 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
  */
 export function SportManagementScreen() {
   const { player, canManageSport, role, loading: authLoading } = useAuth();
+  const isHardcodedAdmin = role === PlayerRoles.admin;
+  const effectiveTeamId = player?.team_id ?? (isHardcodedAdmin ? OFFICIAL_M6_TEAM_ID : undefined);
   const { navigate, goBack } = useNavigation();
   const [gameType, setGameType] = useState<GameType>('Liga');
   const [ligaPhase, setLigaPhase] = useState<LigaPhase>('Qualificação');
@@ -156,10 +158,10 @@ export function SportManagementScreen() {
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
 
   const handleRecalcularPontos = async () => {
-    if (recalculatingPoints || !player?.team_id) return;
+    if (recalculatingPoints || !effectiveTeamId) return;
     setRecalculatingPoints(true);
     try {
-      const { updated, errors } = await syncPlayerPoints(player.team_id);
+      const { updated, errors } = await syncPlayerPoints(effectiveTeamId);
       if (errors.length > 0) {
         showToast(`Atualizados: ${updated}. Erros: ${errors.slice(0, 2).join('; ')}`, 'error');
       } else {
@@ -174,7 +176,7 @@ export function SportManagementScreen() {
   };
 
   const loadDashboard = async () => {
-    const tid = player?.team_id;
+    const tid = effectiveTeamId;
     if (!tid || !canManageSport) return;
     setDashboardLoading(true);
     const now = new Date();
@@ -217,7 +219,8 @@ export function SportManagementScreen() {
 
   /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
   useEffect(() => {
-    if (rankingCategoryFilter === 'Geral' || !player?.team_id) {
+    const category = rankingCategoryFilter || 'Geral';
+    if (category === 'Geral' || !effectiveTeamId) {
       setRankingCategoryStats(null);
       setRankingCategoryTotalGames(0);
       setRankingByCategory(null);
@@ -225,11 +228,10 @@ export function SportManagementScreen() {
     }
     let cancelled = false;
     setRankingCategoryLoading(true);
-    const tid = player.team_id;
-    const category = rankingCategoryFilter;
+    const tid = effectiveTeamId;
     Promise.all([
-      getSeasonStats(tid, { category }),
-      getPlayerRanking(tid, { category }),
+      getSeasonStats(tid, { category: category || 'Geral' }),
+      getPlayerRanking(tid, { category: category || 'Geral' }),
     ])
       .then(([statsRes, rankingRows]) => {
         if (cancelled) return;
@@ -248,7 +250,7 @@ export function SportManagementScreen() {
         if (!cancelled) setRankingCategoryLoading(false);
       });
     return () => { cancelled = true; };
-  }, [rankingCategoryFilter, player?.team_id]);
+  }, [rankingCategoryFilter, effectiveTeamId]);
 
   useEffect(() => {
     if (selectedGameForSwap) {
@@ -836,7 +838,7 @@ export function SportManagementScreen() {
         opponent,
         location,
         phase,
-        team_id: player.team_id ?? null,
+        team_id: effectiveTeamId ?? player?.team_id ?? null,
         created_by: player.id,
       };
       const game = await GamesService.create(gameData);

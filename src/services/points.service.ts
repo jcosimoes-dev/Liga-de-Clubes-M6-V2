@@ -352,8 +352,8 @@ export interface GetPlayerRankingOptions {
  * Com category 'Treino': lista todos os jogadores da equipa com pontos a 0 (Liga/Fed escondidos nesta vista).
  */
 export async function getPlayerRanking(teamId: string, options?: GetPlayerRankingOptions): Promise<PlayerRankingRow[]> {
-  const category = options?.category;
-  console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId, 'category:', category ?? 'Geral');
+  const category = options?.category || 'Geral';
+  console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId, 'category:', category);
 
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
@@ -581,7 +581,8 @@ export async function getSeasonStats(
 ): Promise<GetSeasonStatsResult> {
   if (!teamId) return { rows: [], totalGamesInPeriod: 0 };
 
-  const { startDate, endDate, category } = options ?? {};
+  const { startDate, endDate, category: optCategory } = options ?? {};
+  const category = optCategory || 'Geral';
   console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId, options ? { startDate, endDate, category } : 'sem filtro');
 
   const { data: allTeamGames, error: gamesAllError } = await supabase
