@@ -352,6 +352,10 @@ export interface GetPlayerRankingOptions {
  * Com category 'Treino': lista todos os jogadores da equipa com pontos a 0 (Liga/Fed escondidos nesta vista).
  */
 export async function getPlayerRanking(teamId: string, options?: GetPlayerRankingOptions): Promise<PlayerRankingRow[]> {
+  if (!teamId || typeof teamId !== 'string') {
+    console.log(`${LOG_PREFIX} getPlayerRanking sem teamId válido, a devolver []`);
+    return [];
+  }
   const category = options?.category || 'Geral';
   console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId, 'category:', category);
 
@@ -363,6 +367,10 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
 
   if (gamesError) {
     console.error(`${LOG_PREFIX} getPlayerRanking erro jogos:`, gamesError);
+    return [];
+  }
+  if (!gamesRaw) {
+    console.log(`${LOG_PREFIX} getPlayerRanking sem jogos (data null), a devolver []`);
     return [];
   }
 

@@ -64,10 +64,10 @@ const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 /** Hardcoded Admin for project owner. Este e-mail recebe sempre role 'admin', ignorando a BD. */
 const HARDCODED_ADMIN_EMAIL = 'jco.simoes@gmail.com';
 
-/** Aplica role admin e team_id null para o dono do projeto, ignorando a BD. Garante acesso total mesmo sem equipa. */
+/** Aplica role admin e team_id null para o dono do projeto, ignorando a BD e cache. Garante acesso total mesmo sem equipa. */
 function applyHardcodedAdmin(profile: Player | null, email: string | null | undefined): Player | null {
   const isOwner = (email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
-  // Hardcoded Admin for project owner.
+  // Hardcoded Admin for project owner: role = admin, team_id = null (ignora equipa antiga ou inexistente).
   if (isOwner && profile) {
     return { ...profile, role: PlayerRoles.admin, team_id: null };
   }
@@ -265,7 +265,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const p = await ensurePlayerProfile(user.id, user);
-    setPlayer(p);
+    setPlayer(applyHardcodedAdmin(p, user?.email));
   };
 
   const refreshProfile = refreshPlayer;
@@ -285,7 +285,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(s);
       ensurePlayerProfile(s.user.id, s.user)
         .then((p) => {
-          if (!cancelled) setPlayer(p);
+          if (!cancelled) setPlayer(applyHardcodedAdmin(p, s?.user?.email));
         })
         .catch((e) => {
           console.error('[AuthContext] ensurePlayerProfile error:', e);
@@ -318,7 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         ensurePlayerProfile(s.user.id, s.user)
-          .then((p) => setPlayer(p))
+          .then((p) => setPlayer(applyHardcodedAdmin(p, s?.user?.email)))
           .catch(() => {
             if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
               setPlayer(syntheticOwnerProfile(s.user.id, s.user));
@@ -345,7 +345,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       ensurePlayerProfile(newSession.user.id, newSession.user)
         .then((p) => {
-          setPlayer(p);
+          setPlayer(applyHardcodedAdmin(p, newSession?.user?.email));
         })
         .catch((e) => {
           console.error('[AuthContext] ensurePlayerProfile error:', e);
