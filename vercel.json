@@ -1,5 +1,12 @@
 {
   "rewrites": [
+    { "source": "/gestao", "destination": "/index.html" },
+    { "source": "/gestao/", "destination": "/index.html" },
+    { "source": "/gestao/:path*", "destination": "/index.html" },
+    { "source": "/jogos/:path*", "destination": "/index.html" },
+    { "source": "/login", "destination": "/index.html" },
+    { "source": "/register", "destination": "/index.html" },
+    { "source": "/reset-password", "destination": "/index.html" },
     { "source": "/((?!assets/|.*\\.(js|css|ico|png|svg|woff2?|ttf|eot)).*)", "destination": "/index.html" }
   ]
 }

@@ -115,16 +115,12 @@ export function NavigationProvider({
       }
       return { name, params };
     });
-    // Atualizar URL para manter rota ao recarregar/voltar da outra aba
+    // Atualizar URL para manter rota ao recarregar/voltar da outra aba (sempre caminho absoluto desde a raiz para evitar /gestao/gestao e 404)
     if (typeof window !== 'undefined') {
-      const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '';
-      const base = pathname && pathname !== '/' ? pathname : '';
       if (name === 'game' && params?.id) {
-        const gamePath = `${base}/jogos/${encodeURIComponent(String(params.id))}`;
-        window.history.pushState(null, '', gamePath);
+        window.history.pushState(null, '', `/jogos/${encodeURIComponent(String(params.id))}`);
       } else if (name === 'sport-management') {
-        const gestaoPath = base ? `${base}/gestao` : '/gestao';
-        window.history.pushState(null, '', gestaoPath);
+        window.history.pushState(null, '', '/gestao');
       }
     }
   };
@@ -141,14 +137,12 @@ export function NavigationProvider({
     }
     if (typeof window !== 'undefined') {
       window.scrollTo(0, 0);
-      const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '/';
-      const base = pathname && pathname !== '/' ? pathname : '';
       if (previous.name === 'game' && previous.params?.id) {
-        window.history.replaceState(null, '', base ? `${base}/jogos/${encodeURIComponent(String(previous.params.id))}` : `/jogos/${encodeURIComponent(String(previous.params.id))}`);
+        window.history.replaceState(null, '', `/jogos/${encodeURIComponent(String(previous.params.id))}`);
       } else if (previous.name === 'sport-management') {
-        window.history.replaceState(null, '', base ? `${base}/gestao` : '/gestao');
+        window.history.replaceState(null, '', '/gestao');
       } else {
-        window.history.replaceState(null, '', base || '/');
+        window.history.replaceState(null, '', '/');
       }
     }
   };

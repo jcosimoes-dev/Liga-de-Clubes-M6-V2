@@ -21,7 +21,16 @@ const STATUS_TEAM_PERFORMANCE = ['final', 'concluido', 'completed', 'convocatori
 /** ID oficial da equipa M6 para garantir o filtro no card de Performance. */
 export const OFFICIAL_M6_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 
+/** Equipa que já não existe na BD — não fazer fetch para evitar 404. Retornar [] ou default. */
+const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
+
 const LOG_PREFIX = '[Points]';
+
+function isDeadOrEmptyTeamId(teamId: string | null | undefined): boolean {
+  if (teamId == null || typeof teamId !== 'string' || teamId.trim() === '') return true;
+  if (teamId === DEAD_TEAM_ID) return true;
+  return false;
+}
 
 /** Result row from DB (sets per pair) */
 interface ResultRow {
@@ -80,9 +89,7 @@ function isPairWin(r: ResultRow): boolean {
  */
 export async function syncPlayerPoints(teamId?: string): Promise<{ updated: number; errors: string[] }> {
   const errors: string[] = [];
-
-  console.log(`${LOG_PREFIX} syncPlayerPoints início. teamId:`, teamId ?? 'todas');
-
+  try {
   // 1) Jogos considerados finalizados (final | concluido | completed)
   let query = supabase
     .from('games')
@@ -207,8 +214,12 @@ export async function syncPlayerPoints(teamId?: string): Promise<{ updated: numb
     }
   }
 
-  console.log(`${LOG_PREFIX} syncPlayerPoints fim. Atualizados: ${updated}. Erros: ${errors.length}`);
   return { updated, errors };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    errors.push(msg);
+    return { updated: 0, errors };
+  }
 }
 
 /** Estatísticas da equipa na Liga Oficial (Vitória 3 pts, Derrota 1 pt, Falta 0 pts). */
@@ -256,10 +267,7 @@ function teamWonFromResults(rows: ResultRow[]): boolean {
 const EMPTY_TEAM_STATS: TeamPerformanceStats = { wins: 0, losses: 0, noShows: 0, totalPoints: 0, record: '0-0-0' };
 
 export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerformanceStats> {
-  if (!teamId || typeof teamId !== 'string') {
-    console.log(`${LOG_PREFIX} getTeamPerformanceStats sem teamId válido`);
-    return EMPTY_TEAM_STATS;
-  }
+  if (isDeadOrEmptyTeamId(teamId)) return EMPTY_TEAM_STATS;
   try {
   const { data: games, error } = await supabase
     .from('games')
@@ -365,12 +373,8 @@ export interface GetPlayerRankingOptions {
  * Com category 'Treino': lista todos os jogadores da equipa com pontos a 0 (Liga/Fed escondidos nesta vista).
  */
 export async function getPlayerRanking(teamId: string, options?: GetPlayerRankingOptions): Promise<PlayerRankingRow[]> {
-  if (!teamId || typeof teamId !== 'string') {
-    console.log(`${LOG_PREFIX} getPlayerRanking sem teamId válido, a devolver []`);
-    return [];
-  }
+  if (isDeadOrEmptyTeamId(teamId)) return [];
   const category = options?.category || 'Geral';
-  console.log(`${LOG_PREFIX} getPlayerRanking início. teamId:`, teamId, 'category:', category);
   try {
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
@@ -379,13 +383,11 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     .eq('team_id', teamId);
 
   if (gamesError) {
-    console.error(`${LOG_PREFIX} getPlayerRanking erro jogos:`, gamesError);
+    const code = (gamesError as { code?: string }).code;
+    if (code !== 'PGRST116' && code !== '404') console.error(`${LOG_PREFIX} getPlayerRanking erro jogos:`, gamesError);
     return [];
   }
-  if (!gamesRaw) {
-    console.log(`${LOG_PREFIX} getPlayerRanking sem jogos (data null), a devolver []`);
-    return [];
-  }
+  if (!gamesRaw || !Array.isArray(gamesRaw) || gamesRaw.length === 0) return [];
 
   const games =
     !category || category === 'Geral'
@@ -393,7 +395,6 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
       : (gamesRaw ?? []).filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category));
 
   if (!games?.length && category !== 'Treino') {
-    console.log(`${LOG_PREFIX} getPlayerRanking sem jogos para categoria:`, category);
     if (category === 'Liga') {
       const { data: players } = await supabase.from('players').select('id, name, email').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL);
       const list = (players ?? []).map((p) => ({
@@ -432,7 +433,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     .in('game_id', gameIds);
 
   if (pairsError) {
-    console.log(`${LOG_PREFIX} getPlayerRanking sem duplas ou erro:`, pairsError);
+    // silenciar 404 / sem dados
   }
   const pairsList = pairs ?? [];
 
@@ -522,10 +523,12 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     })
     .sort((a, b) => b.total_points - a.total_points);
 
-  console.log(`${LOG_PREFIX} getPlayerRanking resultado (category=${category ?? 'Geral'}):`, out.length, 'linhas');
   return out;
   } catch (e) {
-    console.error(`${LOG_PREFIX} getPlayerRanking exceção:`, e);
+    const err = e as { status?: number; code?: string };
+    if (err?.status !== 404 && err?.code !== '404' && err?.code !== 'PGRST116') {
+      console.error(`${LOG_PREFIX} getPlayerRanking exceção:`, e);
+    }
     return [];
   }
 }
@@ -604,11 +607,10 @@ export async function getSeasonStats(
   teamId: string,
   options?: GetSeasonStatsOptions
 ): Promise<GetSeasonStatsResult> {
-  if (!teamId || typeof teamId !== 'string') return { rows: [], totalGamesInPeriod: 0 };
+  if (isDeadOrEmptyTeamId(teamId)) return { rows: [], totalGamesInPeriod: 0 };
 
   const { startDate, endDate, category: optCategory } = options ?? {};
   const category = optCategory || 'Geral';
-  console.log(`${LOG_PREFIX} getSeasonStats início. teamId:`, teamId, options ? { startDate, endDate, category } : 'sem filtro');
   try {
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
@@ -768,7 +770,10 @@ export async function getSeasonStats(
     totalGamesInPeriod,
   };
   } catch (e) {
-    console.error(`${LOG_PREFIX} getSeasonStats exceção:`, e);
+    const err = e as { status?: number; code?: string };
+    if (err?.status !== 404 && err?.code !== '404' && err?.code !== 'PGRST116') {
+      console.error(`${LOG_PREFIX} getSeasonStats exceção:`, e);
+    }
     return { rows: [], totalGamesInPeriod: 0 };
   }
 }

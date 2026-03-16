@@ -49,16 +49,19 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
  * phase na BD: Liga → Qualificação|Regionais|Nacionais; outros → Torneio|Mix|Treino.
  */
 const OWNER_EMAIL = 'jco.simoes@gmail.com';
+const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 const isOwnerEmail = (email: string | null | undefined) =>
   (email ?? '').trim().toLowerCase() === OWNER_EMAIL;
 
 export function SportManagementScreen() {
   const { player, user, canManageSport, role, loading: authLoading } = useAuth();
   const isHardcodedAdmin = role === PlayerRoles.admin;
-  /** Forçar acesso para o dono do projeto e para role admin; bypass de equipa quando team_id é nulo. */
-  const canManage = isOwnerEmail(user?.email) || role === PlayerRoles.admin || canManageSport;
-  // Admin sem equipa: não usar OFFICIAL_M6_TEAM_ID (pode não existir na BD). Usar undefined para não chamar APIs com ID inválido.
-  const effectiveTeamId = player?.team_id ?? (isHardcodedAdmin ? undefined : undefined);
+  /** Bypass total para jco.simoes@gmail.com: ignora team_id e role; acesso total ao ecrã e ao botão de criar convocatória. */
+  const isOwner = isOwnerEmail(user?.email);
+  const canManage = isOwner || role === PlayerRoles.admin || canManageSport;
+  /** Dono ou team_id antigo (75782791...): nunca usar — evita 404. Mostra sempre o ecrã e o botão Criar Jogo. */
+  const rawTeamId = player?.team_id ?? (isHardcodedAdmin ? undefined : undefined);
+  const effectiveTeamId = isOwner || rawTeamId === DEAD_TEAM_ID ? undefined : rawTeamId;
   const { navigate, goBack } = useNavigation();
   const [gameType, setGameType] = useState<GameType>('Liga');
   const [ligaPhase, setLigaPhase] = useState<LigaPhase>('Qualificação');
@@ -824,9 +827,9 @@ export function SportManagementScreen() {
   const handleCreateGame = async (e: FormEvent) => {
     e.preventDefault();
     setGameError('');
-    if (authLoading) return;
-    // Bypass: dono do projeto pode criar convocatória mesmo sem perfil/equipa na BD (usa user.id como created_by se necessário).
-    const createdBy = player?.id ?? (isOwnerEmail(user?.email) ? user?.id : null);
+    if (authLoading && !isOwner) return;
+    // Dono (jco.simoes@gmail.com): ignora verificação de team_id/role; permite criar mesmo com BD vazia (usa user.id).
+    const createdBy = player?.id ?? (isOwner ? user?.id : null);
     if (!createdBy) {
       setGameError('Perfil ainda a carregar ou não encontrado. Espera ou faz logout e login.');
       return;
@@ -901,16 +904,18 @@ export function SportManagementScreen() {
   }
 
   const totalTeamGames = teamStats ? teamStats.wins + teamStats.losses + teamStats.noShows : 0;
-  /** Ranking a mostrar: Geral = ranking do dashboard; Liga/Treinos = rankingByCategory (pontos por categoria). */
-  const displayRanking = rankingCategoryFilter === 'Geral' ? ranking : (rankingByCategory ?? []);
-  /** Fonte de disp/conv e total de eventos conforme categoria (game_id filtrado por phase no backend). */
-  const statsForRanking = rankingCategoryFilter === 'Geral' ? seasonStatsEpoca : (rankingCategoryStats ?? []);
-  const totalEventsForRanking = rankingCategoryFilter === 'Geral' ? totalGamesEpoca : rankingCategoryTotalGames;
+  /** Ranking a mostrar: Geral = ranking do dashboard; Liga/Treinos = rankingByCategory. Fallback: array vazio para não crashar. */
+  const displayRanking = rankingCategoryFilter === 'Geral' ? (Array.isArray(ranking) ? ranking : []) : (rankingByCategory ?? []);
+  /** Fonte de disp/conv e total de eventos conforme categoria. Fallback: array vazio. */
+  const statsForRanking = rankingCategoryFilter === 'Geral' ? (Array.isArray(seasonStatsEpoca) ? seasonStatsEpoca : []) : (rankingCategoryStats ?? []);
+  const totalEventsForRanking = rankingCategoryFilter === 'Geral' ? (totalGamesEpoca ?? 0) : (rankingCategoryTotalGames ?? 0);
 
   const rankingWithDisp = useMemo(() => {
-    const dispByPlayer = new Map(statsForRanking.map((s) => [s.player_id, s.disponibilidade]));
-    const convByPlayer = new Map(statsForRanking.map((s) => [s.player_id, s.convocatorias]));
-    return displayRanking.map((row) => {
+    const safeStats = Array.isArray(statsForRanking) ? statsForRanking : [];
+    const safeRanking = Array.isArray(displayRanking) ? displayRanking : [];
+    const dispByPlayer = new Map(safeStats.map((s) => [s.player_id, s.disponibilidade]));
+    const convByPlayer = new Map(safeStats.map((s) => [s.player_id, s.convocatorias]));
+    return safeRanking.map((row) => {
       const presencas = dispByPlayer.get(row.player_id) ?? 0;
       const jogos = convByPlayer.get(row.player_id) ?? 0;
       const rawPct = totalEventsForRanking > 0 ? (presencas / totalEventsForRanking) * 100 : 0;
@@ -1406,10 +1411,10 @@ export function SportManagementScreen() {
             <Button
               type="submit"
               fullWidth
-              disabled={loading || (!isOwnerEmail(user?.email) && !(role === PlayerRoles.admin) && authLoading)}
+              disabled={loading || (!isOwner && role !== PlayerRoles.admin && authLoading)}
               className={CATEGORY_STYLES[gameType].buttonClasses}
             >
-              {!isOwnerEmail(user?.email) && role !== PlayerRoles.admin && authLoading ? 'A carregar perfil...' : loading ? 'A criar...' : 'Criar e Abrir Convocatória'}
+              {!isOwner && role !== PlayerRoles.admin && authLoading ? 'A carregar perfil...' : loading ? 'A criar...' : 'Criar e Abrir Convocatória'}
             </Button>
           </form>
         </CategoryCard>

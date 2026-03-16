@@ -67,7 +67,7 @@ const HARDCODED_ADMIN_EMAIL = 'jco.simoes@gmail.com';
 /** Aplica role admin e team_id null para o dono do projeto, ignorando a BD e cache. Garante acesso total mesmo sem equipa. */
 function applyHardcodedAdmin(profile: Player | null, email: string | null | undefined): Player | null {
   const isOwner = (email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
-  // Hardcoded Admin for project owner: role = admin, team_id = null (ignora equipa antiga ou inexistente).
+  // Hardcoded Admin for project owner: role = admin, team_id = null (limpa equipa antiga 75782791... para evitar 404).
   if (isOwner && profile) {
     return { ...profile, role: PlayerRoles.admin, team_id: null };
   }
@@ -256,10 +256,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canManageSport = isOwnerEmail || computeCanManageSport(player);
   const canManageFederationPoints = isOwnerEmail || computeCanManageFederationPoints(player);
 
-  // Limpeza de memória: ao detetar login do dono, limpar teamId antigo do localStorage para evitar 404
+  // Limpeza de memória: ao detetar login do dono, limpar teamId antigo do localStorage e do estado para evitar 404
   useEffect(() => {
-    if (user?.email && isOwnerEmail) clearOwnerStaleTeamCache();
-  }, [user?.email, isOwnerEmail]);
+    if (user?.email && (user.email.trim().toLowerCase() === HARDCODED_ADMIN_EMAIL)) {
+      clearOwnerStaleTeamCache();
+      if (player && player.team_id === DEAD_TEAM_ID) {
+        setPlayer((prev) => (prev ? { ...prev, team_id: null } : null));
+      }
+    }
+  }, [user?.email, player?.team_id]);
 
   const refreshPlayer = async () => {
     if (!user?.id) {
@@ -285,6 +290,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setSession(s);
+      if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) clearOwnerStaleTeamCache();
       ensurePlayerProfile(s.user.id, s.user)
         .then((p) => {
           if (!cancelled) setPlayer(applyHardcodedAdmin(p, s?.user?.email));

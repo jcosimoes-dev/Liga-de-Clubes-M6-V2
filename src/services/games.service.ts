@@ -123,14 +123,15 @@ export const GamesService = {
       .maybeSingle();
 
     if (error) {
-      console.error('[GamesService.getById] Supabase error:', error?.message);
+      const code = (error as { code?: string }).code;
+      if (code === 'PGRST116' || code === '404') return null;
       const { data: fallback, error: fallbackError } = await supabase
         .from('games')
         .select(gamesCols)
         .eq('id', id)
         .maybeSingle();
       if (fallbackError) return null;
-      return fallback;
+      return fallback ?? null;
     }
     return data ?? null;
   },
