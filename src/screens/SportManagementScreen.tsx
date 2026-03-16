@@ -1022,7 +1022,7 @@ export function SportManagementScreen() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 py-4 text-center text-gray-500">Sem jogos finalizados</div>
+                <div className="mt-4 py-4 text-center text-gray-500">Sem dados disponíveis</div>
               )}
             </div>
           </Card>
@@ -1101,7 +1101,7 @@ export function SportManagementScreen() {
                     <tbody>
                       {rankingWithDisp.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-4 text-center text-gray-500">Nenhum jogo final ainda.</td>
+                          <td colSpan={7} className="py-4 text-center text-gray-500">Sem dados disponíveis</td>
                         </tr>
                       ) : (
                         (() => {
@@ -1204,7 +1204,7 @@ export function SportManagementScreen() {
                   <tbody>
                     {(statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes).length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-gray-500">Nenhum dado ainda.</td>
+                        <td colSpan={8} className="py-8 text-center text-gray-500">Sem dados disponíveis</td>
                       </tr>
                     ) : (
                       (() => {

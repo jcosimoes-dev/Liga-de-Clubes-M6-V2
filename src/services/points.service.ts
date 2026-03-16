@@ -253,7 +253,13 @@ function teamWonFromResults(rows: ResultRow[]): boolean {
  * Percorre games (team_id = M6): Vitória = 3 pts, Derrota = 1 pt, Falta = 0 pts.
  * Total = (Vitórias * 3) + (Derrotas * 1). Se team_points estiver null, calcula vitória/derrota a partir dos results (maioria de sets).
  */
+const EMPTY_TEAM_STATS: TeamPerformanceStats = { wins: 0, losses: 0, noShows: 0, totalPoints: 0, record: '0-0-0' };
+
 export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerformanceStats> {
+  if (!teamId || typeof teamId !== 'string') {
+    console.log(`${LOG_PREFIX} getTeamPerformanceStats sem teamId válido`);
+    return EMPTY_TEAM_STATS;
+  }
   const effectiveTeamId = teamId || OFFICIAL_M6_TEAM_ID;
 
   const { data: games, error } = await supabase
@@ -264,12 +270,16 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
 
   if (error) {
     console.error(`${LOG_PREFIX} getTeamPerformanceStats erro:`, error);
-    return { wins: 0, losses: 0, noShows: 0, totalPoints: 0, record: '0-0-0' };
+    return EMPTY_TEAM_STATS;
+  }
+  if (!games) {
+    console.log(`${LOG_PREFIX} getTeamPerformanceStats sem dados (null)`);
+    return EMPTY_TEAM_STATS;
   }
 
-  const list = games ?? [];
+  const list = games;
   if (list.length === 0) {
-    return { wins: 0, losses: 0, noShows: 0, totalPoints: 0, record: '0-0-0' };
+    return EMPTY_TEAM_STATS;
   }
 
   const gameIdsNeedingResults = list

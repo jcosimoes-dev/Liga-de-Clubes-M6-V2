@@ -19,7 +19,10 @@ export const GamesService = {
     if (res.error) {
       console.error('[GamesService.getAll] Supabase error:', res.error?.message, res.error);
       res = await supabase.from('games').select(colsGameDate).order('game_date', { ascending: false });
-      if (res.error) throw res.error;
+      if (res.error) {
+        console.error('[GamesService.getAll] Fallback também falhou:', res.error?.message);
+        return [];
+      }
       return (res.data ?? []).map((g: Record<string, unknown>) => this._normalizeGame(g));
     }
     return (res.data ?? []).map((g: Record<string, unknown>) => this._normalizeGame(g));
@@ -70,7 +73,7 @@ export const GamesService = {
           code: (error as { code?: string }).code,
           fullError: error,
         });
-        throw error;
+        return [];
       }
     }
 
@@ -94,7 +97,10 @@ export const GamesService = {
       .select(cols)
       .eq('status', status)
       .order('starts_at', { ascending: false });
-    if (error) throw error;
+    if (error) {
+      console.error('[GamesService.getByStatus] Supabase error:', error?.message);
+      return [];
+    }
     return data ?? [];
   },
 
@@ -117,15 +123,16 @@ export const GamesService = {
       .maybeSingle();
 
     if (error) {
+      console.error('[GamesService.getById] Supabase error:', error?.message);
       const { data: fallback, error: fallbackError } = await supabase
         .from('games')
         .select(gamesCols)
         .eq('id', id)
         .maybeSingle();
-      if (fallbackError) throw error;
+      if (fallbackError) return null;
       return fallback;
     }
-    return data;
+    return data ?? null;
   },
 
   /**

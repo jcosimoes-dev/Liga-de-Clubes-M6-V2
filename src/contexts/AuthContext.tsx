@@ -231,18 +231,32 @@ function computeCanManageFederationPoints(player: Player | null): boolean {
   return r === PlayerRoles.admin || r === PlayerRoles.gestor || r === PlayerRoles.coordenador;
 }
 
+/** Chaves de localStorage que podem guardar teamId antigo — limpar no login do dono para evitar 404. */
+const POSSIBLE_TEAM_CACHE_KEYS = ['app-team-id', 'liga-m6-team-id', 'team_id', 'selectedTeamId'];
+
+function clearOwnerStaleTeamCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    POSSIBLE_TEAM_CACHE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    Object.keys(window.localStorage).filter((k) => /team/i.test(k)).forEach((k) => window.localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
 
   const user = session?.user ?? null;
-  const role = normalizeRole(player?.role);
-  const isAdmin = computeIsAdmin(player);
+  const isOwnerEmail = (user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
+  const role = isOwnerEmail ? PlayerRoles.admin : normalizeRole(player?.role);
+  const isAdmin = isOwnerEmail || computeIsAdmin(player);
   const mustChangePassword = player?.must_change_password === true;
-  const canManageTeam = computeCanManageTeam(player);
-  const canManageSport = computeCanManageSport(player);
-  const canManageFederationPoints = computeCanManageFederationPoints(player);
+  const canManageTeam = isOwnerEmail || computeCanManageTeam(player);
+  const canManageSport = isOwnerEmail || computeCanManageSport(player);
+  const canManageFederationPoints = isOwnerEmail || computeCanManageFederationPoints(player);
 
   // Debug (apenas em desenvolvimento): role e permissões
   useEffect(() => {
@@ -258,6 +272,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn('[AuthContext] A role na BD está vazia. Menus Admin/Gestão podem ficar escondidos. Verifica a coluna role na tabela players.');
     }
   }, [player?.id, player?.role]);
+
+  // Limpeza de memória: ao detetar login do dono, limpar teamId antigo do localStorage para evitar 404
+  useEffect(() => {
+    if (user?.email && isOwnerEmail) clearOwnerStaleTeamCache();
+  }, [user?.email, isOwnerEmail]);
 
   const refreshPlayer = async () => {
     if (!user?.id) {
