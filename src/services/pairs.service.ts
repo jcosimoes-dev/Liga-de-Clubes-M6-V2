@@ -64,7 +64,7 @@ export const PairsService = {
         player1:players!pairs_player1_id_fkey(*),
         player2:players!pairs_player2_id_fkey(*)
       `)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -90,7 +90,7 @@ export const PairsService = {
         player1:players!pairs_player1_id_fkey(*),
         player2:players!pairs_player2_id_fkey(*)
       `)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

@@ -229,7 +229,7 @@ export const ResultsService = {
       .update(payload)
       .eq('id', id)
       .select('game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora')
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

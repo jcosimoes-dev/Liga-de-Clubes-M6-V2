@@ -123,7 +123,7 @@ export function AdminScreen() {
       );
       setSelectedPlayerId('');
       await loadPlayers();
-      const { data: afterRefresh } = await supabase.from('players').select('id, role').eq('id', selectedPlayerId).single();
+      const { data: afterRefresh } = await supabase.from('players').select('id, role').eq('id', selectedPlayerId).maybeSingle();
       console.log('[AdminScreen.handleUpdateRole] role final após refresh:', (afterRefresh as { role?: string } | null)?.role ?? null);
     } catch (err) {
       setRoleError(err instanceof Error ? err.message : 'Erro ao atualizar role');

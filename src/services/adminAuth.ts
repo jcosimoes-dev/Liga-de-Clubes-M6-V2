@@ -52,7 +52,7 @@ export async function updatePlayerFederationPoints(playerId: string, valor: numb
     .update({ federation_points: valor })
     .eq('id', playerId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
 }
 
@@ -67,7 +67,7 @@ export async function updatePlayerLigaPoints(playerId: string, valor: number): P
     .update({ liga_points: valor })
     .eq('id', playerId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
 }
 
@@ -156,6 +156,6 @@ export async function updatePlayerProfileAdmin(
     .update(payload)
     .eq('id', playerId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
 }

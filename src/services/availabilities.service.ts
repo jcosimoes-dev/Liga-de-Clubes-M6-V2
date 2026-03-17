@@ -74,7 +74,7 @@ export const AvailabilitiesService = {
       .from('availabilities')
       .insert(payload)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -149,7 +149,7 @@ export const AvailabilitiesService = {
         .update({ status })
         .eq('id', existing.id)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     }
@@ -158,7 +158,7 @@ export const AvailabilitiesService = {
       .from('availabilities')
       .insert(payload)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -179,7 +179,7 @@ export const AvailabilitiesService = {
       .update(payload)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -195,7 +195,7 @@ export const AvailabilitiesService = {
       .update({ status })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -215,7 +215,7 @@ export const AvailabilitiesService = {
       .eq('game_id', gameId)
       .eq('player_id', playerId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

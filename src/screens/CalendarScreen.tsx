@@ -88,6 +88,12 @@ export function CalendarScreen() {
     });
   };
 
+  const formatDateRange = (startDate: string, endDate: string) => {
+    const start = new Date(startDate).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' });
+    const end = new Date(endDate).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' });
+    return `${start} – ${end}`;
+  };
+
   const getDaysUntilGame = (gameDate: string): number => {
     const now = new Date();
     const game = new Date(gameDate);
@@ -165,12 +171,18 @@ export function CalendarScreen() {
     return <Badge variant={badge.variant}>{badge.label}</Badge>;
   };
 
-  const upcomingGames = filteredGames.filter(
-    (game) => new Date(game.starts_at) >= new Date()
-  );
-  const pastGames = filteredGames.filter(
-    (game) => new Date(game.starts_at) < new Date()
-  );
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const upcomingGames = filteredGames.filter((game) => {
+    const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
+    end.setHours(23, 59, 59, 999);
+    return end >= now;
+  });
+  const pastGames = filteredGames.filter((game) => {
+    const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
+    end.setHours(23, 59, 59, 999);
+    return end < now;
+  });
 
   if (loading) {
     return (
@@ -188,13 +200,14 @@ export function CalendarScreen() {
     const confirmedCount = getConfirmedCount(game.id);
     const daysUntil = getDaysUntilGame(game.starts_at);
     const isUpcoming = daysUntil >= 0;
+    const isMultiDay = GamesService.isMultiDay(game);
     const cat = getCategoryFromPhase(game.phase);
     const styles = CATEGORY_STYLES[cat];
 
     return (
       <CategoryCard
         key={game.id}
-        category={cat}
+        category={isMultiDay ? 'Liga' : cat}
         header={
           <div className="flex items-center justify-between w-full">
             <span className="text-sm font-semibold">
@@ -206,10 +219,17 @@ export function CalendarScreen() {
             {getStatusBadge(game.status)}
           </div>
         }
-        className="hover:shadow-xl transition-shadow"
+        className={`hover:shadow-xl transition-shadow ${isMultiDay ? 'ring-2 ring-blue-900/30' : ''}`}
       >
+        {isMultiDay && (
+          <div className="mb-3 -mx-4 -mt-2 px-4 py-2 rounded-t-lg bg-gradient-to-r from-blue-900 to-blue-800 text-white text-sm font-medium flex items-center gap-2">
+            <Calendar className="w-4 h-4 flex-shrink-0" />
+            <span>{formatDateRange(game.starts_at, game.end_date)}</span>
+          </div>
+        )}
         <div className="space-y-4">
           <div className="space-y-2">
+            {!isMultiDay && (
             <div className="flex items-baseline gap-3">
               <Calendar className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
               <div>
@@ -217,10 +237,11 @@ export function CalendarScreen() {
                 <div className="text-sm text-gray-600">{formatTime(game.starts_at)}</div>
               </div>
             </div>
+            )}
 
             <div className="flex items-center gap-3 py-2">
-              <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
-                <Users className="w-5 h-5 text-gray-600" />
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isMultiDay ? 'bg-blue-100' : 'bg-gray-200'}`}>
+                <Users className={`w-5 h-5 ${isMultiDay ? 'text-blue-700' : 'text-gray-600'}`} />
               </div>
               <span className="text-lg font-bold text-gray-900">{GamesService.formatOpponentDisplay(game.opponent)}</span>
             </div>

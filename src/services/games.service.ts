@@ -13,8 +13,8 @@ export const GamesService = {
    * Obter todos os jogos (ordenados por data decrescente). Suporta game_date ou starts_at na BD.
    */
   async getAll() {
-    const colsStartsAt = 'id, status, opponent, starts_at, location, phase, round_number';
-    const colsGameDate = 'id, status, opponent, game_date, location, phase, round_number';
+    const colsStartsAt = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
+    const colsGameDate = 'id, status, opponent, game_date, end_date, location, phase, round_number';
     let res = await supabase.from('games').select(colsStartsAt).order('starts_at', { ascending: false });
     if (res.error) {
       console.error('[GamesService.getAll] Supabase error:', res.error?.message, res.error);
@@ -31,9 +31,17 @@ export const GamesService = {
   /**
    * Normaliza um jogo da BD para expor sempre starts_at (a BD pode ter game_date ou starts_at).
    */
-  _normalizeGame<T extends Record<string, unknown>>(g: T): T & { starts_at: string } {
+  _normalizeGame<T extends Record<string, unknown>>(g: T): T & { starts_at: string; end_date?: string | null } {
     const dateVal = (g as { starts_at?: string; game_date?: string }).starts_at ?? (g as { game_date?: string }).game_date;
-    return { ...g, starts_at: dateVal ?? '' } as T & { starts_at: string };
+    const endDate = (g as { end_date?: string | null }).end_date ?? null;
+    return { ...g, starts_at: dateVal ?? '', end_date: endDate } as T & { starts_at: string; end_date?: string | null };
+  },
+
+  /** True se o jogo tem data de fim (evento de vários dias). */
+  isMultiDay(game: { end_date?: string | null }): boolean {
+    if (!game?.end_date) return false;
+    const d = String(game.end_date).trim();
+    return d.length > 0 && d !== 'null' && d !== 'undefined';
   },
 
   /**
@@ -41,8 +49,8 @@ export const GamesService = {
    * Usa game_date ou starts_at conforme existir na BD. Log detalhado em caso de erro.
    */
   async getOpenGames(includePast = false) {
-    const colsWithStartsAt = 'id, status, opponent, starts_at, location, phase, round_number';
-    const colsWithGameDate = 'id, status, opponent, game_date, location, phase, round_number';
+    const colsWithStartsAt = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
+    const colsWithGameDate = 'id, status, opponent, game_date, end_date, location, phase, round_number';
 
     let res = await supabase
       .from('games')
@@ -91,7 +99,7 @@ export const GamesService = {
    * Obter jogos por estado (ordenados por data decrescente). Usa colunas mínimas.
    */
   async getByStatus(status: GameStatus) {
-    const cols = 'id, status, opponent, starts_at, location, phase, round_number';
+    const cols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
     const { data, error } = await supabase
       .from('games')
       .select(cols)
@@ -113,7 +121,7 @@ export const GamesService = {
       console.warn('[GamesService.getById] id inválido:', id);
       return null;
     }
-    const gamesCols = 'id, status, opponent, starts_at, location, phase, round_number';
+    const gamesCols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
     const resultsCols = 'game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora';
     const fullSelect = `${gamesCols}, availabilities(*, player:players(*)), pairs(*, player1:players!pairs_player1_id_fkey(*), player2:players!pairs_player2_id_fkey(*), results(${resultsCols}))`;
     const { data, error } = await supabase
@@ -144,13 +152,14 @@ export const GamesService = {
   async create(game: {
     round_number: number;
     game_date: string;
+    end_date?: string | null;
     opponent: string;
     location: string;
     phase: string;
     team_id: string | null;
     created_by: string;
   }) {
-    const { game_date, team_id, created_by } = game;
+    const { game_date, team_id, created_by, end_date } = game;
 
     if (!isValidUuid(created_by)) {
       throw new Error('Criador inválido: created_by não é um UUID válido.');
@@ -172,6 +181,7 @@ export const GamesService = {
     }
 
     const isoDate = game_date ? new Date(game_date).toISOString() : new Date().toISOString();
+    const endDateOnly = end_date && end_date.trim() ? end_date.trim().split('T')[0] : null;
 
     const { data: rpcData, error: rpcError } = await supabase.rpc('insert_game', {
       p_round_number: game.round_number,
@@ -181,6 +191,7 @@ export const GamesService = {
       p_created_by: created_by,
       p_team_id: validTeamId ?? undefined,
       p_starts_at: isoDate,
+      p_end_date: endDateOnly ?? undefined,
     });
 
     if (rpcError) {
@@ -227,10 +238,10 @@ export const GamesService = {
       .update(updates)
       .eq('id', id)
       .select(cols)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
-    return data;
+    return data ?? null;
   },
 
   /**

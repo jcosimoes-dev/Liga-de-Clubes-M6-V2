@@ -57,7 +57,7 @@ export const TeamsService = {
         is_active: true,
       })
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -72,7 +72,7 @@ export const TeamsService = {
       .update(updates)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -87,7 +87,7 @@ export const TeamsService = {
       .update({ is_active: false })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -102,7 +102,7 @@ export const TeamsService = {
       .update({ is_active: true })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;

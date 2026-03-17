@@ -101,6 +101,8 @@ export interface Database {
           round_number: number
           /** Data e hora do jogo (ISO string) */
           starts_at: string
+          /** Data de fim (opcional); quando preenchida, evento multi-dia (ex: torneio) */
+          end_date: string | null
           opponent: string
           location: string
           /** Liga: Qualificação|Regionais|Nacionais; outros: Torneio|Mix|Treino */
@@ -117,6 +119,7 @@ export interface Database {
           id?: string
           round_number: number
           starts_at: string
+          end_date?: string | null
           opponent: string
           location: string
           phase: 'Qualificação' | 'Regionais' | 'Nacionais' | 'Torneio' | 'Mix' | 'Treino'
@@ -132,6 +135,7 @@ export interface Database {
           id?: string
           round_number?: number
           starts_at?: string
+          end_date?: string | null
           opponent?: string
           location?: string
           phase?: 'Qualificação' | 'Regionais' | 'Nacionais' | 'Torneio' | 'Mix' | 'Treino'

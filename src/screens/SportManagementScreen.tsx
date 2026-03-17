@@ -70,6 +70,8 @@ export function SportManagementScreen() {
   const [roundNumber, setRoundNumber] = useState('1');
   const [eliminatoriaRound, setEliminatoriaRound] = useState(16);
   const [gameDate, setGameDate] = useState('');
+  const [isMultiDayEvent, setIsMultiDayEvent] = useState(false);
+  const [gameDateEnd, setGameDateEnd] = useState('');
   const [opponent, setOpponent] = useState('');
   const [location, setLocation] = useState('');
   const [loading, setLoading] = useState(false);
@@ -845,9 +847,18 @@ export function SportManagementScreen() {
         finalRoundNumber = ligaPhase === 'Qualificação' ? (parseInt(roundNumber, 10) || 1) : eliminatoriaRound;
       }
 
+      let gameDateIso: string;
+      let endDateValue: string | null = null;
+      if (isMultiDayEvent && gameDate && gameDateEnd) {
+        gameDateIso = new Date(gameDate + 'T00:00:00').toISOString();
+        endDateValue = gameDateEnd.trim().split('T')[0] || null;
+      } else {
+        gameDateIso = gameDate ? new Date(gameDate).toISOString() : new Date().toISOString();
+      }
       const gameData = {
         round_number: finalRoundNumber,
-        game_date: gameDate ? new Date(gameDate).toISOString() : new Date().toISOString(),
+        game_date: gameDateIso,
+        end_date: endDateValue,
         opponent,
         location,
         phase,
@@ -863,6 +874,8 @@ export function SportManagementScreen() {
       setRoundNumber('1');
       setEliminatoriaRound(16);
       setGameDate('');
+      setIsMultiDayEvent(false);
+      setGameDateEnd('');
       setOpponent('');
       setLocation('');
 
@@ -874,7 +887,15 @@ export function SportManagementScreen() {
       } else if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
         errorMessage = (err as { message: string }).message;
       }
-      setGameError(errorMessage);
+      const isCoerceOrSingleError = /coerce|single\s*JSON\s*object/i.test(errorMessage);
+      if (isCoerceOrSingleError) {
+        setGameError('');
+        await loadOpenGames();
+        await loadClosedGames();
+        showToast('Jogo criado. A lista foi atualizada.', 'success');
+      } else {
+        setGameError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -1372,13 +1393,56 @@ export function SportManagementScreen() {
               </>
             )}
 
-            <Input
-              type="datetime-local"
-              label="Data e Hora"
-              value={gameDate}
-              onChange={(e) => setGameDate(e.target.value)}
-              required
-            />
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5">
+              <span className="text-sm font-medium text-gray-700">Evento de Vários Dias</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isMultiDayEvent}
+                onClick={() => {
+                  setIsMultiDayEvent((v) => !v);
+                  if (!isMultiDayEvent) setGameDateEnd('');
+                }}
+                className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  isMultiDayEvent ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {isMultiDayEvent ? (
+              <div className="space-y-4 touch-manipulation">
+                <Input
+                  type="date"
+                  label="Data de Início"
+                  value={gameDate}
+                  onChange={(e) => setGameDate(e.target.value)}
+                  required
+                  className="min-h-[2.75rem] text-base"
+                />
+                <Input
+                  type="date"
+                  label="Data de Fim"
+                  value={gameDateEnd}
+                  onChange={(e) => setGameDateEnd(e.target.value)}
+                  required={isMultiDayEvent}
+                  className="min-h-[2.75rem] text-base"
+                />
+              </div>
+            ) : (
+              <Input
+                type="datetime-local"
+                label="Data e Hora"
+                value={gameDate}
+                onChange={(e) => setGameDate(e.target.value)}
+                required
+              />
+            )}
 
             <Input
               type="text"

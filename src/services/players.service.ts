@@ -186,7 +186,7 @@ export const PlayersService = {
         })
         .eq('id', existingRow.id)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     }
@@ -205,7 +205,7 @@ export const PlayersService = {
         role: PlayerRoles.jogador,
       })
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -224,7 +224,7 @@ export const PlayersService = {
       .update(payload)
       .eq('id', playerId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -239,7 +239,7 @@ export const PlayersService = {
       .update({ is_active: false })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -254,7 +254,7 @@ export const PlayersService = {
       .update({ is_active: true })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -272,7 +272,7 @@ export const PlayersService = {
       .update({ role })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
@@ -309,7 +309,7 @@ export const PlayersService = {
         { onConflict: 'user_id' }
       )
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data;
