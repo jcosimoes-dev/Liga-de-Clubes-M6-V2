@@ -5,8 +5,7 @@ import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/c
 import { useNavigation } from '../contexts/NavigationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { GamesService, AvailabilitiesService } from '../services';
-import { openGoogleCalendar } from '../lib/shareLinks';
-import { Calendar, MapPin, Users, CheckCircle, HelpCircle, XCircle, Clock, Check, CalendarPlus } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle, HelpCircle, XCircle, Clock, Check } from 'lucide-react';
 
 type AvailabilityStatus = 'confirmed' | 'declined' | 'undecided';
 
@@ -356,36 +355,14 @@ export function CalendarScreen() {
             )}
           </div>
 
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="flex-1 flex items-center justify-center gap-1.5"
-              onClick={(e) => {
-                e.stopPropagation();
-                openGoogleCalendar({
-                  gameId: game.id,
-                  gameType: cat,
-                  startsAt: game.starts_at,
-                  endDate: game.end_date ?? undefined,
-                  opponentOrName: GamesService.formatOpponentDisplay(game.opponent) ?? game.phase ?? 'Jogo',
-                  location: game.location ?? '',
-                });
-              }}
-            >
-              <CalendarPlus className="w-4 h-4" />
-              Google Calendar
-            </Button>
-            <Button
-              fullWidth
-              size="sm"
-              className={styles.buttonClasses}
-              onClick={() => navigate({ name: 'game', params: { id: game.id } })}
-            >
-              Ver detalhes
-            </Button>
-          </div>
+          <Button
+            fullWidth
+            size="sm"
+            className={styles.buttonClasses}
+            onClick={() => navigate({ name: 'game', params: { id: game.id } })}
+          >
+            Ver detalhes
+          </Button>
         </div>
       </CategoryCard>
     );

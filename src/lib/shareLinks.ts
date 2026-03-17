@@ -207,9 +207,9 @@ export function buildWhatsAppDuplaConvocationUrl(
 }
 
 /**
- * Gera o URL do Google Calendar para adicionar o evento.
- * Usa https://calendar.google.com para abrir o calendário da conta ativa (pessoal), não o Google Workspace.
- * - Multi-dia (Torneio/Mix): dates=YYYYMMDD/YYYYMMDD (ex: 20260328/20260330).
+ * Gera o URL do Google Calendar para criar um evento no calendário pessoal de quem clica.
+ * O link TEM de começar por https://calendar.google.com (não usar www.google.com nem links de calendário de grupo/Workspace).
+ * - Multi-dia (Torneio/Mix com end_date): dates=YYYYMMDD/YYYYMMDD → evento de dia inteiro (barra no topo).
  * - Jogo com hora: dates em UTC (YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ).
  * Parâmetros: action=TEMPLATE, text (título), dates, location, details.
  */
