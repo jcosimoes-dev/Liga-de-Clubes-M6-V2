@@ -225,7 +225,9 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
     const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
     const endD = new Date(endDateRaw!);
     const endDateOnly = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate());
-    const datesParam = `${toGoogleCalendarDateOnly(startDateOnly)}/${toGoogleCalendarDateOnly(endDateOnly)}`;
+    const startStr = toGoogleCalendarDateOnly(startDateOnly);
+    const endStr = toGoogleCalendarDateOnly(endDateOnly);
+    const datesParam = `${startStr}/${endStr}`;
     const periodStr = `Período: ${toLocaleDatePT(startDateOnly)} – ${toLocaleDatePT(endDateOnly)}`;
     const details = `${periodStr}\n\nConfirmar presença na App: ${appUrl}`;
     const params = new URLSearchParams({
@@ -235,7 +237,7 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
       details: details,
       location: location,
     });
-    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+    return `https://www.google.com/calendar/render?${params.toString()}`;
   }
 
   const end = new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
@@ -249,11 +251,13 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
     details: details,
     location: location,
   });
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  return `https://www.google.com/calendar/render?${params.toString()}`;
 }
 
 /** Abre o URL do Google Calendar numa nova janela/tab */
 export function openGoogleCalendar(info: GameShareInfo): void {
   const url = buildGoogleCalendarUrl(info);
-  window.open(url, '_blank', 'noopener,noreferrer');
+  console.log('Link Google:', url);
+  const w = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!w) console.warn('[openGoogleCalendar] window.open bloqueado (popup?). URL para copiar:', url);
 }

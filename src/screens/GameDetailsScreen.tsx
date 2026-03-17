@@ -37,7 +37,7 @@ export function GameDetailsScreen({ id }: Props) {
     const run = async () => {
       setLoading(true);
       try {
-        const gamesCols = 'id, status, opponent, starts_at, location, phase, round_number, team_points';
+        const gamesCols = 'id, status, opponent, starts_at, end_date, location, phase, round_number, team_points';
         const { data, error } = await supabase.from('games').select(gamesCols).eq('id', gameId).maybeSingle();
 
         if (error) throw error;
@@ -185,16 +185,17 @@ export function GameDetailsScreen({ id }: Props) {
               <div className="mt-8">
                 <button
                   type="button"
-                  onClick={() =>
-                    openGoogleCalendar({
+                  onClick={() => {
+                    const info = {
                       gameType: getCategoryFromPhase(game.phase),
                       opponentOrName: gameTitle,
                       startsAt: game.starts_at,
                       endDate: (game as { end_date?: string | null }).end_date ?? undefined,
                       location: game.location || '',
                       gameId: game.id,
-                    })
-                  }
+                    };
+                    openGoogleCalendar(info);
+                  }}
                   className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border border-gray-200/90 rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-0.5 hover:border-gray-300 transition-all duration-200 ease-out opacity-100 text-gray-800 hover:bg-gray-50/80 font-semibold text-base"
                 >
                   <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200/80 shadow-sm" aria-hidden>

@@ -857,8 +857,22 @@ export function SportManagementScreen() {
       } else {
         gameDateIso = gameDate ? new Date(gameDate).toISOString() : new Date().toISOString();
       }
-      const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
-      const teamIdForGame = effectiveTeamId ?? player?.team_id ?? DEFAULT_TEAM_ID;
+
+      let teamIdForGame: string | null = effectiveTeamId ?? player?.team_id ?? null;
+      if (!teamIdForGame) {
+        const { data: firstTeam, error: teamErr } = await supabase
+          .from('teams')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+        if (teamErr || !firstTeam?.id) {
+          setGameError('Por favor, cria primeiro uma Equipa no menu de Gestão.');
+          setLoading(false);
+          return;
+        }
+        teamIdForGame = firstTeam.id;
+      }
+
       const gameData = {
         round_number: finalRoundNumber,
         game_date: gameDateIso,
