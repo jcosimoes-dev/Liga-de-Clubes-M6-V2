@@ -208,10 +208,10 @@ export function buildWhatsAppDuplaConvocationUrl(
 
 /**
  * Gera o URL do Google Calendar para criar um evento.
- * Link: https://calendar.google.com/calendar/render?action=TEMPLATE&...
- * - Multi-dia (Torneio/Mix): dates=YYYYMMDD/YYYYMMDD; data de fim = dia seguinte ao último dia.
- * - Jogo com hora: dates=YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (UTC).
- * URLSearchParams codifica text, details e location.
+ * Base: https://calendar.google.com/calendar/render (obrigatório para abrir o formulário de evento).
+ * O parâmetro dates tem de estar presente e correto; caso contrário o Google pode redirecionar para a página do Workspace.
+ * - Multi-dia: dates=YYYYMMDD/YYYYMMDD (fim = dia seguinte ao último dia).
+ * - Com hora: dates=YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (UTC).
  */
 export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
   const baseUrl = 'https://calendar.google.com/calendar/render';
@@ -222,31 +222,32 @@ export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
   const endDateRaw = info.endDate && String(info.endDate).trim();
   const isMultiDay = endDateRaw.length > 0 && endDateRaw !== 'null' && endDateRaw !== 'undefined';
 
-  let details = `Confirmar presença na App: ${appUrl}`;
+  let datesParam: string;
   if (isMultiDay && endDateRaw) {
-    const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const endDay = new Date(endDateRaw);
-    details = `Período: ${toLocaleDatePT(startDay)} – ${toLocaleDatePT(endDay)}\n\n${details}`;
-  }
-
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: title,
-    details,
-    location: info.location || '',
-  });
-
-  if (isMultiDay) {
     const start = toGoogleCalendarDateOnly(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()));
-    const nextDay = new Date(endDateRaw!);
+    const nextDay = new Date(endDateRaw);
     nextDay.setDate(nextDay.getDate() + 1);
     const endFormatted = toGoogleCalendarDateOnly(nextDay);
-    params.append('dates', `${start}/${endFormatted}`);
+    datesParam = `${start}/${endFormatted}`;
   } else {
     const start = toGoogleCalendarDateUTC(startDate);
     const end = toGoogleCalendarDateUTC(new Date(startDate.getTime() + DEFAULT_EVENT_DURATION_MS));
-    params.append('dates', `${start}/${end}`);
+    datesParam = `${start}/${end}`;
   }
+
+  const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const endDay = endDateRaw ? new Date(endDateRaw) : startDay;
+  const periodStr = isMultiDay && endDateRaw
+    ? `Período: ${startDay.getDate()}/${String(startDay.getMonth() + 1).padStart(2, '0')}/${startDay.getFullYear()} a ${endDay.getDate()}/${String(endDay.getMonth() + 1).padStart(2, '0')}/${endDay.getFullYear()}. `
+    : '';
+  const details = `${periodStr}Confirmar presença na App: ${appUrl}`;
+
+  const params = new URLSearchParams();
+  params.set('action', 'TEMPLATE');
+  params.set('text', title);
+  params.set('dates', datesParam);
+  params.set('details', details);
+  params.set('location', info.location || '');
 
   return `${baseUrl}?${params.toString()}`;
 };
