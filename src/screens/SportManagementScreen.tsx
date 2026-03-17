@@ -857,6 +857,8 @@ export function SportManagementScreen() {
       } else {
         gameDateIso = gameDate ? new Date(gameDate).toISOString() : new Date().toISOString();
       }
+      const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
+      const teamIdForGame = effectiveTeamId ?? player?.team_id ?? DEFAULT_TEAM_ID;
       const gameData = {
         round_number: finalRoundNumber,
         game_date: gameDateIso,
@@ -864,7 +866,7 @@ export function SportManagementScreen() {
         opponent,
         location,
         phase,
-        team_id: effectiveTeamId ?? player?.team_id ?? null,
+        team_id: teamIdForGame,
         created_by: createdBy,
       };
       const game = await GamesService.create(gameData);
