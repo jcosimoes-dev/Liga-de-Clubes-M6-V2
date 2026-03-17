@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
 import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
-import { openGoogleCalendar } from '../lib/shareLinks';
+import { buildGoogleCalendarUrl } from '../lib/shareLinks';
 
 type Props = {
   id?: string;
@@ -177,37 +177,38 @@ export function GameDetailsScreen({ id }: Props) {
               </div>
             </Card>
 
-            {/* Botão Google Calendar: cria evento no calendário pessoal (https://calendar.google.com); visível para todos os jogos com data */}
-            {showGoogleCalendar && (
-              <div className="mt-6">
-                <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const info = {
-                      gameType: getCategoryFromPhase(game.phase),
-                      opponentOrName: gameTitle,
-                      startsAt: game.starts_at,
-                      endDate: (game as { end_date?: string | null }).end_date ?? undefined,
-                      location: game.location || '',
-                      gameId: game.id,
-                    };
-                    openGoogleCalendar(info);
-                  }}
-                  className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-lg hover:border-blue-200 transition-all text-gray-800 hover:bg-blue-50/50 font-semibold text-base"
-                >
-                  <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200 shadow-sm" aria-hidden>
-                    <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
-                      <span className="bg-[#4285F4]" />
-                      <span className="bg-[#EA4335]" />
-                      <span className="bg-[#FBBC05]" />
-                      <span className="bg-[#34A853]" />
+            {/* Link Google Calendar: href começa por https://www.google.com; abre em nova aba */}
+            {showGoogleCalendar && (() => {
+              const gameInfo = {
+                gameType: getCategoryFromPhase(game.phase),
+                opponentOrName: gameTitle,
+                startsAt: game.starts_at,
+                endDate: (game as { end_date?: string | null }).end_date ?? undefined,
+                location: game.location || '',
+                gameId: game.id,
+              };
+              return (
+                <div className="mt-6">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
+                  <a
+                    href={buildGoogleCalendarUrl(gameInfo)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-lg hover:border-blue-200 transition-all text-gray-800 hover:bg-blue-50/50 font-semibold text-base no-underline"
+                  >
+                    <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200 shadow-sm" aria-hidden>
+                      <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
+                        <span className="bg-[#4285F4]" />
+                        <span className="bg-[#EA4335]" />
+                        <span className="bg-[#FBBC05]" />
+                        <span className="bg-[#34A853]" />
+                      </span>
                     </span>
-                  </span>
-                  <span>Adicionar ao meu Google Calendar</span>
-                </button>
-              </div>
-            )}
+                    <span>Adicionar ao meu Google Calendar</span>
+                  </a>
+                </div>
+              );
+            })()}
 
             {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '') && pairs.length > 0 && (
               <Card>
