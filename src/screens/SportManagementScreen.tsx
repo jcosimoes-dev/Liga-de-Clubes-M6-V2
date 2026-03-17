@@ -1329,14 +1329,13 @@ export function SportManagementScreen() {
               <select
                 value={gameType}
                 onChange={(e) => setGameType(e.target.value as GameType)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white"
                 required
               >
-                {GAME_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
+                <option value="Liga">Liga M6</option>
+                <option value="Torneio">Torneio</option>
+                <option value="Mix">Mix</option>
+                <option value="Treino">Treino</option>
               </select>
             </div>
 
@@ -1417,32 +1416,48 @@ export function SportManagementScreen() {
             )}
 
             {isMultiDayEvent ? (
-              <div className="space-y-4 touch-manipulation">
-                <Input
-                  type="date"
-                  label="Data de Início"
-                  value={gameDate}
-                  onChange={(e) => setGameDate(e.target.value)}
-                  required
-                  className="min-h-[2.75rem] text-base"
-                />
-                <Input
-                  type="date"
-                  label="Data de Fim"
-                  value={gameDateEnd}
-                  onChange={(e) => setGameDateEnd(e.target.value)}
-                  required={isMultiDayEvent}
-                  className="min-h-[2.75rem] text-base"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 touch-manipulation">
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de Início</label>
+                  <div className="flex items-center gap-2 w-full px-4 py-2.5 border border-gray-300 rounded-xl shadow-sm bg-white focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-400">
+                    <Calendar className="w-5 h-5 text-gray-500 flex-shrink-0" aria-hidden />
+                    <input
+                      type="date"
+                      value={gameDate}
+                      onChange={(e) => setGameDate(e.target.value)}
+                      required
+                      className="flex-1 min-w-0 min-h-[2.25rem] text-base border-0 p-0 focus:outline-none focus:ring-0 bg-transparent"
+                    />
+                  </div>
+                </div>
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de Fim</label>
+                  <div className="flex items-center gap-2 w-full px-4 py-2.5 border border-gray-300 rounded-xl shadow-sm bg-white focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-400">
+                    <Calendar className="w-5 h-5 text-gray-500 flex-shrink-0" aria-hidden />
+                    <input
+                      type="date"
+                      value={gameDateEnd}
+                      onChange={(e) => setGameDateEnd(e.target.value)}
+                      required
+                      className="flex-1 min-w-0 min-h-[2.25rem] text-base border-0 p-0 focus:outline-none focus:ring-0 bg-transparent"
+                    />
+                  </div>
+                </div>
               </div>
             ) : (
-              <Input
-                type="datetime-local"
-                label="Data e Hora"
-                value={gameDate}
-                onChange={(e) => setGameDate(e.target.value)}
-                required
-              />
+              <div className="w-full">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data e Hora</label>
+                <div className="flex items-center gap-2 w-full px-4 py-2.5 border border-gray-300 rounded-xl shadow-sm bg-white focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-400">
+                  <Calendar className="w-5 h-5 text-gray-500 flex-shrink-0" aria-hidden />
+                  <input
+                    type="datetime-local"
+                    value={gameDate}
+                    onChange={(e) => setGameDate(e.target.value)}
+                    required
+                    className="flex-1 min-w-0 min-h-[2.25rem] text-base border-0 p-0 focus:outline-none focus:ring-0 bg-transparent"
+                  />
+                </div>
+              </div>
             )}
 
             <Input
