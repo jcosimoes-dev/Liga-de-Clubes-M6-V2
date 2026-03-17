@@ -1341,22 +1341,44 @@ export function SportManagementScreen() {
             </div>
 
             <div className="flex items-center space-x-2 my-4">
-              <button
-                type="button"
+              <div
                 role="switch"
                 id="multi-day"
                 aria-checked={isMultiDayEvent}
+                tabIndex={0}
                 onClick={() => {
                   setIsMultiDayEvent((v) => !v);
                   if (!isMultiDayEvent) setGameDateEnd('');
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setIsMultiDayEvent((v) => !v);
+                    if (!isMultiDayEvent) setGameDateEnd('');
+                  }
+                }}
                 className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${isMultiDayEvent ? 'bg-green-600' : 'bg-gray-200'}`}
               >
                 <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
-              <label htmlFor="multi-day" className="cursor-pointer text-sm font-medium text-gray-700">
+              </div>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setIsMultiDayEvent((v) => !v);
+                  if (isMultiDayEvent) setGameDateEnd('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setIsMultiDayEvent((v) => !v);
+                    if (isMultiDayEvent) setGameDateEnd('');
+                  }
+                }}
+                className="cursor-pointer text-sm font-medium text-gray-700"
+              >
                 Evento de Vários Dias?
-              </label>
+              </span>
             </div>
 
             {gameType === 'Liga' && (
@@ -1557,9 +1579,10 @@ export function SportManagementScreen() {
                 const isPastDate = new Date(game.starts_at) < new Date();
                 const isSameGame = selectedGame?.id === game.id;
                 return (
-                  <button
+                  <div
                     key={game.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       if (isSameGame) return;
                       try {
@@ -1574,7 +1597,14 @@ export function SportManagementScreen() {
                       } catch (_) {}
                       setSelectedGame(game);
                     }}
-                    className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        if (isSameGame) return;
+                        setSelectedGame(game);
+                      }
+                    }}
+                    className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all cursor-pointer ${
                       selectedGame?.id === game.id ? 'ring-2 ring-offset-2 ring-blue-500 border-blue-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
                   >
@@ -1641,7 +1671,7 @@ export function SportManagementScreen() {
                       </span>
                       <Badge variant="success" className="mt-2">Aberto</Badge>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -2164,11 +2194,18 @@ export function SportManagementScreen() {
                 const styles = CATEGORY_STYLES[cat];
                 const isPastDate = new Date(game.starts_at) < new Date();
                 return (
-                  <button
+                  <div
                     key={game.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedGameForSwap(selectedGameForSwap?.id === game.id ? null : game)}
-                    className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all ${
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        setSelectedGameForSwap(selectedGameForSwap?.id === game.id ? null : game);
+                      }
+                    }}
+                    className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all cursor-pointer ${
                       selectedGameForSwap?.id === game.id ? 'ring-2 ring-offset-2 ring-amber-500 border-amber-500' : isPastDate ? 'border-amber-400 bg-amber-50/30 hover:shadow-xl' : 'border-transparent hover:shadow-xl'
                     }`}
                   >
@@ -2219,7 +2256,7 @@ export function SportManagementScreen() {
                         {new Date(game.starts_at).toLocaleDateString('pt-PT')} — {game.location}
                       </span>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
