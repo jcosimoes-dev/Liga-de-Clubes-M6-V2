@@ -177,7 +177,7 @@ export function GameDetailsScreen({ id }: Props) {
               </div>
             </Card>
 
-            {/* Link Google Calendar: href começa por https://www.google.com; abre em nova aba */}
+            {/* Link Google Calendar: href = https://calendar.google.com/calendar/render?action=TEMPLATE&...; abre em nova aba */}
             {showGoogleCalendar && (() => {
               const gameInfo = {
                 gameType: getCategoryFromPhase(game.phase),
