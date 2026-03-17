@@ -1,3 +1,4 @@
+import { HashRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NavigationProvider } from './contexts/NavigationContext';
 
@@ -24,6 +25,7 @@ import { Loading } from './components/ui/Loading';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 
 /** Apenas login/register/reset-password (para quando !user; nunca montar game/home). */
 const PUBLIC_ROUTES_ONLY = {
@@ -50,6 +52,8 @@ const ALL_ROUTES = {
 
 function AppContent() {
   const { session, loading, user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
@@ -69,21 +73,22 @@ function AppContent() {
 
   // Ao abrir a App a partir do link do WhatsApp (?from=whatsapp), limpar o parâmetro da URL para não afetar outros separadores.
   useEffect(() => {
-    if (typeof window === 'undefined' || !user) return;
-    const search = window.location.search || '';
+    if (!user) return;
+    const search = location.search || '';
     if (!search.includes('from=whatsapp')) return;
     const params = new URLSearchParams(search);
     params.delete('from');
     const newSearch = params.toString();
-    const cleanUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + (window.location.hash || '');
-    window.history.replaceState(null, '', cleanUrl);
-  }, [user]);
+    const cleanPath = location.pathname + (newSearch ? `?${newSearch}` : '') + (location.hash || '');
+    navigate(cleanPath, { replace: true });
+  }, [user, location.search, location.pathname, location.hash, navigate]);
 
-  // Guarda de rota: sem user e loading concluído → só Login (nunca montar ecrã de jogo sem utilizador).
+  // Sem user e loading concluído: garantir URL raiz (router controla; evita /gestao em sessão fechada).
+  useEffect(() => {
+    if (!user && !loading && location.pathname !== '/') navigate('/', { replace: true });
+  }, [user, loading, location.pathname, navigate]);
+
   if (!user && !loading) {
-    if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', '/');
-    }
     return (
       <div style={{ minHeight: '100vh' }}>
         <ConnectionRestoredToast />
@@ -108,7 +113,7 @@ function AppContent() {
     <ProtectedRoute>
       <div style={{ minHeight: '100vh' }}>
         <ConnectionRestoredToast />
-        <NavigationProvider routes={ALL_ROUTES} initialRouteName="login" />
+        <NavigationProvider routes={ALL_ROUTES} initialRouteName="home" />
         <OfflineBanner />
         <InstallAppPrompt />
         <WelcomeModal isOpen={showWelcomeModal} onClose={() => setShowWelcomeModal(false)} />
@@ -120,7 +125,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <HashRouter>
+        <AppContent />
+      </HashRouter>
     </AuthProvider>
   );
 }

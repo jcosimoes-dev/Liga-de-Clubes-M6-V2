@@ -151,8 +151,9 @@ export const PlayersService = {
   },
 
   /**
-   * Criar ou actualizar perfil do utilizador (UPSERT)
-   * Usado no ecrã "Complete o seu perfil"
+   * Criar ou actualizar perfil do utilizador.
+   * Se já existir linha para user_id: UPDATE apenas campos seguros (NUNCA role).
+   * Se não existir: INSERT com role jogador.
    */
   async upsertProfile(profile: {
     user_id: string;
@@ -164,9 +165,36 @@ export const PlayersService = {
   }) {
     const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
+    const { data: existing } = await supabase
+      .from('players')
+      .select('id, role')
+      .eq('user_id', profile.user_id)
+      .maybeSingle();
+
+    const existingRow = existing as { id?: string; role?: string } | null;
+    if (existingRow?.id) {
+      console.log('[PlayersService.upsertProfile] Linha já existe: user_id=%s, role atual=%s — NÃO escrever role.', profile.user_id, existingRow.role);
+      const { data, error } = await supabase
+        .from('players')
+        .update({
+          name: profile.name,
+          email: profile.email,
+          phone: profile.phone,
+          federation_points: profile.federation_points,
+          team_id: profile.team_id || DEFAULT_TEAM_ID,
+          is_active: true,
+        })
+        .eq('id', existingRow.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    }
+
+    console.log('[PlayersService.upsertProfile] Novo perfil: user_id=%s, role=jogador (apenas em INSERT).', profile.user_id);
     const { data, error } = await supabase
       .from('players')
-      .upsert({
+      .insert({
         user_id: profile.user_id,
         name: profile.name,
         email: profile.email,
@@ -175,8 +203,6 @@ export const PlayersService = {
         team_id: profile.team_id || DEFAULT_TEAM_ID,
         is_active: true,
         role: PlayerRoles.jogador,
-      }, {
-        onConflict: 'user_id',
       })
       .select()
       .single();

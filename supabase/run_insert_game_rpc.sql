@@ -27,10 +27,14 @@ DECLARE
   v_team_id uuid;
   v_created_by uuid;
 BEGIN
+  -- Roles na BD (EN): admin, coordinator, captain, player. PT também aceite.
   SELECT EXISTS (
     SELECT 1 FROM public.players
     WHERE user_id = auth.uid()
-      AND (role IN ('capitao', 'coordenador', 'admin') OR role::text = '4')
+      AND (
+        role IN ('admin', 'coordinator', 'captain', 'capitao', 'coordenador')
+        OR role::text = '4'
+      )
   ) INTO v_can_insert;
 
   IF NOT v_can_insert THEN

@@ -3,6 +3,7 @@ import { Layout } from '../components/layout/Layout';
 import { Card, Button, Badge, Toast, ToastType, Header, AddPlayerModal, RestrictedAccessModal, Input } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
+import { supabase } from '../lib/supabase';
 import { PlayersService, updateUserPassword } from '../services';
 import { UserPlus, ShieldCheck, Key, Lock, X, Loader2, ChevronDown, Search, Phone } from 'lucide-react';
 import type { Database } from '../lib/database.types';
@@ -39,7 +40,7 @@ const INPUT_MODERN =
   'w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:outline-none transition-colors text-gray-900 disabled:opacity-60';
 
 export function AdminScreen() {
-  const { player, isAdmin } = useAuth();
+  const { player, isAdmin, user } = useAuth();
   const { navigate, goBack } = useNavigation();
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
@@ -93,7 +94,22 @@ export function AdminScreen() {
     setPromotionSuccess('');
     setRoleError('');
     try {
-      await PlayersService.updateRole(selectedPlayerId, selectedRole);
+      const payload = { p_target_player_id: selectedPlayerId, p_new_role: selectedRole };
+      console.log('[AdminScreen.handleUpdateRole] RPC admin_set_player_role — auth user:', { id: user?.id ?? null, email: user?.email ?? null });
+      console.log('[AdminScreen.handleUpdateRole] RPC payload:', payload);
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc('admin_set_player_role', payload);
+      console.log('[AdminScreen.handleUpdateRole] RPC resultado:', { data: rpcRows, error: rpcErr?.message ?? null });
+      const updatedRow = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+      const roleDevolvida = updatedRow && typeof updatedRow === 'object' && 'role' in updatedRow ? (updatedRow as { role: string }).role : null;
+      console.log('[AdminScreen.handleUpdateRole] role devolvida pela RPC:', roleDevolvida);
+      if (rpcErr || !updatedRow) {
+        setRoleError(rpcErr?.message ?? 'Não foi possível alterar a função.');
+        return;
+      }
+      if (roleDevolvida !== selectedRole) {
+        setRoleError('A função não foi alterada. Verifica permissões.');
+        return;
+      }
       const updatedPlayer = players.find((p) => p.id === selectedPlayerId);
       const roleLabels: Record<PlayerRole, string> = {
         [PlayerRoles.jogador]: 'Jogador',
@@ -107,6 +123,8 @@ export function AdminScreen() {
       );
       setSelectedPlayerId('');
       await loadPlayers();
+      const { data: afterRefresh } = await supabase.from('players').select('id, role').eq('id', selectedPlayerId).single();
+      console.log('[AdminScreen.handleUpdateRole] role final após refresh:', (afterRefresh as { role?: string } | null)?.role ?? null);
     } catch (err) {
       setRoleError(err instanceof Error ? err.message : 'Erro ao atualizar role');
     } finally {

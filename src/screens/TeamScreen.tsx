@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, Badge, Loading, Button, Input, ConfirmDialog, Toast, ToastType, Header } from '../components/ui';
 import { PlayersService } from '../services';
-import { updatePlayerProfileAdmin } from '../services/adminAuth';
 import { supabase } from '../lib/supabase';
 import { MIN_PASSWORD_LENGTH } from '../lib/authErrors';
 import { normalizePhoneForDb } from '../lib/phone';
@@ -51,6 +50,13 @@ export function TeamScreen() {
       }
       const activeOnly = data.filter((p: any) => p?.is_active === true);
       setPlayers(activeOnly);
+      // Diagnóstico: comparar currentUser com a linha que aparece na lista
+      if (typeof console !== 'undefined' && console.log && currentPlayer) {
+        const authUserId = currentPlayer.user_id;
+        const inList = activeOnly.find((p: any) => p?.user_id === authUserId || p?.id === currentPlayer?.id);
+        console.log('[TeamScreen.loadPlayers] currentPlayer do AuthContext: id=%s, user_id=%s, email=%s, role=%s', currentPlayer.id, currentPlayer.user_id, currentPlayer.email, currentPlayer.role);
+        console.log('[TeamScreen.loadPlayers] Linha do mesmo user na lista (getAll/getTeamPlayers):', inList ? { id: inList.id, user_id: inList.user_id, email: inList.email, role: inList.role } : 'NENHUMA (user_id não encontrado na lista)');
+      }
     } catch {
       setPlayers([]);
     } finally {
@@ -96,28 +102,46 @@ export function TeamScreen() {
       showToast(prefErr, 'error');
       return;
     }
-    if (isAdmin && editForm.role) {
-      const roleErr = validateRole(editForm.role);
+
+    const editingPlayer = players.find((p: { id?: string }) => p?.id === editingId);
+    const roleActual = editingPlayer && typeof editingPlayer === 'object' && 'role' in editingPlayer ? (editingPlayer as { role?: string }).role : null;
+    const roleNovaPretendida = editForm.role ?? null;
+    const roleMudou = isAdmin && roleNovaPretendida != null && roleNovaPretendida !== roleActual;
+
+    if (roleMudou) {
+      const roleErr = validateRole(roleNovaPretendida);
       if (roleErr) {
         showToast(roleErr, 'error');
         return;
       }
     }
 
+    const profileUpdates: Parameters<typeof PlayersService.updateProfile>[1] = {
+      name: editForm.name,
+      federation_points: editForm.federation_points,
+      preferred_side: editForm.preferred_side,
+      phone: normalizePhoneForDb(editForm.phone) ?? (editForm.phone.trim() || null),
+    };
+
     setSaving(true);
     try {
-      const updates: Parameters<typeof PlayersService.updateProfile>[1] = {
-        name: editForm.name,
-        federation_points: editForm.federation_points,
-        preferred_side: editForm.preferred_side,
-        phone: normalizePhoneForDb(editForm.phone) ?? (editForm.phone.trim() || null),
-      };
-      if (isAdmin && editForm.role) updates.role = editForm.role;
-      if (isAdmin) {
-        await updatePlayerProfileAdmin(editingId, updates as Record<string, unknown>);
-      } else {
-        await PlayersService.updateProfile(editingId, updates);
+      if (roleMudou) {
+        const id = editingId;
+        const role = roleNovaPretendida;
+        console.log('A enviar para o Supabase (RPC admin_set_player_role):', { id, role });
+        const { data: rpcData, error: rpcError } = await supabase.rpc('admin_set_player_role', {
+          p_target_player_id: id,
+          p_new_role: role,
+        });
+        const firstRow = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        const roleDevolvida = firstRow && typeof firstRow === 'object' && 'role' in firstRow ? (firstRow as { role: string }).role : null;
+        if (rpcError || !firstRow || roleDevolvida !== roleNovaPretendida) {
+          showToast(rpcError?.message ?? 'A função não foi alterada.', 'error');
+          return;
+        }
       }
+
+      await PlayersService.updateProfile(editingId, profileUpdates);
       await loadPlayers();
       setEditingId(null);
       showToast('Perfil atualizado com sucesso', 'success');

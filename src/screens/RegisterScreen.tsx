@@ -130,21 +130,18 @@ export function RegisterScreen() {
               : { data: null };
             if (existingUid && !existingPlayer) {
               const teamId = DEFAULT_TEAM_ID;
-              const { error: insertErr } = await supabase.from('players').upsert(
-                {
-                  user_id: existingUid,
-                  team_id: teamId,
-                  name: trimmedName || trimmedEmail.split('@')[0] || 'Utilizador',
-                  email: trimmedEmail.toLowerCase(),
-                  phone: phoneNormalized,
-                  preferred_side,
-                  federation_points: points,
-                  is_active: true,
-                  role: PlayerRoles.jogador,
-                  profile_completed: true,
-                },
-                { onConflict: 'user_id' }
-              );
+              const { error: insertErr } = await supabase.from('players').insert({
+                user_id: existingUid,
+                team_id: teamId,
+                name: trimmedName || trimmedEmail.split('@')[0] || 'Utilizador',
+                email: trimmedEmail.toLowerCase(),
+                phone: phoneNormalized,
+                preferred_side,
+                federation_points: points,
+                is_active: true,
+                role: PlayerRoles.jogador,
+                profile_completed: true,
+              });
               if (!insertErr) await refreshPlayer();
             }
             showToast('Já tens conta. Entrada efetuada.', 'success');
@@ -163,38 +160,68 @@ export function RegisterScreen() {
         return;
       }
 
-      const payload = {
-        user_id: uid,
-        team_id: teamId,
-        name: trimmedName || trimmedEmail.split('@')[0] || 'Utilizador',
-        email: trimmedEmail.toLowerCase(),
-        phone: phoneNormalized,
-        preferred_side,
-        federation_points: points,
-        is_active: true,
-        role: PlayerRoles.jogador,
-        profile_completed: true,
-      };
-
-      const { error: upsertError } = await supabase
+      // Evitar sobrescrever role de utilizadores existentes (admin/coordenador/capitão)
+      const { data: existingPlayer } = await supabase
         .from('players')
-        .upsert(payload, { onConflict: 'user_id' });
+        .select('id, role')
+        .eq('user_id', uid)
+        .maybeSingle();
 
-      if (upsertError) {
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn('[Register] Erro ao inserir/atualizar players:', upsertError.message, upsertError.code);
+      if (existingPlayer?.id) {
+        // Já existe perfil: atualizar apenas campos seguros (nunca role)
+        const { error: updateError } = await supabase
+          .from('players')
+          .update({
+            name: trimmedName || trimmedEmail.split('@')[0] || 'Utilizador',
+            email: trimmedEmail.toLowerCase(),
+            phone: phoneNormalized,
+            preferred_side,
+            federation_points: points,
+            is_active: true,
+            team_id: teamId,
+            profile_completed: true,
+          })
+          .eq('user_id', uid);
+        if (updateError) {
+          if (updateError.message?.includes('foreign key') || updateError.message?.includes('team_id') || updateError.code === '23503') {
+            throw new Error('A equipa associada não existe. Contacta o administrador.');
+          }
+          throw updateError;
         }
-        if (upsertError.code === '23505') {
+      } else {
+        // Novo utilizador: apenas INSERT (em conflito não sobrescrever role)
+        const payload = {
+          user_id: uid,
+          team_id: teamId,
+          name: trimmedName || trimmedEmail.split('@')[0] || 'Utilizador',
+          email: trimmedEmail.toLowerCase(),
+          phone: phoneNormalized,
+          preferred_side,
+          federation_points: points,
+          is_active: true,
+          role: PlayerRoles.jogador,
+          profile_completed: true,
+        };
+        const { error: insertError } = await supabase
+          .from('players')
+          .insert(payload);
+
+        if (insertError) {
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('[Register] Erro ao inserir players:', insertError.message, insertError.code);
+          }
+          if (insertError.code === '23505') {
+            await refreshPlayer();
+            navigate({ name: 'home' });
+            return;
+          }
+          if (insertError.message?.includes('foreign key') || insertError.message?.includes('team_id') || insertError.code === '23503') {
+            throw new Error('A equipa associada não existe. Contacta o administrador.');
+          }
           await refreshPlayer();
           navigate({ name: 'home' });
           return;
         }
-        if (upsertError.message?.includes('foreign key') || upsertError.message?.includes('team_id') || upsertError.code === '23503') {
-          throw new Error('A equipa associada não existe. Contacta o administrador.');
-        }
-        await refreshPlayer();
-        navigate({ name: 'home' });
-        return;
       }
 
       await refreshPlayer();

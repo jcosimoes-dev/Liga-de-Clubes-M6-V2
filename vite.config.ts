@@ -2,10 +2,34 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+/** Rotas SPA que devem devolver index.html (evita 404 ao abrir Gestão de Jogos / jogos / etc.). */
+const SPA_PATHS = ['/gestao', '/gestao/', '/login', '/register', '/reset-password', '/jogos'];
+
+function vitePluginSpaFallback() {
+  return {
+    name: 'vite-plugin-spa-fallback',
+    configureServer(server: any) {
+      const handler = (req: any, res: any, next: () => void) => {
+        const url = req.url?.split('?')[0] ?? '';
+        const isSpaRoute =
+          SPA_PATHS.some((p) => url === p || url.startsWith(p + '/')) ||
+          (url.startsWith('/jogos/') && url.length > 7);
+        if (isSpaRoute && !url.includes('.')) {
+          req.url = '/index.html';
+        }
+        next();
+      };
+      // Inserir no início para correr antes do static file server (evita 404 para /gestao)
+      server.middlewares.stack.unshift({ route: '', handle: handler });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
+    vitePluginSpaFallback(),
     VitePWA({
       registerType: 'autoUpdate',
 

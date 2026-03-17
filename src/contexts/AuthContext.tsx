@@ -113,20 +113,75 @@ async function fetchPlayerByUserId(userId: string): Promise<Player | null> {
     ? { ...raw, role: roleValue } as Player
     : null;
 
+  // Diagnóstico: log da linha encontrada (ou null) para user_id
+  if (typeof console !== 'undefined' && console.log) {
+    console.log('[AuthContext.fetchPlayerByUserId]', {
+      auth_user_id: userId,
+      found: !!raw,
+      player_id: raw?.id ?? null,
+      player_user_id: raw?.user_id ?? null,
+      player_email: raw?.email ?? null,
+      player_role: roleValue ?? null,
+      player_role_RAW: raw?.role ?? null,
+    });
+  }
   return profile;
 }
 
+const ELEVATED_ROLES = new Set([PlayerRoles.admin, PlayerRoles.gestor, PlayerRoles.coordenador, PlayerRoles.capitao]);
+
 /**
  * Garante que o utilizador tem perfil em players.
- * 1) SELECT por user_id; se existir, devolve.
- * 2) Se não existir (ou RLS ocultar), faz UPSERT com onConflict: 'user_id' para evitar duplicate key.
- * 3) Volta a fazer SELECT e devolve (player_id fica disponível para availabilities).
+ * - Se existir linha por user_id: devolve (NUNCA sobrescrever role).
+ * - Se não existir: procura linha por email; se existir (ex.: admin com user_id antigo), associa user_id e devolve.
+ * - Só então: INSERT com role jogador; em conflito refetch e devolve.
  */
 async function ensurePlayerProfile(userId: string, authUser: { email?: string | null; user_metadata?: Record<string, unknown> }): Promise<Player | null> {
   let profile = await fetchPlayerByUserId(userId);
-  if (profile) return applyHardcodedAdmin(profile, authUser.email);
+  if (profile) {
+    if (typeof console !== 'undefined' && console.log) {
+      console.log('[AuthContext.ensurePlayerProfile] Perfil já existe por user_id. role=%s (NENHUMA escrita).', profile.role);
+    }
+    return applyHardcodedAdmin(profile, authUser.email);
+  }
 
   const email = (authUser.email ?? '').trim().toLowerCase();
+  if (!email) {
+    if (typeof console !== 'undefined' && console.log) {
+      console.log('[AuthContext.ensurePlayerProfile] Sem email; não procurar por email. user_id=%s', userId);
+    }
+  } else {
+    // Associar linha existente por email (evitar segunda linha com role jogador para o mesmo utilizador)
+    const { data: byEmail } = await supabase
+      .from('players')
+      .select('id, user_id, email, role')
+      .eq('email', email)
+      .limit(2);
+
+    const rows = (byEmail ?? []) as { id: string; user_id: string | null; email: string | null; role: string | null }[];
+    if (typeof console !== 'undefined' && console.log) {
+      console.log('[AuthContext.ensurePlayerProfile] Linhas com este email (players.email=%s):', email, rows.length, rows.map((r) => ({ id: r.id, user_id: r.user_id, role: r.role })));
+    }
+    if (rows.length >= 1) {
+      const row = rows[0];
+      if (row.user_id !== userId) {
+        console.log('[AuthContext.ensurePlayerProfile] Associar linha existente ao auth user: players.id=%s, role=%s, user_id antigo=%s -> novo=%s (RPC link_player_profile_by_email).', row.id, row.role, row.user_id, userId);
+        const { data: linked, error: linkErr } = await supabase.rpc('link_player_profile_by_email');
+        if (linkErr) {
+          console.warn('[AuthContext.ensurePlayerProfile] RPC link_player_profile_by_email erro:', linkErr.message, linkErr.code);
+        } else if (linked && Array.isArray(linked) && linked.length > 0) {
+          const raw = linked[0] as Record<string, unknown>;
+          const roleValue = raw?.role ?? null;
+          profile = { ...raw, role: roleValue } as Player;
+          console.log('[AuthContext.ensurePlayerProfile] Após RPC link: player.id=%s, role=%s (NÃO inserir jogador).', profile.id, profile.role);
+          return applyHardcodedAdmin(profile, authUser.email);
+        }
+        profile = await fetchPlayerByUserId(userId);
+        if (profile) return applyHardcodedAdmin(profile, authUser.email);
+      }
+    }
+  }
+
   const name = (authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? email?.split('@')[0] ?? 'Utilizador').toString().trim() || 'Utilizador';
   let teamId: string | null = DEFAULT_TEAM_ID;
   try {
@@ -148,11 +203,16 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
     profile_completed: false,
   };
 
-  const { error: upsertError } = await supabase
-    .from('players')
-    .upsert(payload, { onConflict: 'user_id', ignoreDuplicates: true });
+  console.log('[AuthContext.ensurePlayerProfile] ESCREVENDO INSERT: user_id=%s, email=%s, role=%s. Payload completo:', userId, email, payload.role, payload);
+  const { error: insertError } = await supabase.from('players').insert(payload);
 
-  if (upsertError) {
+  if (insertError) {
+    const code = (insertError as { code?: string }).code;
+    if (code === '23505') {
+      console.log('[AuthContext.ensurePlayerProfile] Conflito 23505: linha já existe para user_id=%s — refetch, NÃO escrever role.', userId);
+      profile = await fetchPlayerByUserId(userId);
+      return applyHardcodedAdmin(profile, authUser.email);
+    }
     if ((authUser.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
       return syntheticOwnerProfile(userId, authUser);
     }
@@ -160,7 +220,9 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
   }
 
   profile = await fetchPlayerByUserId(userId);
-  return applyHardcodedAdmin(profile, authUser.email);
+  const out = applyHardcodedAdmin(profile, authUser.email);
+  console.log('[AuthContext.ensurePlayerProfile] Após INSERT: profile.role=%s, applyHardcodedAdmin result role=%s', profile?.role ?? null, out?.role ?? null);
+  return out;
 }
 
 /**
@@ -289,11 +351,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
+      const authId = s.user.id;
+      const authEmail = (s?.user?.email ?? '').trim().toLowerCase();
+      console.log('[AuthContext] getSession: auth user id=%s, email=%s', authId, authEmail);
       setSession(s);
-      if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) clearOwnerStaleTeamCache();
+      if (authEmail === HARDCODED_ADMIN_EMAIL) clearOwnerStaleTeamCache();
       ensurePlayerProfile(s.user.id, s.user)
         .then((p) => {
-          if (!cancelled) setPlayer(applyHardcodedAdmin(p, s?.user?.email));
+          if (cancelled) return;
+          const final = applyHardcodedAdmin(p, s?.user?.email);
+          console.log('[AuthContext] setPlayer (inicial): player.id=%s, player.user_id=%s, player.email=%s, player.role=%s', final?.id ?? null, final?.user_id ?? null, final?.email ?? null, final?.role ?? null);
+          setPlayer(final);
         })
         .catch((e) => {
           if (!cancelled) {
@@ -349,10 +417,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const authId = newSession.user.id;
+      const authEmail = (newSession?.user?.email ?? '').trim().toLowerCase();
+      console.log('[AuthContext] onAuthStateChange: event=%s, auth user id=%s, email=%s', event, authId, authEmail);
       setLoading(true);
       ensurePlayerProfile(newSession.user.id, newSession.user)
         .then((p) => {
-          setPlayer(applyHardcodedAdmin(p, newSession?.user?.email));
+          const final = applyHardcodedAdmin(p, newSession?.user?.email);
+          console.log('[AuthContext] setPlayer (onAuthStateChange): player.id=%s, player.user_id=%s, player.email=%s, player.role=%s', final?.id ?? null, final?.user_id ?? null, final?.email ?? null, final?.role ?? null);
+          setPlayer(final);
         })
         .catch((e) => {
           if ((newSession?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {

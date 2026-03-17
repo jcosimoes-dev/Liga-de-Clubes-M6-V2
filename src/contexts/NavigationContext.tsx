@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles } from '../domain/constants';
 import { MustChangePasswordBanner } from '../components/MustChangePasswordBanner';
@@ -15,6 +16,41 @@ type NavigationContextType = {
 };
 
 const NavigationContext = createContext<NavigationContextType | null>(null);
+
+/** Mapeamento pathname → rota (rota /gestao tratada apenas pelo router da SPA). */
+function pathnameToRoute(pathname: string, initialRouteName: string): RouteEntry {
+  const p = (pathname ?? '/').replace(/\/+$/, '') || '/';
+  if (p === '/reset-password' || p.endsWith('/reset-password')) return { name: 'reset-password' };
+  if (p === '/login' || p.endsWith('/login')) return { name: 'login' };
+  if (p === '/register' || p.endsWith('/register')) return { name: 'register' };
+  if (p === '/gestao' || p.endsWith('/gestao')) return { name: 'sport-management' };
+  if (p === '/admin' || p.endsWith('/admin')) return { name: 'admin' };
+  if (p === '/calendar' || p.endsWith('/calendar')) return { name: 'calendar' };
+  if (p === '/history' || p.endsWith('/history')) return { name: 'history' };
+  if (p === '/team' || p.endsWith('/team')) return { name: 'team' };
+  if (p === '/bootstrap' || p.endsWith('/bootstrap')) return { name: 'bootstrap' };
+  if (p === '/complete-profile' || p.endsWith('/complete-profile')) return { name: 'complete-profile' };
+  const gameMatch = p.match(/\/jogos\/([^/]+)\/?$/);
+  if (gameMatch) return { name: 'game', params: { id: decodeURIComponent(gameMatch[1]) } };
+  if (p === '/' || p === '') return { name: initialRouteName };
+  return { name: 'home' };
+}
+
+/** Mapeamento rota → path (navegação controlada pelo router; sem pushState directo). */
+function routeToPath(name: RouteName, params?: any): string {
+  if (name === 'game' && params?.id) return `/jogos/${encodeURIComponent(String(params.id))}`;
+  if (name === 'sport-management') return '/gestao';
+  if (name === 'reset-password') return '/reset-password';
+  if (name === 'login') return '/login';
+  if (name === 'register') return '/register';
+  if (name === 'complete-profile') return '/complete-profile';
+  if (name === 'admin') return '/admin';
+  if (name === 'calendar') return '/calendar';
+  if (name === 'history') return '/history';
+  if (name === 'team') return '/team';
+  if (name === 'bootstrap') return '/bootstrap';
+  return '/';
+}
 
 const ROUTES_ALLOWED_FOR_PLAYER: RouteName[] = [
   'home',
@@ -42,19 +78,13 @@ export function NavigationProvider({
   routes: Record<string, any>;
   initialRouteName: string;
 }) {
-  const [route, setRoute] = useState<RouteEntry>(() => {
-    if (typeof window === 'undefined') return { name: initialRouteName };
-    const pathname = (window.location.pathname ?? '/').replace(/\/+$/, '') || '/';
-    if (pathname === '/reset-password' || pathname.endsWith('/reset-password')) return { name: 'reset-password' };
-    if (pathname === '/login' || pathname.endsWith('/login')) return { name: 'login' };
-    if (pathname === '/gestao' || pathname.endsWith('/gestao')) return { name: 'sport-management' };
-    const gameMatch = pathname.match(/\/jogos\/([^/]+)\/?$/);
-    if (gameMatch) return { name: 'game', params: { id: decodeURIComponent(gameMatch[1]) } };
-    return { name: initialRouteName };
-  });
+  const location = useLocation();
+  const routerNavigate = useNavigate();
+  const pathname = location.pathname ?? '/';
 
-  const historyStackRef = useRef<RouteEntry[]>([]);
-  const MAX_HISTORY = 50;
+  const [route, setRoute] = useState<RouteEntry>(() =>
+    pathnameToRoute(pathname, initialRouteName)
+  );
 
   const { role, session, user, mustChangePassword, player, canManageSport } = useAuth();
   const isAdmin = (role || '').trim() === PlayerRoles.admin;
@@ -63,29 +93,33 @@ export function NavigationProvider({
   const PUBLIC_ROUTES: RouteName[] = ['login', 'register', 'reset-password'];
   const isPublicRoute = PUBLIC_ROUTES.includes(route.name);
 
-  // Sem sessão: forçar rota login, limpar stack e URL para raiz (não guardar /jogos/:id).
+  // Sincronizar estado da rota com o pathname do router (ex.: botão voltar do browser).
+  useEffect(() => {
+    setRoute(pathnameToRoute(pathname, initialRouteName));
+  }, [pathname, initialRouteName]);
+
+  // Sem sessão: forçar login e URL raiz (router controla; sem replaceState directo).
   useLayoutEffect(() => {
     if (!session) {
       if (!isPublicRoute) {
         setRoute({ name: 'login' });
-        historyStackRef.current = [];
-        if (typeof window !== 'undefined') {
-          window.history.replaceState(null, '', '/');
-        }
+        routerNavigate('/', { replace: true });
       }
       return;
     }
     if (session && route.name === 'login') {
       setRoute({ name: 'home' });
+      routerNavigate('/', { replace: true });
       return;
     }
     if (isAdmin) return;
     if (player && player.profile_completed === false) {
       if (route.name !== 'complete-profile' && !PUBLIC_ROUTES.includes(route.name)) {
         setRoute({ name: 'complete-profile' });
+        routerNavigate('/complete-profile', { replace: true });
       }
     }
-  }, [session, route.name, isPublicRoute, player?.profile_completed, isAdmin]);
+  }, [session, route.name, isPublicRoute, player?.profile_completed, isAdmin, routerNavigate]);
 
   const allowedForRole = [
     ...ROUTES_ALLOWED_FOR_PLAYER,
@@ -95,56 +129,29 @@ export function NavigationProvider({
   const isForbidden = route.name != null && !allowedForRole.includes(route.name);
 
   // Ao criar jogador no Admin, o signUp troca brevemente a sessão para o novo user → role vira player e admin fica "proibido".
-  // Atrasar o redirecionamento quando estamos em 'admin' para dar tempo ao AddPlayerModal repor a sessão (setSession) e concluir o upsert.
-  // 5s permite redes lentas; quando isForbidden volta a false (sessão restaurada), o cleanup cancela o timeout.
   const ADMIN_REDIRECT_DELAY_MS = 5000;
   useEffect(() => {
     if (!isForbidden) return;
     if (route.name === 'admin') {
-      const t = setTimeout(() => setRoute((r) => (r.name === 'admin' ? { name: 'home', params: { accessDenied: true } } : r)), ADMIN_REDIRECT_DELAY_MS);
+      const t = setTimeout(() => {
+        setRoute({ name: 'home', params: { accessDenied: true } });
+        routerNavigate('/', { replace: true });
+      }, ADMIN_REDIRECT_DELAY_MS);
       return () => clearTimeout(t);
     }
     setRoute({ name: 'home', params: { accessDenied: true } });
-  }, [isForbidden, route.name]);
+    routerNavigate('/', { replace: true });
+  }, [isForbidden, route.name, routerNavigate]);
 
   const navigate = ({ name, params }: { name: RouteName; params?: any }) => {
-    setRoute((prev) => {
-      if (prev.name !== name || JSON.stringify(prev.params) !== JSON.stringify(params)) {
-        const stack = historyStackRef.current;
-        if (stack.length < MAX_HISTORY) stack.push({ name: prev.name, params: prev.params });
-      }
-      return { name, params };
-    });
-    // Atualizar URL para manter rota ao recarregar/voltar da outra aba (sempre caminho absoluto desde a raiz para evitar /gestao/gestao e 404)
-    if (typeof window !== 'undefined') {
-      if (name === 'game' && params?.id) {
-        window.history.pushState(null, '', `/jogos/${encodeURIComponent(String(params.id))}`);
-      } else if (name === 'sport-management') {
-        window.history.pushState(null, '', '/gestao');
-      }
-    }
+    setRoute({ name, params });
+    const path = routeToPath(name, params);
+    routerNavigate(path);
   };
 
   const goBack = () => {
-    const stack = historyStackRef.current;
-    let previous: RouteEntry;
-    if (stack.length > 0) {
-      previous = stack.pop()!;
-      setRoute(previous);
-    } else {
-      previous = { name: 'home' };
-      setRoute(previous);
-    }
-    if (typeof window !== 'undefined') {
-      window.scrollTo(0, 0);
-      if (previous.name === 'game' && previous.params?.id) {
-        window.history.replaceState(null, '', `/jogos/${encodeURIComponent(String(previous.params.id))}`);
-      } else if (previous.name === 'sport-management') {
-        window.history.replaceState(null, '', '/gestao');
-      } else {
-        window.history.replaceState(null, '', '/');
-      }
-    }
+    window.scrollTo(0, 0);
+    routerNavigate(-1);
   };
 
   // Sem sessão em rota protegida: mostrar Login imediatamente (evita flash do ecrã anterior)

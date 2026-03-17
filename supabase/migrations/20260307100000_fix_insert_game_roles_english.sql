@@ -1,8 +1,9 @@
 /*
-  # RPC insert_game — contorna 409 do PostgREST
+  # Corrigir insert_game: aceitar roles em inglês (contract_roles_english)
 
-  Insere o jogo diretamente na BD via função PostgreSQL.
-  Útil quando o insert via REST continua a dar 409.
+  A migração 20260219000000 alterou players.role para ('admin','coordinator','captain','player').
+  A RPC insert_game ainda verificava ('capitao','coordenador','admin'), pelo que devolvia "Acesso negado".
+  Esta migração alinha a verificação com os valores atuais na BD (e mantém PT para compatibilidade).
 */
 
 CREATE OR REPLACE FUNCTION public.insert_game(
@@ -26,7 +27,7 @@ DECLARE
   v_team_id uuid;
   v_created_by uuid;
 BEGIN
-  -- Roles na BD: admin, coordinator, captain, player (EN). Ver 20260307100000_fix_insert_game_roles_english.sql.
+  -- Roles na BD: admin, coordinator, captain, player (EN). Aceitar também PT e numérico por compatibilidade.
   SELECT EXISTS (
     SELECT 1 FROM public.players
     WHERE user_id = auth.uid()

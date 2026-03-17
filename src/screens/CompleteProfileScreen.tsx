@@ -120,25 +120,73 @@ export function CompleteProfileScreen() {
           preferred_side,
         });
       } else {
-        const payload = {
-          user_id,
-          team_id,
-          name: displayName.trim(),
-          phone: phoneTrim || null,
-          is_active: true,
-          federation_points: federationPoints,
-          preferred_side,
-          role: PlayerRoles.jogador,
-          email: (player?.email ?? user?.email ?? '').trim() || '',
-        };
-        const { error } = await supabase
+        // Nunca sobrescrever role existente: se já existe linha para user_id, só atualizar campos seguros.
+        const { data: existing } = await supabase
           .from('players')
-          .upsert(payload, { onConflict: 'user_id' });
-        if (error) {
-          if (error.message?.includes('foreign key') || error.message?.includes('team_id') || error.code === '23503') {
-            throw new Error('A equipa associada não existe. Contacta o administrador.');
+          .select('id, role')
+          .eq('user_id', user_id)
+          .maybeSingle();
+        const existingRole = (existing as { role?: string } | null)?.role;
+        if (existing?.id) {
+          // Linha já existe — atualizar apenas campos permitidos (NUNCA role).
+          console.log('[CompleteProfileScreen] Linha já existe: user_id=%s, role atual=%s — NÃO escrever role.', user_id, existingRole);
+          const { error: updateErr } = await supabase
+            .from('players')
+            .update({
+              name: displayName.trim() || 'Utilizador',
+              phone: phoneTrim || null,
+              federation_points: federationPoints,
+              preferred_side,
+              team_id,
+              is_active: true,
+              profile_completed: true,
+            })
+            .eq('id', existing.id);
+          if (updateErr) {
+            if (updateErr.message?.includes('foreign key') || updateErr.message?.includes('team_id') || updateErr.code === '23503') {
+              throw new Error('A equipa associada não existe. Contacta o administrador.');
+            }
+            throw updateErr;
           }
-          throw error;
+        } else {
+          // Novo perfil — criar com role jogador.
+          const payload = {
+            user_id,
+            team_id,
+            name: displayName.trim() || 'Utilizador',
+            phone: phoneTrim || null,
+            is_active: true,
+            federation_points: federationPoints,
+            preferred_side,
+            role: PlayerRoles.jogador,
+            profile_completed: true,
+            email: (player?.email ?? user?.email ?? '').trim() || '',
+          };
+          console.log('[CompleteProfileScreen] Novo perfil: user_id=%s, role=%s (apenas em INSERT).', user_id, payload.role);
+          const { error } = await supabase
+            .from('players')
+            .insert(payload);
+          if (error) {
+            if (error.code === '23505') {
+              // Conflito: linha foi criada entretanto — atualizar sem tocar na role.
+              const { data: after } = await supabase.from('players').select('id, role').eq('user_id', user_id).maybeSingle();
+              if ((after as { id?: string })?.id) {
+                await supabase.from('players').update({
+                  name: payload.name,
+                  phone: payload.phone,
+                  federation_points: payload.federation_points,
+                  preferred_side: payload.preferred_side,
+                  team_id: payload.team_id,
+                  profile_completed: true,
+                }).eq('id', (after as { id: string }).id);
+              }
+            } else {
+              if (error.message?.includes('foreign key') || error.message?.includes('team_id') || error.code === '23503') {
+                throw new Error('A equipa associada não existe. Contacta o administrador.');
+              }
+              throw error;
+            }
+          }
         }
       }
 

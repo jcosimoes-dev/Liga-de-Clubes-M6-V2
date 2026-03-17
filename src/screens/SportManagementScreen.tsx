@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal, ConfirmDialog } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
@@ -63,6 +64,7 @@ export function SportManagementScreen() {
   const rawTeamId = player?.team_id ?? (isHardcodedAdmin ? undefined : undefined);
   const effectiveTeamId = isOwner || rawTeamId === DEAD_TEAM_ID ? undefined : rawTeamId;
   const { navigate, goBack } = useNavigation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [gameType, setGameType] = useState<GameType>('Liga');
   const [ligaPhase, setLigaPhase] = useState<LigaPhase>('Qualificação');
   const [roundNumber, setRoundNumber] = useState('1');
@@ -153,11 +155,7 @@ export function SportManagementScreen() {
     setActiveTabState(tab);
     try {
       localStorage.setItem('liga-gestao-active-tab', tab);
-      if (typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '').endsWith('/gestao')) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('tab', tab);
-        window.history.replaceState(null, '', url.pathname + url.search);
-      }
+      setSearchParams({ tab }, { replace: true });
     } catch (_) {}
   };
   const [seasonStatsSortBy, setSeasonStatsSortBy] = useState<'disponibilidade' | 'pontos_liga'>('disponibilidade');
@@ -449,16 +447,14 @@ export function SportManagementScreen() {
 
   // Restaurar tab ativa a partir do URL (?tab=) ao montar (ex.: /gestao?tab=convocatorias)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const tabParam = params.get('tab');
+    const tabParam = searchParams.get('tab');
     if (tabParam === 'tecnica' || tabParam === 'convocatorias' || tabParam === 'performance') {
       setActiveTabState(tabParam);
       try {
         localStorage.setItem(TAB_STORAGE_KEY, tabParam);
       } catch (_) {}
     }
-  }, []);
+  }, [searchParams]);
 
   // Restaurar estado das duplas assim que os jogos estiverem carregados (useLayoutEffect para correr antes do paint e de outros efeitos que possam limpar).
   useLayoutEffect(() => {
@@ -478,11 +474,7 @@ export function SportManagementScreen() {
       setActiveTabState('convocatorias');
       try {
         localStorage.setItem(TAB_STORAGE_KEY, 'convocatorias');
-        if (typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '').endsWith('/gestao')) {
-          const url = new URL(window.location.href);
-          url.searchParams.set('tab', 'convocatorias');
-          window.history.replaceState(null, '', url.pathname + url.search);
-        }
+        setSearchParams({ tab: 'convocatorias' }, { replace: true });
       } catch (_) {}
     } catch (_) {}
   }, [gamesLoading, openGames]);
