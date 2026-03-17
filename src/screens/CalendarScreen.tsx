@@ -5,7 +5,8 @@ import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/c
 import { useNavigation } from '../contexts/NavigationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { GamesService, AvailabilitiesService } from '../services';
-import { Calendar, MapPin, Users, CheckCircle, HelpCircle, XCircle, Clock, Check } from 'lucide-react';
+import { openGoogleCalendar } from '../lib/shareLinks';
+import { Calendar, MapPin, Users, CheckCircle, HelpCircle, XCircle, Clock, Check, CalendarPlus } from 'lucide-react';
 
 type AvailabilityStatus = 'confirmed' | 'declined' | 'undecided';
 
@@ -18,10 +19,6 @@ export function CalendarScreen() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [phaseFilter, setPhaseFilter] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const d = new Date();
-    return { year: d.getFullYear(), month: d.getMonth() };
-  });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
   const [savingFor, setSavingFor] = useState<string | null>(null);
@@ -103,15 +100,23 @@ export function CalendarScreen() {
     return `${start} – ${end}`;
   };
 
-  /** True se o dia (date) está entre a data de início e a data de fim do jogo (inclusive). */
+  /**
+   * True se o dia selecionado deve mostrar o jogo na lista.
+   * - Torneio/Mix: dia entre game_date (starts_at) e end_date (inclusive).
+   * - Liga/Treino: apenas no dia do jogo (starts_at); intervalo ignorado.
+   */
   const gameCoversDate = (game: any, date: Date): boolean => {
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const start = new Date(game.starts_at);
     const gameStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-    const gameEnd = game.end_date
-      ? new Date(new Date(game.end_date).getFullYear(), new Date(game.end_date).getMonth(), new Date(game.end_date).getDate())
-      : gameStart;
-    return d >= gameStart && d <= gameEnd;
+    const cat = getCategoryFromPhase(game.phase);
+    if (cat === 'Torneio' || cat === 'Mix') {
+      const gameEnd = game.end_date
+        ? new Date(new Date(game.end_date).getFullYear(), new Date(game.end_date).getMonth(), new Date(game.end_date).getDate())
+        : gameStart;
+      return d >= gameStart && d <= gameEnd;
+    }
+    return d.getTime() === gameStart.getTime();
   };
 
   const getDaysUntilGame = (gameDate: string): number => {
@@ -204,25 +209,6 @@ export function CalendarScreen() {
     return end < now;
   });
 
-  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-  const calendarYear = calendarMonth.year;
-  const calendarMonthIndex = calendarMonth.month;
-  const firstDay = new Date(calendarYear, calendarMonthIndex, 1);
-  const daysInMonth = new Date(calendarYear, calendarMonthIndex + 1, 0).getDate();
-  const startWeekday = firstDay.getDay();
-  const calendarDays: (number | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) calendarDays.push(null);
-  for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
-  const hasEventOnDay = (day: number) => {
-    const d = new Date(calendarYear, calendarMonthIndex, day);
-    return games.some((g) => gameCoversDate(g, d));
-  };
-  const isSelectedDay = (day: number) =>
-    selectedDate &&
-    selectedDate.getFullYear() === calendarYear &&
-    selectedDate.getMonth() === calendarMonthIndex &&
-    selectedDate.getDate() === day;
-
   if (loading) {
     return (
       <Layout>
@@ -246,7 +232,7 @@ export function CalendarScreen() {
     return (
       <CategoryCard
         key={game.id}
-        category={isMultiDay ? 'Liga' : cat}
+        category={cat}
         header={
           <div className="flex items-center justify-between w-full">
             <span className="text-sm font-semibold">
@@ -258,7 +244,7 @@ export function CalendarScreen() {
             {getStatusBadge(game.status)}
           </div>
         }
-        className={`hover:shadow-xl transition-shadow ${isMultiDay ? 'ring-2 ring-blue-900/30' : ''}`}
+        className="hover:shadow-xl transition-shadow"
       >
         {isMultiDay && (
           <div className="mb-3 -mx-4 -mt-2 px-4 py-2 rounded-t-lg bg-gradient-to-r from-blue-900 to-blue-800 text-white text-sm font-medium flex items-center gap-2">
@@ -370,103 +356,64 @@ export function CalendarScreen() {
             )}
           </div>
 
-          <Button
-            fullWidth
-            size="sm"
-            className={styles.buttonClasses}
-            onClick={() => navigate({ name: 'game', params: { id: game.id } })}
-          >
-            Ver detalhes
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="flex-1 flex items-center justify-center gap-1.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                openGoogleCalendar({
+                  gameId: game.id,
+                  gameType: cat,
+                  startsAt: game.starts_at,
+                  endDate: game.end_date ?? undefined,
+                  opponentOrName: GamesService.formatOpponentDisplay(game.opponent) ?? game.phase ?? 'Jogo',
+                  location: game.location ?? '',
+                });
+              }}
+            >
+              <CalendarPlus className="w-4 h-4" />
+              Google Calendar
+            </Button>
+            <Button
+              fullWidth
+              size="sm"
+              className={styles.buttonClasses}
+              onClick={() => navigate({ name: 'game', params: { id: game.id } })}
+            >
+              Ver detalhes
+            </Button>
+          </div>
         </div>
       </CategoryCard>
     );
   };
 
-  const monthLabel = new Date(calendarYear, calendarMonthIndex).toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
-
   return (
     <Layout>
       <Header title="Calendário" />
       <div className="max-w-screen-lg mx-auto px-4 pt-4 space-y-6">
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-800 capitalize">{monthLabel}</h3>
-            <div className="flex gap-1">
-              <button
-                type="button"
-                onClick={() =>
-                  setCalendarMonth((m) => (m.month === 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: m.month - 1 }))
-                }
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
-                aria-label="Mês anterior"
-              >
-                ←
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const now = new Date();
-                  setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
-                }}
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 text-xs"
-              >
-                Hoje
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setCalendarMonth((m) => (m.month === 11 ? { year: m.year + 1, month: 0 } : { year: m.year, month: m.month + 1 }))
-                }
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
-                aria-label="Mês seguinte"
-              >
-                →
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-xs text-gray-500 mb-1">
-            {weekDays.map((w) => (
-              <div key={w} className="py-1 font-medium">
-                {w}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-0.5">
-            {calendarDays.map((day, idx) =>
-              day === null ? (
-                <div key={`e-${idx}`} className="aspect-square" />
-              ) : (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => setSelectedDate(new Date(calendarYear, calendarMonthIndex, day))}
-                  className={`aspect-square rounded-lg flex flex-col items-center justify-center text-sm transition-colors min-h-[2.5rem] ${
-                    isSelectedDay(day)
-                      ? 'bg-blue-600 text-white font-bold ring-2 ring-blue-400'
-                      : hasEventOnDay(day)
-                        ? 'bg-blue-50/80 text-gray-900 hover:bg-blue-100'
-                        : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <span>{day}</span>
-                  {hasEventOnDay(day) && !isSelectedDay(day) && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-0.5" aria-hidden />
-                  )}
-                </button>
-              )
-            )}
-          </div>
-          {selectedDate && (
-            <button
-              type="button"
-              onClick={() => setSelectedDate(null)}
-              className="mt-3 w-full py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100"
-            >
-              Ver todos os dias
-            </button>
-          )}
-        </Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-gray-600">Dia:</span>
+          <button
+            type="button"
+            onClick={() => setSelectedDate(null)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium ${!selectedDate ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          >
+            Todos os dias
+          </button>
+          <label className="flex items-center gap-1.5 text-sm text-gray-700">
+            <input
+              type="date"
+              value={selectedDate ? selectedDate.toISOString().slice(0, 10) : ''}
+              onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value + 'T12:00:00') : null)}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+            />
+            Jogos deste dia
+          </label>
+        </div>
 
         <div className="space-y-3">
           {selectedDate && (
@@ -548,6 +495,36 @@ export function CalendarScreen() {
               }`}
             >
               Nacionais
+            </button>
+            <button
+              onClick={() => setPhaseFilter('Treino')}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                phaseFilter === 'Treino'
+                  ? 'bg-gradient-to-r from-orange-400 to-amber-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Treino
+            </button>
+            <button
+              onClick={() => setPhaseFilter('Torneio')}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                phaseFilter === 'Torneio'
+                  ? 'bg-gradient-to-r from-emerald-600 to-green-800 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Torneio
+            </button>
+            <button
+              onClick={() => setPhaseFilter('Mix')}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                phaseFilter === 'Mix'
+                  ? 'bg-gradient-to-r from-cyan-400 to-blue-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Mix
             </button>
           </div>
         </div>

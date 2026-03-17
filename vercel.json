@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/calendar", "destination": "/index.html" },
+    { "source": "/calendar/", "destination": "/index.html" },
     { "source": "/gestao", "destination": "/index.html" },
     { "source": "/gestao/", "destination": "/index.html" },
     { "source": "/gestao/:path*", "destination": "/index.html" },
