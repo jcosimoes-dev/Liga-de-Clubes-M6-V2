@@ -29,6 +29,7 @@ const GAME_TYPE_OPTIONS: { value: GameType; label: string }[] = [
   { value: 'Mix', label: 'Mix' },
   { value: 'Treino', label: 'Treino' },
 ];
+// Nota: 'Torneio Federação' foi removido; usar apenas 'Torneio'.
 
 const LIGA_PHASE_OPTIONS: { value: LigaPhase; label: string }[] = [
   { value: 'Qualificação', label: 'Qualificação' },
@@ -1339,26 +1340,23 @@ export function SportManagementScreen() {
               </select>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 shadow-sm">
-              <span className="text-sm font-medium text-gray-700">Evento de Vários Dias?</span>
+            <div className="flex items-center space-x-2 my-4">
               <button
                 type="button"
                 role="switch"
+                id="multi-day"
                 aria-checked={isMultiDayEvent}
                 onClick={() => {
                   setIsMultiDayEvent((v) => !v);
                   if (!isMultiDayEvent) setGameDateEnd('');
                 }}
-                className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isMultiDayEvent ? 'bg-green-600 focus:ring-green-500' : 'bg-gray-200 focus:ring-gray-400'
-                }`}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${isMultiDayEvent ? 'bg-green-600' : 'bg-gray-200'}`}
               >
-                <span
-                  className={`pointer-events-none inline-block h-6 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'
-                  }`}
-                />
+                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'}`} />
               </button>
+              <label htmlFor="multi-day" className="cursor-pointer text-sm font-medium text-gray-700">
+                Evento de Vários Dias?
+              </label>
             </div>
 
             {gameType === 'Liga' && (
