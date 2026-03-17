@@ -208,12 +208,13 @@ export function buildWhatsAppDuplaConvocationUrl(
 
 /**
  * Gera o URL do Google Calendar para criar um evento.
- * Link: https://www.google.com/calendar/render?action=TEMPLATE&...
- * - Multi-dia (Torneio/Mix): dates=YYYYMMDD/YYYYMMDD; data de fim = dia seguinte ao último dia (exigência do Google).
- * - Jogo com hora: dates=YYYYMMDDTHHMMSSZ/YYYYMMDDTHHMMSSZ (UTC).
+ * Link: https://calendar.google.com/calendar/render?action=TEMPLATE&...
+ * - Multi-dia (Torneio/Mix): dates=YYYYMMDD/YYYYMMDD; data de fim = dia seguinte ao último dia.
+ * - Jogo com hora: dates=YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (UTC).
+ * URLSearchParams codifica text, details e location.
  */
 export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
-  const baseUrl = 'https://www.google.com/calendar/render';
+  const baseUrl = 'https://calendar.google.com/calendar/render';
   const title = `${String(info.gameType).trim() || 'Jogo'} - ${String(info.opponentOrName).trim() || 'Jogo'}`;
   const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
 
