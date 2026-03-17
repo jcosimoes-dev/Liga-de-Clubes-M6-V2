@@ -9,8 +9,9 @@ interface CategoryCardProps {
 }
 
 /**
- * Cartão de categoria (verde/azul). Usa apenas <div> — sem role="button" nem onClick no wrapper
- * para evitar validateDOMNesting (button inside button) quando o conteúdo tem <Button> ou <button>.
+ * Cartão de categoria (verde/azul). O elemento principal é SEMPRE <div> — nunca <button> —
+ * para evitar o erro "button cannot appear as a descendant of button" quando o conteúdo tem botões.
+ * Não usar role="button" nem onClick no wrapper; o conteúdo pode conter <Button> ou <button>.
  */
 export function CategoryCard({ category, header, children, className = '' }: CategoryCardProps) {
   const styles = CATEGORY_STYLES[category];

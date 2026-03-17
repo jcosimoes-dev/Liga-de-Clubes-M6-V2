@@ -1340,45 +1340,47 @@ export function SportManagementScreen() {
               </select>
             </div>
 
-            <div className="flex items-center space-x-2 my-4">
-              <div
-                role="switch"
-                id="multi-day"
-                aria-checked={isMultiDayEvent}
-                tabIndex={0}
-                onClick={() => {
-                  setIsMultiDayEvent((v) => !v);
-                  if (!isMultiDayEvent) setGameDateEnd('');
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault();
+            {/* Toggle Evento de Vários Dias: conteúdo em divs independentes, sem botão que envolva o switch */}
+            <div>
+              <div className="flex items-center space-x-2 my-4">
+                <div
+                  role="switch"
+                  id="multi-day"
+                  aria-checked={isMultiDayEvent}
+                  tabIndex={0}
+                  onClick={() => {
                     setIsMultiDayEvent((v) => !v);
                     if (!isMultiDayEvent) setGameDateEnd('');
-                  }
-                }}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${isMultiDayEvent ? 'bg-green-600' : 'bg-gray-200'}`}
-              >
-                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'}`} />
-              </div>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  setIsMultiDayEvent((v) => !v);
-                  if (isMultiDayEvent) setGameDateEnd('');
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      setIsMultiDayEvent((v) => !v);
+                      if (!isMultiDayEvent) setGameDateEnd('');
+                    }
+                  }}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${isMultiDayEvent ? 'bg-green-600' : 'bg-gray-200'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'}`} />
+                </div>
+                <span
+                  tabIndex={0}
+                  onClick={() => {
                     setIsMultiDayEvent((v) => !v);
                     if (isMultiDayEvent) setGameDateEnd('');
-                  }
-                }}
-                className="cursor-pointer text-sm font-medium text-gray-700"
-              >
-                Evento de Vários Dias?
-              </span>
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      setIsMultiDayEvent((v) => !v);
+                      if (isMultiDayEvent) setGameDateEnd('');
+                    }
+                  }}
+                  className="cursor-pointer text-sm font-medium text-gray-700"
+                >
+                  Evento de Vários Dias?
+                </span>
+              </div>
             </div>
 
             {gameType === 'Liga' && (
