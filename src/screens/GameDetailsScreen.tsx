@@ -190,6 +190,7 @@ export function GameDetailsScreen({ id }: Props) {
                       gameType: getCategoryFromPhase(game.phase),
                       opponentOrName: gameTitle,
                       startsAt: game.starts_at,
+                      endDate: (game as { end_date?: string | null }).end_date ?? undefined,
                       location: game.location || '',
                       gameId: game.id,
                     })

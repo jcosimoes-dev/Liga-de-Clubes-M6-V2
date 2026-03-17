@@ -26,6 +26,19 @@ function toGoogleCalendarDateUTC(d: Date): string {
   return `${y}${m}${day}T${h}${min}${sec}Z`;
 }
 
+/** Formata data para YYYYMMDD (eventos dia inteiro no Google Calendar) */
+function toGoogleCalendarDateOnly(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+/** Formata data em PT para descrição (ex: "25 mar. 2025") */
+function toLocaleDatePT(d: Date): string {
+  return d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 /** Base da app (origem + pathname). Usado apenas para redirects em browser (ex.: getLoginUrl). */
 function getAppBase(): string {
   if (typeof window === 'undefined') return getPublicAppBase();
@@ -75,6 +88,8 @@ export interface GameShareInfo {
   opponentOrName: string;
   /** Data/hora do jogo (ISO string ou Date) */
   startsAt: string | Date;
+  /** Data de fim (opcional); quando preenchida, evento multi-dia → Google Calendar em "Dia Inteiro" */
+  endDate?: string | null;
   /** Local do jogo */
   location: string;
   /** ID do jogo (para link direto na app, se existir) */
@@ -193,21 +208,40 @@ export function buildWhatsAppDuplaConvocationUrl(
 
 /**
  * Gera o URL do Google Calendar para adicionar o evento.
- * Abrir em nova janela. Datas em UTC para o Google aceitar sem erros.
+ * - Se endDate estiver preenchido: evento "Dia Inteiro" (dates=YYYYMMDD/YYYYMMDD), com período na descrição.
+ * - Caso contrário: evento com hora (UTC), duração padrão 1h30.
  */
 export function buildGoogleCalendarUrl(info: GameShareInfo): string {
   const start = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
-  const end = new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
-
-  const startUTC = toGoogleCalendarDateUTC(start);
-  const endUTC = toGoogleCalendarDateUTC(end);
+  const endDateRaw = info.endDate && String(info.endDate).trim();
+  const isMultiDay = endDateRaw.length > 0 && endDateRaw !== 'null' && endDateRaw !== 'undefined';
 
   const gameTypeLabel = String(info.gameType).trim() || 'Jogo';
   const title = `${gameTypeLabel} - ${String(info.opponentOrName).trim() || 'Jogo'}`;
   const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
-  const details = `Confirmar presença na App: ${appUrl}`;
   const location = String(info.location).trim() || '';
 
+  if (isMultiDay) {
+    const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const endD = new Date(endDateRaw!);
+    const endDateOnly = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate());
+    const datesParam = `${toGoogleCalendarDateOnly(startDateOnly)}/${toGoogleCalendarDateOnly(endDateOnly)}`;
+    const periodStr = `Período: ${toLocaleDatePT(startDateOnly)} – ${toLocaleDatePT(endDateOnly)}`;
+    const details = `${periodStr}\n\nConfirmar presença na App: ${appUrl}`;
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: title,
+      dates: datesParam,
+      details: details,
+      location: location,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
+  const end = new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
+  const startUTC = toGoogleCalendarDateUTC(start);
+  const endUTC = toGoogleCalendarDateUTC(end);
+  const details = `Confirmar presença na App: ${appUrl}`;
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: title,
@@ -215,7 +249,6 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
     details: details,
     location: location,
   });
-
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 

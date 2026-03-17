@@ -24,8 +24,8 @@ const RESTRICTED_MESSAGE_SPORT =
   'Acesso Restrito: Esta área é reservada a Coordenadores e Administradores. Contacta o responsável da equipa se precisares de acesso.';
 
 const GAME_TYPE_OPTIONS: { value: GameType; label: string }[] = [
-  { value: 'Liga', label: 'Liga' },
-  { value: 'Torneio', label: 'Torneio Federação' },
+  { value: 'Liga', label: 'Liga M6' },
+  { value: 'Torneio', label: 'Torneio' },
   { value: 'Mix', label: 'Mix' },
   { value: 'Treino', label: 'Treino' },
 ];
@@ -777,10 +777,11 @@ export function SportManagementScreen() {
         return;
       }
       showToast('Convocatória fechada com sucesso', 'success');
-      const gameInfo = {
+      const gameInfo: GameShareInfo = {
         gameType: getCategoryFromPhase(selectedGame.phase),
         opponentOrName: GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo',
         startsAt: selectedGame.starts_at,
+        endDate: selectedGame.end_date ?? undefined,
         location: selectedGame.location || '',
         gameId: selectedGame.id,
       };
@@ -1339,6 +1340,28 @@ export function SportManagementScreen() {
               </select>
             </div>
 
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 shadow-sm">
+              <span className="text-sm font-medium text-gray-700">Evento de Vários Dias?</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isMultiDayEvent}
+                onClick={() => {
+                  setIsMultiDayEvent((v) => !v);
+                  if (!isMultiDayEvent) setGameDateEnd('');
+                }}
+                className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  isMultiDayEvent ? 'bg-green-600 focus:ring-green-500' : 'bg-gray-200 focus:ring-gray-400'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
             {gameType === 'Liga' && (
               <>
                 <div>
@@ -1392,28 +1415,6 @@ export function SportManagementScreen() {
                 )}
               </>
             )}
-
-            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5">
-              <span className="text-sm font-medium text-gray-700">Evento de Vários Dias</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isMultiDayEvent}
-                onClick={() => {
-                  setIsMultiDayEvent((v) => !v);
-                  if (!isMultiDayEvent) setGameDateEnd('');
-                }}
-                className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                  isMultiDayEvent ? 'bg-blue-600' : 'bg-gray-200'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-6 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
 
             {isMultiDayEvent ? (
               <div className="space-y-4 touch-manipulation">
@@ -1671,6 +1672,7 @@ export function SportManagementScreen() {
                   gameType: getCategoryFromPhase(selectedGame.phase),
                   opponentOrName: GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo',
                   startsAt: selectedGame.starts_at,
+                  endDate: selectedGame.end_date ?? undefined,
                   location: selectedGame.location || '',
                   gameId: selectedGame.id,
                 };
@@ -1759,6 +1761,7 @@ export function SportManagementScreen() {
                           gameType: getCategoryFromPhase(selectedGame.phase),
                           opponentOrName: GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo',
                           startsAt: selectedGame.starts_at,
+                          endDate: selectedGame.end_date ?? undefined,
                           location: selectedGame.location || '',
                           gameId: selectedGame.id,
                         };
