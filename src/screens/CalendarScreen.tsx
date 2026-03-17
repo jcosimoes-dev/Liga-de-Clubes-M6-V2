@@ -17,6 +17,11 @@ export function CalendarScreen() {
   const [availabilities, setAvailabilities] = useState<Record<string, any>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [phaseFilter, setPhaseFilter] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
   const [savingFor, setSavingFor] = useState<string | null>(null);
@@ -32,6 +37,10 @@ export function CalendarScreen() {
   useEffect(() => {
     applyFilters();
   }, [games, statusFilter, phaseFilter]);
+
+  const gamesForList = selectedDate
+    ? filteredGames.filter((g) => gameCoversDate(g, selectedDate))
+    : filteredGames;
 
   const loadData = async () => {
     try {
@@ -92,6 +101,17 @@ export function CalendarScreen() {
     const start = new Date(startDate).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' });
     const end = new Date(endDate).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' });
     return `${start} – ${end}`;
+  };
+
+  /** True se o dia (date) está entre a data de início e a data de fim do jogo (inclusive). */
+  const gameCoversDate = (game: any, date: Date): boolean => {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const start = new Date(game.starts_at);
+    const gameStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const gameEnd = game.end_date
+      ? new Date(new Date(game.end_date).getFullYear(), new Date(game.end_date).getMonth(), new Date(game.end_date).getDate())
+      : gameStart;
+    return d >= gameStart && d <= gameEnd;
   };
 
   const getDaysUntilGame = (gameDate: string): number => {
@@ -173,16 +193,35 @@ export function CalendarScreen() {
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  const upcomingGames = filteredGames.filter((game) => {
+  const upcomingGames = gamesForList.filter((game) => {
     const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
     end.setHours(23, 59, 59, 999);
     return end >= now;
   });
-  const pastGames = filteredGames.filter((game) => {
+  const pastGames = gamesForList.filter((game) => {
     const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
     end.setHours(23, 59, 59, 999);
     return end < now;
   });
+
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const calendarYear = calendarMonth.year;
+  const calendarMonthIndex = calendarMonth.month;
+  const firstDay = new Date(calendarYear, calendarMonthIndex, 1);
+  const daysInMonth = new Date(calendarYear, calendarMonthIndex + 1, 0).getDate();
+  const startWeekday = firstDay.getDay();
+  const calendarDays: (number | null)[] = [];
+  for (let i = 0; i < startWeekday; i++) calendarDays.push(null);
+  for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
+  const hasEventOnDay = (day: number) => {
+    const d = new Date(calendarYear, calendarMonthIndex, day);
+    return games.some((g) => gameCoversDate(g, d));
+  };
+  const isSelectedDay = (day: number) =>
+    selectedDate &&
+    selectedDate.getFullYear() === calendarYear &&
+    selectedDate.getMonth() === calendarMonthIndex &&
+    selectedDate.getDate() === day;
 
   if (loading) {
     return (
@@ -344,11 +383,98 @@ export function CalendarScreen() {
     );
   };
 
+  const monthLabel = new Date(calendarYear, calendarMonthIndex).toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
+
   return (
     <Layout>
       <Header title="Calendário" />
       <div className="max-w-screen-lg mx-auto px-4 pt-4 space-y-6">
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800 capitalize">{monthLabel}</h3>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setCalendarMonth((m) => (m.month === 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: m.month - 1 }))
+                }
+                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
+                aria-label="Mês anterior"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date();
+                  setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
+                }}
+                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 text-xs"
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setCalendarMonth((m) => (m.month === 11 ? { year: m.year + 1, month: 0 } : { year: m.year, month: m.month + 1 }))
+                }
+                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
+                aria-label="Mês seguinte"
+              >
+                →
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 text-center text-xs text-gray-500 mb-1">
+            {weekDays.map((w) => (
+              <div key={w} className="py-1 font-medium">
+                {w}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {calendarDays.map((day, idx) =>
+              day === null ? (
+                <div key={`e-${idx}`} className="aspect-square" />
+              ) : (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => setSelectedDate(new Date(calendarYear, calendarMonthIndex, day))}
+                  className={`aspect-square rounded-lg flex flex-col items-center justify-center text-sm transition-colors min-h-[2.5rem] ${
+                    isSelectedDay(day)
+                      ? 'bg-blue-600 text-white font-bold ring-2 ring-blue-400'
+                      : hasEventOnDay(day)
+                        ? 'bg-blue-50/80 text-gray-900 hover:bg-blue-100'
+                        : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <span>{day}</span>
+                  {hasEventOnDay(day) && !isSelectedDay(day) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-0.5" aria-hidden />
+                  )}
+                </button>
+              )
+            )}
+          </div>
+          {selectedDate && (
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="mt-3 w-full py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100"
+            >
+              Ver todos os dias
+            </button>
+          )}
+        </Card>
+
         <div className="space-y-3">
+          {selectedDate && (
+            <p className="text-sm text-gray-600">
+              A mostrar jogos do dia{' '}
+              <strong>{selectedDate.toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
+            </p>
+          )}
           <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4">
             <button
               onClick={() => setStatusFilter('all')}
@@ -450,12 +576,16 @@ export function CalendarScreen() {
           </div>
         )}
 
-        {filteredGames.length === 0 && (
+        {gamesForList.length === 0 && (
           <Card>
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-600 font-medium">Sem jogos</p>
-              <p className="text-sm text-gray-500 mt-1">Nenhum jogo corresponde aos filtros</p>
+              <p className="text-gray-600 font-medium">
+                {selectedDate ? 'Sem jogos neste dia' : 'Sem jogos'}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedDate ? 'Nenhum jogo cai neste dia. Clica noutro dia ou em "Ver todos os dias".' : 'Nenhum jogo corresponde aos filtros'}
+              </p>
             </div>
           </Card>
         )}
