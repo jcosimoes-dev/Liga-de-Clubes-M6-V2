@@ -208,8 +208,10 @@ export function buildWhatsAppDuplaConvocationUrl(
 
 /**
  * Gera o URL do Google Calendar para adicionar o evento.
- * - Se endDate estiver preenchido: evento "Dia Inteiro" (dates=YYYYMMDD/YYYYMMDD), com período na descrição.
- * - Caso contrário: evento com hora (UTC), duração padrão 1h30.
+ * Usa https://calendar.google.com para abrir o calendário da conta ativa (pessoal), não o Google Workspace.
+ * - Multi-dia (Torneio/Mix): dates=YYYYMMDD/YYYYMMDD (ex: 20260328/20260330).
+ * - Jogo com hora: dates em UTC (YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ).
+ * Parâmetros: action=TEMPLATE, text (título), dates, location, details.
  */
 export function buildGoogleCalendarUrl(info: GameShareInfo): string {
   const start = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
@@ -220,6 +222,8 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
   const title = `${gameTypeLabel} - ${String(info.opponentOrName).trim() || 'Jogo'}`;
   const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
   const location = String(info.location).trim() || '';
+
+  const baseUrl = 'https://calendar.google.com/calendar/render';
 
   if (isMultiDay) {
     const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
@@ -237,7 +241,7 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
       details: details,
       location: location,
     });
-    return `https://www.google.com/calendar/render?${params.toString()}`;
+    return `${baseUrl}?${params.toString()}`;
   }
 
   const end = new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
@@ -251,7 +255,7 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
     details: details,
     location: location,
   });
-  return `https://www.google.com/calendar/render?${params.toString()}`;
+  return `${baseUrl}?${params.toString()}`;
 }
 
 /** Abre o URL do Google Calendar numa nova janela/tab */
