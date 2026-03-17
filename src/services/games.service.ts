@@ -183,15 +183,16 @@ export const GamesService = {
     const isoDate = game_date ? new Date(game_date).toISOString() : new Date().toISOString();
     const endDateOnly = end_date && end_date.trim() ? end_date.trim().split('T')[0] : null;
 
+    /* Sempre enviar os 8 parâmetros (usar null para opcionais) para a assinatura coincidir com a RPC no Supabase. */
     const { data: rpcData, error: rpcError } = await supabase.rpc('insert_game', {
       p_round_number: game.round_number,
       p_opponent: String(game.opponent),
       p_location: String(game.location),
       p_phase: game.phase,
       p_created_by: created_by,
-      p_team_id: validTeamId ?? undefined,
+      p_team_id: validTeamId ?? null,
       p_starts_at: isoDate,
-      p_end_date: endDateOnly ?? undefined,
+      p_end_date: endDateOnly ?? null,
     });
 
     if (rpcError) {
