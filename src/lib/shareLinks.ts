@@ -207,13 +207,14 @@ export function buildWhatsAppDuplaConvocationUrl(
 }
 
 /**
- * Gera o URL do Google Calendar para criar um evento no calendário pessoal de quem clica.
- * O link TEM de começar por https://calendar.google.com (não usar www.google.com nem links de calendário de grupo/Workspace).
- * - Multi-dia (Torneio/Mix com end_date): dates=YYYYMMDD/YYYYMMDD → evento de dia inteiro (barra no topo).
- * - Jogo com hora: dates em UTC (YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ).
- * Parâmetros: action=TEMPLATE, text (título), dates, location, details.
+ * Gera o URL do Google Calendar para criar um evento.
+ * O link TEM de começar por https://www.google.com (não https://google.com).
+ * - Multi-dia (Torneio/Mix): dates=YYYYMMDD/YYYYMMDD; a data de fim é o dia SEGUINTE ao último dia (exigência do Google para fechar o bloco).
+ * - Jogo com hora: dates=YYYYMMDDTHHMMSSZ/YYYYMMDDTHHMMSSZ (UTC).
+ * Apenas parâmetros: action, text, dates, details, location. text, details e location codificados com encodeURIComponent.
  */
 export function buildGoogleCalendarUrl(info: GameShareInfo): string {
+  const baseUrl = 'https://www.google.com/calendar/render';
   const start = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const endDateRaw = info.endDate && String(info.endDate).trim();
   const isMultiDay = endDateRaw.length > 0 && endDateRaw !== 'null' && endDateRaw !== 'undefined';
@@ -221,41 +222,30 @@ export function buildGoogleCalendarUrl(info: GameShareInfo): string {
   const gameTypeLabel = String(info.gameType).trim() || 'Jogo';
   const title = `${gameTypeLabel} - ${String(info.opponentOrName).trim() || 'Jogo'}`;
   const appUrl = info.gameId ? getAppGameUrl(info.gameId) : getAppBaseUrl();
-  const location = String(info.location).trim() || '';
-
-  const baseUrl = 'https://calendar.google.com/calendar/render';
+  const locationRaw = String(info.location).trim();
 
   if (isMultiDay) {
     const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
     const endD = new Date(endDateRaw!);
-    const endDateOnly = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate());
+    const lastDay = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate());
+    const dayAfterLast = new Date(lastDay);
+    dayAfterLast.setDate(dayAfterLast.getDate() + 1);
     const startStr = toGoogleCalendarDateOnly(startDateOnly);
-    const endStr = toGoogleCalendarDateOnly(endDateOnly);
+    const endStr = toGoogleCalendarDateOnly(dayAfterLast);
     const datesParam = `${startStr}/${endStr}`;
-    const periodStr = `Período: ${toLocaleDatePT(startDateOnly)} – ${toLocaleDatePT(endDateOnly)}`;
-    const details = `${periodStr}\n\nConfirmar presença na App: ${appUrl}`;
-    const params = new URLSearchParams({
-      action: 'TEMPLATE',
-      text: title,
-      dates: datesParam,
-      details: details,
-      location: location,
-    });
-    return `${baseUrl}?${params.toString()}`;
+    const periodStr = `Período: ${toLocaleDatePT(startDateOnly)} – ${toLocaleDatePT(lastDay)}`;
+    const detailsRaw = `${periodStr}\n\nConfirmar presença na App: ${appUrl}`;
+    const encoded = `action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${encodeURIComponent(datesParam)}&details=${encodeURIComponent(detailsRaw)}&location=${encodeURIComponent(locationRaw)}`;
+    return `${baseUrl}?${encoded}`;
   }
 
   const end = new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
   const startUTC = toGoogleCalendarDateUTC(start);
   const endUTC = toGoogleCalendarDateUTC(end);
-  const details = `Confirmar presença na App: ${appUrl}`;
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: title,
-    dates: `${startUTC}/${endUTC}`,
-    details: details,
-    location: location,
-  });
-  return `${baseUrl}?${params.toString()}`;
+  const datesParam = `${startUTC}/${endUTC}`;
+  const detailsRaw = `Confirmar presença na App: ${appUrl}`;
+  const encoded = `action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${encodeURIComponent(datesParam)}&details=${encodeURIComponent(detailsRaw)}&location=${encodeURIComponent(locationRaw)}`;
+  return `${baseUrl}?${encoded}`;
 }
 
 /** Abre o URL do Google Calendar numa nova janela/tab */
