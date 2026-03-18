@@ -85,10 +85,11 @@ export const GamesService = {
       }
     }
 
-    const openStatuses = ['convocatoria_aberta', 'open', 'agendado', 'scheduled'];
-    const filtered = (data ?? []).filter((g) =>
-      openStatuses.includes((g.status as string) ?? '')
-    );
+    const openStatuses = ['convocatoria_aberta', 'open', 'agendado', 'scheduled', 'pendente', 'pending', 'aberto'];
+    const filtered = (data ?? []).filter((g) => {
+      const s = String((g.status as string) ?? '').trim();
+      return openStatuses.includes(s) || openStatuses.includes(s.toLowerCase());
+    });
     const normalized = filtered.map((g) => this._normalizeGame(g));
     if (includePast) return normalized;
     const now = new Date();

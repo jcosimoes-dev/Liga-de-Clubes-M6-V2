@@ -143,10 +143,10 @@ export function NavigationProvider({
     routerNavigate('/', { replace: true });
   }, [isForbidden, route.name, routerNavigate]);
 
-  const navigate = ({ name, params }: { name: RouteName; params?: any }) => {
-    setRoute({ name, params });
+  const navigate = ({ name, params, state }: { name: RouteName; params?: any; state?: any }) => {
+    setRoute({ name, params: { ...params, ...state } });
     const path = routeToPath(name, params);
-    routerNavigate(path);
+    routerNavigate(path, state != null ? { state } : undefined);
   };
 
   const goBack = () => {
@@ -170,10 +170,11 @@ export function NavigationProvider({
     );
   }
 
+  const screenProps = { ...effectiveRoute.params, ...(location.state || {}) };
   return (
     <NavigationContext.Provider value={{ route, navigate, goBack }}>
       {session && mustChangePassword && <MustChangePasswordBanner />}
-      <CurrentScreen {...effectiveRoute.params} />
+      <CurrentScreen {...screenProps} />
     </NavigationContext.Provider>
   );
 }

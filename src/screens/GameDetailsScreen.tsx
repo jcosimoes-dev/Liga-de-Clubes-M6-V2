@@ -11,12 +11,16 @@ import { buildGoogleCalendarUrl } from '../lib/shareLinks';
 
 type Props = {
   id?: string;
+  /** true quando aberto a partir do Início: esconde botões de ação (Google Calendar, etc.); apenas lista de confirmados e info. */
+  viewOnly?: boolean;
 };
 
-export function GameDetailsScreen({ id }: Props) {
-  const { goBack } = useNavigation();
+export function GameDetailsScreen({ id, viewOnly }: Props) {
+  const { goBack, navigate } = useNavigation();
   const { user } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
+
+  const handleBack = () => (viewOnly ? navigate({ name: 'home' }) : goBack());
 
   const [loading, setLoading] = useState(true);
   const [game, setGame] = useState<any>(null);
@@ -98,11 +102,12 @@ export function GameDetailsScreen({ id }: Props) {
 
   const hasResults = Object.keys(results).length > 0;
   const showGoogleCalendar = !!game?.starts_at && !hasResults;
+  const showActions = !viewOnly;
 
   if (loading) {
     return (
       <Layout>
-        <Header title="Jogo" onBack={goBack} />
+        <Header title="Jogo" onBack={handleBack} />
         <div className="max-w-screen-sm mx-auto px-4 sm:px-6 pt-6">
           <Loading text="A carregar..." />
         </div>
@@ -112,14 +117,14 @@ export function GameDetailsScreen({ id }: Props) {
 
   return (
     <Layout>
-      <Header title="Jogo" onBack={goBack} />
+      <Header title="Jogo" onBack={handleBack} />
 
       <div className="max-w-screen-sm mx-auto px-4 sm:px-6 pt-4 pb-8 space-y-6">
         {!game ? (
           <Card>
             <p className="text-sm text-gray-700">Não foi possível carregar o jogo.</p>
             <div className="mt-4">
-              <Button variant="outline" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2">
+              <Button variant="outline" fullWidth onClick={handleBack} className="inline-flex items-center justify-center gap-2">
                 <ArrowLeft className="w-4 h-4" />
                 Voltar
               </Button>
@@ -177,38 +182,35 @@ export function GameDetailsScreen({ id }: Props) {
               </div>
             </Card>
 
-            {/* Link Google Calendar: href = https://calendar.google.com/calendar/render?action=TEMPLATE&...; abre em nova aba */}
-            {showGoogleCalendar && (() => {
-              const gameInfo = {
-                gameType: getCategoryFromPhase(game.phase),
-                opponentOrName: gameTitle,
-                startsAt: game.starts_at,
-                endDate: (game as { end_date?: string | null }).end_date ?? undefined,
-                location: game.location || '',
-                gameId: game.id,
-              };
-              return (
-                <div className="mt-6">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
-                  <a
-                    href={buildGoogleCalendarUrl(gameInfo)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-lg hover:border-blue-200 transition-all text-gray-800 hover:bg-blue-50/50 font-semibold text-base no-underline"
-                  >
-                    <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200 shadow-sm" aria-hidden>
-                      <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
-                        <span className="bg-[#4285F4]" />
-                        <span className="bg-[#EA4335]" />
-                        <span className="bg-[#FBBC05]" />
-                        <span className="bg-[#34A853]" />
-                      </span>
+            {/* Botões de ação (Google Calendar, etc.): só quando showActions (não view-only). Conteúdo principal acima e abaixo é SEMPRE renderizado. */}
+            {showActions && showGoogleCalendar && (
+              <div className="mt-6">
+                <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
+                <a
+                  href={buildGoogleCalendarUrl({
+                    gameType: getCategoryFromPhase(game.phase),
+                    opponentOrName: gameTitle,
+                    startsAt: game.starts_at,
+                    endDate: (game as { end_date?: string | null }).end_date ?? undefined,
+                    location: game.location || '',
+                    gameId: game.id,
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-lg hover:border-blue-200 transition-all text-gray-800 hover:bg-blue-50/50 font-semibold text-base no-underline"
+                >
+                  <span className="flex shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-gray-200 shadow-sm" aria-hidden>
+                    <span className="grid grid-cols-2 grid-rows-2 w-full h-full">
+                      <span className="bg-[#4285F4]" />
+                      <span className="bg-[#EA4335]" />
+                      <span className="bg-[#FBBC05]" />
+                      <span className="bg-[#34A853]" />
                     </span>
-                    <span>Adicionar ao meu Google Calendar</span>
-                  </a>
-                </div>
-              );
-            })()}
+                  </span>
+                  <span>Adicionar ao meu Google Calendar</span>
+                </a>
+              </div>
+            )}
 
             {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '') && pairs.length > 0 && (
               <Card>
@@ -315,7 +317,7 @@ export function GameDetailsScreen({ id }: Props) {
 
             {/* Botão Voltar (outline) no fundo */}
             <div className="pt-2">
-              <Button variant="outline" fullWidth onClick={goBack} className="inline-flex items-center justify-center gap-2 py-3">
+              <Button variant="outline" fullWidth onClick={handleBack} className="inline-flex items-center justify-center gap-2 py-3">
                 <ArrowLeft className="w-4 h-4" />
                 Voltar
               </Button>

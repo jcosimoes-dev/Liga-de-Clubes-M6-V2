@@ -84,6 +84,7 @@ export function HomeScreen() {
       try {
         const open = await GamesService.getOpenGames();
         setOpenGames(open ?? []);
+        console.log('Jogos carregados na Home:', open ?? []);
       } catch (gamesErr) {
         console.error('[HomeScreen] loadData getOpenGames error:', {
           message: gamesErr instanceof Error ? gamesErr.message : String(gamesErr),
@@ -265,7 +266,7 @@ export function HomeScreen() {
                       <Button
                         size="sm"
                         className={styles.buttonClasses + ' w-full'}
-                        onClick={() => navigate({ name: 'game', params: { id: game.id } })}
+                        onClick={() => navigate({ name: 'game', params: { id: game.id }, state: { viewOnly: true } })}
                       >
                         Ver
                       </Button>
