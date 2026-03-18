@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal, ConfirmDialog } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, RESTRICTED_COORDINATION_MSG } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
 import { GamesService, AvailabilitiesService, PairsService, PlayersService, ResultsService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints } from '../services';
@@ -55,7 +55,7 @@ const isOwnerEmail = (email: string | null | undefined) =>
   (email ?? '').trim().toLowerCase() === OWNER_EMAIL;
 
 export function SportManagementScreen() {
-  const { player, user, canManageSport, role, loading: authLoading } = useAuth();
+  const { player, user, canManageSport, role, loading: authLoading, canDo } = useAuth();
   const isHardcodedAdmin = role === PlayerRoles.admin;
   /** Bypass total para jco.simoes@gmail.com: ignora team_id e role; acesso total ao ecrã e ao botão de criar convocatória. */
   const isOwner = isOwnerEmail(user?.email);
@@ -1633,6 +1633,10 @@ export function SportManagementScreen() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (!canDo('delete_game')) {
+                              showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                              return;
+                            }
                             setGameToDelete(game);
                           }}
                           disabled={deletingGameId === game.id}
@@ -1667,6 +1671,10 @@ export function SportManagementScreen() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (!canDo('edit_game')) {
+                            showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                            return;
+                          }
                           setGameToEdit(game);
                         }}
                         className="p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
@@ -1932,7 +1940,13 @@ export function SportManagementScreen() {
                   <Button
                     type="button"
                     fullWidth
-                    onClick={handleCloseConvocatory}
+                    onClick={() => {
+                      if (!canDo('close_convocation')) {
+                        showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                        return;
+                      }
+                      handleCloseConvocatory();
+                    }}
                     disabled={!allPairsValid || !allPlayersUsed || saving}
                   >
                     {saving ? 'A guardar...' : 'Fechar Convocatória'}
@@ -2217,10 +2231,20 @@ export function SportManagementScreen() {
                     key={game.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelectedGameForSwap(selectedGameForSwap?.id === game.id ? null : game)}
+                    onClick={() => {
+                      if (!canDo('emergency_substitution')) {
+                        showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                        return;
+                      }
+                      setSelectedGameForSwap(selectedGameForSwap?.id === game.id ? null : game);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === ' ' || e.key === 'Enter') {
                         e.preventDefault();
+                        if (!canDo('emergency_substitution')) {
+                          showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                          return;
+                        }
                         setSelectedGameForSwap(selectedGameForSwap?.id === game.id ? null : game);
                       }
                     }}
@@ -2253,6 +2277,10 @@ export function SportManagementScreen() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (!canDo('emergency_substitution')) {
+                            showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                            return;
+                          }
                           setGameToEdit(game);
                         }}
                         className="p-1.5 rounded-lg bg-white/90 hover:bg-gray-100 text-gray-600 hover:text-blue-600 transition-colors shadow-sm"
@@ -2308,7 +2336,13 @@ export function SportManagementScreen() {
                   </div>
                   <Button
                     type="button"
-                    onClick={handleSaveGameDetails}
+                    onClick={() => {
+                      if (!canDo('emergency_substitution')) {
+                        showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                        return;
+                      }
+                      handleSaveGameDetails();
+                    }}
                     disabled={gameEditSaving}
                     className="w-full"
                   >
@@ -2396,7 +2430,13 @@ export function SportManagementScreen() {
                 <Button
                   className={`w-full font-semibold py-3.5 text-base border-0 focus:ring-2 focus:ring-offset-2 ${CATEGORY_STYLES[selectedGameForSwap ? getCategoryFromPhase(selectedGameForSwap.phase) : 'Treino'].buttonClasses}`}
                   variant="primary"
-                  onClick={handleConfirmSubstitutions}
+                  onClick={() => {
+                    if (!canDo('emergency_substitution')) {
+                      showToast(RESTRICTED_COORDINATION_MSG, 'error');
+                      return;
+                    }
+                    handleConfirmSubstitutions();
+                  }}
                   disabled={swapLoading || hasDuplicatePlayers || !hasPendingSwapChanges()}
                 >
                   {swapLoading ? (
@@ -2428,6 +2468,11 @@ export function SportManagementScreen() {
           variant="danger"
           onConfirm={async () => {
             if (!gameToDelete?.id) return;
+            if (!canDo('delete_game')) {
+              showToast(RESTRICTED_COORDINATION_MSG, 'error');
+              setGameToDelete(null);
+              return;
+            }
             setDeletingGameId(gameToDelete.id);
             try {
               await GamesService.delete(gameToDelete.id);

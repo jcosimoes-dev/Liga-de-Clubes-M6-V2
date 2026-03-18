@@ -18,10 +18,11 @@ const btnBase =
 
 export function BottomNav() {
   const { route, navigate } = useNavigation();
-  const { isAdmin, canManageSport, role, signOut } = useAuth();
+  const { canManageSport, role, signOut } = useAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  const showAdminTab = Boolean(role === PlayerRoles.admin || isAdmin);
+  /** Ícone Admin só para role 'admin'; coordenador e capitão não veem este ícone. */
+  const showAdminTab = role === PlayerRoles.admin;
   const showGestaoTab = Boolean(
     canManageSport ||
       role === PlayerRoles.admin ||

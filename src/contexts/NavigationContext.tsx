@@ -128,20 +128,27 @@ export function NavigationProvider({
   ];
   const isForbidden = route.name != null && !allowedForRole.includes(route.name);
 
-  // Ao criar jogador no Admin, o signUp troca brevemente a sessão para o novo user → role vira player e admin fica "proibido".
+  // Coordenador/Capitão/Jogador: Painel Admin oculto; ao aceder via URL redirecionar e mostrar "Acesso Restrito à Administração Principal 🔒".
   const ADMIN_REDIRECT_DELAY_MS = 5000;
   useEffect(() => {
     if (!isForbidden) return;
     if (route.name === 'admin') {
+      const isCaptain = role === PlayerRoles.capitao;
+      const state = { accessDeniedAdmin: true };
+      if (isCaptain) {
+        setRoute({ name: 'home', params: { accessDeniedAdmin: true } });
+        routerNavigate('/', { replace: true, state });
+        return;
+      }
       const t = setTimeout(() => {
-        setRoute({ name: 'home', params: { accessDenied: true } });
-        routerNavigate('/', { replace: true });
+        setRoute({ name: 'home', params: { accessDeniedAdmin: true } });
+        routerNavigate('/', { replace: true, state });
       }, ADMIN_REDIRECT_DELAY_MS);
       return () => clearTimeout(t);
     }
     setRoute({ name: 'home', params: { accessDenied: true } });
-    routerNavigate('/', { replace: true });
-  }, [isForbidden, route.name, routerNavigate]);
+    routerNavigate('/', { replace: true, state: { accessDenied: true } });
+  }, [isForbidden, route.name, role, routerNavigate]);
 
   const navigate = ({ name, params, state }: { name: RouteName; params?: any; state?: any }) => {
     setRoute({ name, params: { ...params, ...state } });

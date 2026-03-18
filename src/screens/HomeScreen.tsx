@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Button, Badge, Loading, Header, Toast, ToastType } from '../components/ui';
 import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/categoryTheme';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, RESTRICTED_COORDINATION_MSG, RESTRICTED_ADMIN_MSG } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService } from '../services';
 import { supabase } from '../lib/supabase';
@@ -10,7 +10,7 @@ import { Calendar, MapPin, Users, Trophy, UserCircle } from 'lucide-react';
 
 type OpenGamesTab = 'liga' | 'outros';
 
-export function HomeScreen() {
+export function HomeScreen({ accessDenied, accessDeniedAdmin }: { accessDenied?: boolean; accessDeniedAdmin?: boolean }) {
   const { user, session, player, isAdmin, loading: authLoading, refreshPlayer } = useAuth();
   const { route, navigate } = useNavigation();
   const profileRefreshedRef = useRef(false);
@@ -34,11 +34,12 @@ export function HomeScreen() {
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
 
   useEffect(() => {
-    if (route.name === 'home' && route.params?.accessDenied) {
-      showToast('Acesso Negado', 'error');
-      navigate({ name: 'home' });
+    if (accessDeniedAdmin || route.params?.accessDeniedAdmin) {
+      showToast(RESTRICTED_ADMIN_MSG, 'error');
+    } else if (accessDenied || route.params?.accessDenied) {
+      showToast(RESTRICTED_COORDINATION_MSG, 'error');
     }
-  }, [route.name, route.params?.accessDenied]);
+  }, [accessDenied, accessDeniedAdmin, route.params?.accessDenied, route.params?.accessDeniedAdmin]);
 
   // Reset refresh flag when session is lost (logout)
   useEffect(() => {

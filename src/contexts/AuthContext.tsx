@@ -47,6 +47,8 @@ export type AuthCtx = {
   canManageFederationPoints: boolean;
   /** Password temporária definida pelo admin — jogador deve alterar no perfil */
   mustChangePassword: boolean;
+  /** Regras centralizadas: capitão só pode Criar Jogo, Abrir Convocatória, Registar Resultados */
+  canDo: (action: SportAction) => boolean;
 
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name?: string) => Promise<void>;
@@ -283,6 +285,53 @@ function computeCanManageFederationPoints(player: Player | null): boolean {
   return r === PlayerRoles.admin || r === PlayerRoles.gestor || r === PlayerRoles.coordenador;
 }
 
+/** Ações que podem ser restritas por role (ex.: capitão vs coordenador/admin). */
+export type SportAction =
+  | 'edit_other_player'
+  | 'delete_player'
+  | 'create_game'
+  | 'open_convocation'
+  | 'register_results'
+  | 'edit_game'
+  | 'delete_game'
+  | 'close_convocation'
+  | 'emergency_substitution'
+  | 'access_admin';
+
+/**
+ * Centraliza permissões por ação. Capitão: só Criar Jogo, Abrir Convocatória e Registar Resultados.
+ * Bloqueados para capitão: Editar/Apagar Jogo, Anular Convocatória, Substituição de Emergência, Admin.
+ */
+export function canAction(player: Player | null, effectiveRole: string, action: SportAction): boolean {
+  if (!player) return false;
+  const r = normalizeRole(effectiveRole);
+
+  switch (action) {
+    case 'edit_other_player':
+    case 'delete_player':
+      return r === PlayerRoles.admin || r === PlayerRoles.gestor || r === PlayerRoles.coordenador;
+    case 'create_game':
+    case 'open_convocation':
+    case 'register_results':
+      return r === PlayerRoles.admin || r === PlayerRoles.coordenador || r === PlayerRoles.capitao;
+    case 'edit_game':
+    case 'delete_game':
+    case 'close_convocation':
+    case 'emergency_substitution':
+      return r === PlayerRoles.admin || r === PlayerRoles.coordenador;
+    case 'access_admin':
+      return r === PlayerRoles.admin;
+    default:
+      return false;
+  }
+}
+
+/** Mensagem padrão para ações bloqueadas ao capitão. */
+export const RESTRICTED_COORDINATION_MSG = 'Acesso restrito à Coordenação';
+
+/** Mensagem quando coordenador/capitão/jogador tenta aceder ao Painel Admin via URL. */
+export const RESTRICTED_ADMIN_MSG = 'Acesso Restrito à Administração Principal 🔒';
+
 /** Chaves de localStorage que podem guardar teamId antigo — limpar no login do dono para evitar 404. */
 const POSSIBLE_TEAM_CACHE_KEYS = ['app-team-id', 'liga-m6-team-id', 'team_id', 'selectedTeamId'];
 /** ID de equipa que já não existe na BD — forçar reset para o dono do projeto. */
@@ -507,6 +556,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       canManageSport,
       canManageFederationPoints,
       mustChangePassword,
+      canDo: (action: SportAction) => canAction(player, role, action),
       signIn,
       signUp,
       signOut,

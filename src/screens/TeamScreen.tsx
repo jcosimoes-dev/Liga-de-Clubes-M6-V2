@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles, PreferredSides, validatePreferredSide, validateRole, type PreferredSide, type PlayerRole } from '../domain/constants';
 
 export function TeamScreen() {
-  const { player: currentPlayer, isAdmin, mustChangePassword, refreshPlayer } = useAuth();
+  const { player: currentPlayer, isAdmin, mustChangePassword, refreshPlayer, canDo } = useAuth();
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -65,7 +65,8 @@ export function TeamScreen() {
   };
 
   const isOwnProfile = (player: any) => player.user_id === currentPlayer?.user_id || player.id === currentPlayer?.id;
-  const canEdit = (player: any) => isOwnProfile(player) || isAdmin;
+  /** Capitão só pode editar o próprio perfil; coordenador/admin podem editar outros. */
+  const canEdit = (player: any) => isOwnProfile(player) || canDo('edit_other_player');
 
   const totalPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
   const displayPlayers = useMemo(() => {
@@ -106,7 +107,7 @@ export function TeamScreen() {
     const editingPlayer = players.find((p: { id?: string }) => p?.id === editingId);
     const roleActual = editingPlayer && typeof editingPlayer === 'object' && 'role' in editingPlayer ? (editingPlayer as { role?: string }).role : null;
     const roleNovaPretendida = editForm.role ?? null;
-    const roleMudou = isAdmin && roleNovaPretendida != null && roleNovaPretendida !== roleActual;
+    const roleMudou = canDo('edit_other_player') && roleNovaPretendida != null && roleNovaPretendida !== roleActual;
 
     if (roleMudou) {
       const roleErr = validateRole(roleNovaPretendida);
@@ -385,7 +386,7 @@ export function TeamScreen() {
                     <option value={PreferredSides.both}>Ambos</option>
                   </select>
                 </div>
-                {isAdmin && (
+                {canDo('edit_other_player') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Função (Role)</label>
                     <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value as PlayerRole })} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -452,7 +453,7 @@ export function TeamScreen() {
                   </div>
                 )}
 
-                {(canEdit(player) || isAdmin) && (
+                {canEdit(player) && (
                   <div className="mt-4 pt-3 border-t border-gray-200 flex gap-2 bg-gray-100 -mx-4 -mb-4 px-4 pb-4 rounded-b-2xl">
                     <button
                       type="button"
@@ -461,9 +462,9 @@ export function TeamScreen() {
                       disabled={deleting}
                     >
                       <Pencil className="w-4 h-4 shrink-0" />
-                      {isAdmin ? 'Editar' : 'Editar perfil'}
+                      {canDo('edit_other_player') ? 'Editar' : 'Editar perfil'}
                     </button>
-                    {isAdmin && (
+                    {canDo('delete_player') && (
                       <button
                         type="button"
                         onClick={() => deletePlayer(player.id, player.name)}

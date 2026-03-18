@@ -40,8 +40,15 @@ const INPUT_MODERN =
   'w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:outline-none transition-colors text-gray-900 disabled:opacity-60';
 
 export function AdminScreen() {
-  const { player, isAdmin, user } = useAuth();
+  const { player, isAdmin, user, canDo } = useAuth();
   const { navigate, goBack } = useNavigation();
+
+  // Bloqueio ao coordenador/capitão: redirecionar para Home com mensagem "Acesso Restrito à Administração Principal" (defensivo se o contexto atrasar)
+  useEffect(() => {
+    if (!canDo('access_admin')) {
+      navigate({ name: 'home', state: { accessDeniedAdmin: true } });
+    }
+  }, [canDo, navigate]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
   const [selectedRole, setSelectedRole] = useState<PlayerRole>(PlayerRoles.jogador);
