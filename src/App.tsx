@@ -1,3 +1,4 @@
+// Version 1.1.2 - Force Cache Clear
 import { HashRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NavigationProvider } from './contexts/NavigationContext';

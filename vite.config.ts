@@ -31,7 +31,7 @@ export default defineConfig({
     react(),
     vitePluginSpaFallback(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
 
       // isto ajuda a PWA a tomar conta do cliente mais depressa
       workbox: {
@@ -82,6 +82,7 @@ export default defineConfig({
       manifest: {
         name: 'Equipa M6 Trablisa',
         short_name: 'M6 Trablisa',
+        version: '1.1.2',
         description: 'Aplicação da Equipa M6 Trablisa (Liga de Clubes M6)',
         theme_color: '#000000',
         background_color: '#000000',

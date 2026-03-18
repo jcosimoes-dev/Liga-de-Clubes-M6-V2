@@ -26,12 +26,19 @@ function toGoogleCalendarDateUTC(d: Date): string {
   return `${y}${m}${day}T${h}${min}${sec}Z`;
 }
 
-/** Formata data para YYYYMMDD (eventos dia inteiro no Google Calendar) */
+/** Formata data para YYYYMMDD (eventos dia inteiro). Usa UTC para evitar que o fuso altere o dia. */
 function toGoogleCalendarDateOnly(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}${m}${day}`;
+}
+
+/** Dia seguinte em UTC (para fim exclusivo do Google: evento 28-29 → fim 30). */
+function nextDayUTC(d: Date): Date {
+  const next = new Date(d);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next;
 }
 
 /** Formata data em PT para descrição (ex: "25 mar. 2025") */
@@ -224,11 +231,11 @@ export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
 
   let datesParam: string;
   if (isMultiDay && endDateRaw) {
-    const start = toGoogleCalendarDateOnly(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()));
-    const nextDay = new Date(endDateRaw);
-    nextDay.setDate(nextDay.getDate() + 1);
-    const endFormatted = toGoogleCalendarDateOnly(nextDay);
-    datesParam = `${start}/${endFormatted}`;
+    const startStr = toGoogleCalendarDateOnly(startDate);
+    const endD = new Date(endDateRaw);
+    const dayAfterLast = nextDayUTC(endD);
+    const endStr = toGoogleCalendarDateOnly(dayAfterLast);
+    datesParam = `${startStr}/${endStr}`;
   } else {
     const start = toGoogleCalendarDateUTC(startDate);
     const end = toGoogleCalendarDateUTC(new Date(startDate.getTime() + DEFAULT_EVENT_DURATION_MS));
