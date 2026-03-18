@@ -9,6 +9,8 @@ export type GameForEdit = {
   starts_at: string;
   location: string | null;
   status?: string;
+  phase?: string;
+  end_date?: string | null;
 };
 
 interface EditGameModalProps {
@@ -30,27 +32,50 @@ function toDatetimeLocal(iso: string): string {
   return `${y}-${m}-${day}T${h}:${min}`;
 }
 
+/** Converte ISO ou data para valor date (yyyy-MM-dd). */
+function toDateOnly(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const COMPLETED_STATUSES = ['concluido', 'completed', 'closed', 'final'];
 
+function isTorneioOrMix(phase: string | undefined): boolean {
+  return phase === 'Torneio' || phase === 'Mix';
+}
+
 /**
- * Modal para editar Data/Hora e Localização de um jogo.
- * Só permite edição se o jogo não tiver resultado submetido (não concluído/fechado).
+ * Modal para editar Data/Hora (ou Data Início/Fim para multi-dia) e Localização de um jogo.
+ * Para Torneio/Mix com end_date: mostra toggle "Evento de Vários Dias" ativo e campos Data Início e Data Fim.
  */
 export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModalProps) {
   const [startsAt, setStartsAt] = useState('');
   const [location, setLocation] = useState('');
+  const [isMultiDayEvent, setIsMultiDayEvent] = useState(false);
+  const [startDateOnly, setStartDateOnly] = useState('');
+  const [endDateOnly, setEndDateOnly] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const isCompleted = game?.status && COMPLETED_STATUSES.includes(game.status);
+  const canMultiDay = game && isTorneioOrMix(game.phase);
 
   useEffect(() => {
     if (game && isOpen) {
       setStartsAt(toDatetimeLocal(game.starts_at));
       setLocation(game.location ?? '');
+      const hasEnd = game.end_date && String(game.end_date).trim() && String(game.end_date) !== 'null';
+      const multi = canMultiDay && hasEnd;
+      setIsMultiDayEvent(!!multi);
+      setStartDateOnly(toDateOnly(game.starts_at));
+      setEndDateOnly(multi ? toDateOnly(game.end_date!) : '');
       setError('');
     }
-  }, [game, isOpen]);
+  }, [game, isOpen, canMultiDay]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,12 +83,20 @@ export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModa
     setError('');
     setSaving(true);
     try {
-      const iso = startsAt ? new Date(startsAt).toISOString() : undefined;
       const loc = location.trim();
-      await GamesService.updateGame(game.id, {
-        ...(iso && { starts_at: iso }),
-        ...(loc && { location: loc }),
-      });
+      const payload: { starts_at?: string; end_date?: string | null; location?: string } = {};
+      if (loc) payload.location = loc;
+
+      if (canMultiDay && isMultiDayEvent && startDateOnly && endDateOnly) {
+        payload.starts_at = new Date(startDateOnly + 'T00:00:00').toISOString();
+        payload.end_date = endDateOnly.trim().split('T')[0] || null;
+      } else {
+        const iso = startsAt ? new Date(startsAt).toISOString() : undefined;
+        if (iso) payload.starts_at = iso;
+        if (canMultiDay && !isMultiDayEvent) payload.end_date = null;
+      }
+
+      await GamesService.updateGame(game.id, payload);
       onSuccess();
       onClose();
     } catch (err) {
@@ -105,13 +138,52 @@ export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModa
             </div>
           )}
 
-          <Input
-            label="Data e Hora"
-            type="datetime-local"
-            value={startsAt}
-            onChange={(e) => setStartsAt(e.target.value)}
-            disabled={isCompleted}
-          />
+          {canMultiDay && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isMultiDayEvent}
+                onClick={() => {
+                  setIsMultiDayEvent((v) => !v);
+                  if (!isMultiDayEvent) setEndDateOnly('');
+                }}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isMultiDayEvent ? 'bg-green-600' : 'bg-gray-200'}`}
+              >
+                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${isMultiDayEvent ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+              <span className="text-sm font-medium text-gray-700">Evento de Vários Dias</span>
+            </div>
+          )}
+
+          {canMultiDay && isMultiDayEvent ? (
+            <>
+              <Input
+                label="Data de Início"
+                type="date"
+                value={startDateOnly}
+                onChange={(e) => setStartDateOnly(e.target.value)}
+                disabled={isCompleted}
+                required
+              />
+              <Input
+                label="Data de Fim"
+                type="date"
+                value={endDateOnly}
+                onChange={(e) => setEndDateOnly(e.target.value)}
+                disabled={isCompleted}
+                required
+              />
+            </>
+          ) : (
+            <Input
+              label="Data e Hora"
+              type="datetime-local"
+              value={startsAt}
+              onChange={(e) => setStartsAt(e.target.value)}
+              disabled={isCompleted}
+            />
+          )}
 
           <Input
             label="Localização / Campo"

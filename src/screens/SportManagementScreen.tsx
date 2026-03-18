@@ -29,7 +29,6 @@ const GAME_TYPE_OPTIONS: { value: GameType; label: string }[] = [
   { value: 'Mix', label: 'Mix' },
   { value: 'Treino', label: 'Treino' },
 ];
-// Nota: 'Torneio Federação' foi removido; usar apenas 'Torneio'.
 
 const LIGA_PHASE_OPTIONS: { value: LigaPhase; label: string }[] = [
   { value: 'Qualificação', label: 'Qualificação' },

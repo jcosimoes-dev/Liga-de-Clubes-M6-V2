@@ -225,7 +225,7 @@ export const GamesService = {
    */
   async updateGame(
     id: string,
-    data: { starts_at?: string; location?: string }
+    data: { starts_at?: string; end_date?: string | null; location?: string }
   ) {
     return this.update(id, data);
   },
@@ -234,7 +234,7 @@ export const GamesService = {
    * Actualizar jogo (apenas capitão)
    */
   async update(id: string, updates: Partial<Game>) {
-    const cols = 'id, status, opponent, starts_at, location, phase, round_number';
+    const cols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
     const { data, error } = await supabase
       .from('games')
       .update(updates)

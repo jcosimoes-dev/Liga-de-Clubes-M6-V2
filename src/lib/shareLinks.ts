@@ -217,8 +217,8 @@ export function buildWhatsAppDuplaConvocationUrl(
  * Gera o URL do Google Calendar para criar um evento.
  * Base: https://calendar.google.com/calendar/render (obrigatório para abrir o formulário de evento).
  * O parâmetro dates tem de estar presente e correto; caso contrário o Google pode redirecionar para a página do Workspace.
- * - Multi-dia: dates=YYYYMMDD/YYYYMMDD (fim = dia seguinte ao último dia).
- * - Com hora: dates=YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (UTC).
+ * - Com endDate (Torneio/Mix): dates estritamente YYYYMMDD/YYYYMMDD (Dia Inteiro). O Google exige que a data de fim seja o dia SEGUINTE ao último dia real para o bloco aparecer correto.
+ * - Sem endDate: dates=YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (UTC).
  */
 export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
   const baseUrl = 'https://calendar.google.com/calendar/render';
@@ -227,13 +227,13 @@ export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
 
   const startDate = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
   const endDateRaw = info.endDate && String(info.endDate).trim();
-  const isMultiDay = endDateRaw.length > 0 && endDateRaw !== 'null' && endDateRaw !== 'undefined';
+  const hasEndDate = endDateRaw.length > 0 && endDateRaw !== 'null' && endDateRaw !== 'undefined';
 
   let datesParam: string;
-  if (isMultiDay && endDateRaw) {
+  if (hasEndDate && endDateRaw) {
     const startStr = toGoogleCalendarDateOnly(startDate);
-    const endD = new Date(endDateRaw);
-    const dayAfterLast = nextDayUTC(endD);
+    const lastDay = new Date(endDateRaw);
+    const dayAfterLast = nextDayUTC(lastDay);
     const endStr = toGoogleCalendarDateOnly(dayAfterLast);
     datesParam = `${startStr}/${endStr}`;
   } else {
@@ -244,7 +244,7 @@ export const buildGoogleCalendarUrl = (info: GameShareInfo): string => {
 
   const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
   const endDay = endDateRaw ? new Date(endDateRaw) : startDay;
-  const periodStr = isMultiDay && endDateRaw
+  const periodStr = hasEndDate && endDateRaw
     ? `Período: ${startDay.getDate()}/${String(startDay.getMonth() + 1).padStart(2, '0')}/${startDay.getFullYear()} a ${endDay.getDate()}/${String(endDay.getMonth() + 1).padStart(2, '0')}/${endDay.getFullYear()}. `
     : '';
   const details = `${periodStr}Confirmar presença na App: ${appUrl}`;
