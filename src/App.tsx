@@ -1,4 +1,3 @@
-// Version 1.1.2 - Force Cache Clear
 import { HashRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NavigationProvider } from './contexts/NavigationContext';
@@ -19,6 +18,8 @@ import { ResetPasswordScreen } from './screens/ResetPasswordScreen';
 import { OfflineScreen } from './screens/OfflineScreen';
 
 import OfflineBanner from './components/OfflineBanner';
+import ProfileLoadErrorBanner from './components/ProfileLoadErrorBanner';
+import ProfileLoadErrorScreen from './components/ProfileLoadErrorScreen';
 import InstallAppPrompt from './components/InstallAppPrompt';
 import ConnectionRestoredToast from './components/ConnectionRestoredToast';
 import { WelcomeModal, getHasSeenWelcome } from './components/WelcomeModal';
@@ -52,7 +53,7 @@ const ALL_ROUTES = {
 };
 
 function AppContent() {
-  const { session, loading, user } = useAuth();
+  const { session, loading, user, profileLoadError } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -110,9 +111,14 @@ function AppContent() {
     );
   }
 
+  if (profileLoadError && user) {
+    return <ProfileLoadErrorScreen />;
+  }
+
   return (
     <ProtectedRoute>
       <div style={{ minHeight: '100vh' }}>
+        <ProfileLoadErrorBanner />
         <ConnectionRestoredToast />
         <NavigationProvider routes={ALL_ROUTES} initialRouteName="home" />
         <OfflineBanner />

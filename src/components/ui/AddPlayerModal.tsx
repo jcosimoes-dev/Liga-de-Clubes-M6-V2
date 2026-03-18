@@ -148,37 +148,78 @@ export function AddPlayerModal({ isOpen, onClose, onSuccess, onError, teamId }: 
         await new Promise((r) => setTimeout(r, 300));
       }
 
-      // Gravação única: upsert directo na tabela players, com onConflict: 'user_id' para evitar conflitos
       const points = Number.isFinite(federationPoints) && federationPoints >= 0 ? federationPoints : 0;
-      const { error: upsertError } = await supabase
-        .from('players')
-        .upsert(
-          {
-            user_id: newUserId,
-            name: name.trim(),
-            email: emailTrim,
-            role,
-            team_id: effectiveTeamId,
-            is_active: true,
-            preferred_side: preferredSide,
-            phone: phone.trim() || null,
-            federation_points: points,
-            points_updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        );
+      const preferredSideStr = String(preferredSide ?? 'both').toLowerCase().trim();
+      const payload = {
+        user_id: newUserId,
+        name: name.trim(),
+        email: emailTrim,
+        role: role || 'jogador',
+        team_id: effectiveTeamId,
+        phone: phone.trim() || null,
+        federation_points: points,
+        preferred_side: ['left', 'right', 'both'].includes(preferredSideStr) ? preferredSideStr : 'both',
+      };
 
-      if (upsertError) {
-        if (
-          upsertError.message?.toLowerCase?.().includes('foreign key') ||
-          upsertError.message?.toLowerCase?.().includes('team_id') ||
-          upsertError.code === '23503'
-        ) {
+      console.log('Tentando criar com payload:', payload);
+
+      // 1) Tentar RPC admin_upsert_player (SECURITY DEFINER, contorna RLS; evita falhas de permissão INSERT)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('admin_upsert_player', {
+        p_user_id: newUserId,
+        p_name: payload.name,
+        p_email: payload.email,
+        p_role: payload.role,
+        p_team_id: effectiveTeamId,
+        p_phone: payload.phone,
+        p_federation_points: payload.federation_points,
+        p_preferred_side: payload.preferred_side as string,
+      });
+
+      if (!rpcError && rpcData?.ok) {
+        // RPC sucedeu
+      } else if (rpcData?.error === 'not_admin') {
+        // Fallback: Admin hardcoded sem linha em players — usar upsert directo
+        // Não enviar updated_at nem points_updated_at — o Supabase gere-os automaticamente via trigger/default
+        const { error: upsertError } = await supabase
+          .from('players')
+          .upsert(
+            {
+              user_id: newUserId,
+              name: payload.name,
+              email: payload.email,
+              role: payload.role,
+              team_id: effectiveTeamId,
+              is_active: true,
+              preferred_side: payload.preferred_side as string,
+              phone: payload.phone,
+              federation_points: payload.federation_points,
+            },
+            { onConflict: 'user_id' }
+          );
+
+        if (upsertError) {
+          console.error('Erro detalhado no INSERT (fallback upsert):', upsertError);
+          if (
+            upsertError.message?.toLowerCase?.().includes('foreign key') ||
+            upsertError.message?.toLowerCase?.().includes('team_id') ||
+            upsertError.code === '23503'
+          ) {
+            throw new Error(
+              'A equipa associada não existe ou é inválida. Confirma o teu team_id (perfil de administrador) e a tabela teams.'
+            );
+          }
+          throw new Error(upsertError.message || upsertError.code || 'Não foi possível guardar o jogador.');
+        }
+      } else {
+        console.error('Erro detalhado no INSERT (RPC admin_upsert_player):', rpcError, rpcData);
+        if (rpcData?.error === 'invalid_team_id') {
           throw new Error(
             'A equipa associada não existe ou é inválida. Confirma o teu team_id (perfil de administrador) e a tabela teams.'
           );
         }
-        throw new Error(upsertError.message || upsertError.code || 'Não foi possível guardar o jogador.');
+        throw new Error(
+          (rpcData?.error as string) || rpcError?.message || rpcError?.code || 'Não foi possível guardar o jogador.'
+        );
       }
 
       setName('');
@@ -193,6 +234,7 @@ export function AddPlayerModal({ isOpen, onClose, onSuccess, onError, teamId }: 
       onSuccess();
       onClose();
     } catch (err) {
+      console.error('Erro detalhado no INSERT:', err);
       const msg = getErrorMessage(err);
       setError(msg);
       onError?.(msg);
@@ -329,9 +371,14 @@ export function AddPlayerModal({ isOpen, onClose, onSuccess, onError, teamId }: 
                 className="flex-1"
                 disabled={loading}
               >
-                {loading ? 'A criar...' : 'Criar Jogador'}
+                {loading ? 'A processar...' : 'Criar Jogador'}
               </Button>
             </div>
+            {loading && (
+              <p className="text-xs text-gray-500 text-center pt-1">
+                Pode demorar alguns segundos. Aguarda a resposta do servidor.
+              </p>
+            )}
           </form>
         </div>
       </div>

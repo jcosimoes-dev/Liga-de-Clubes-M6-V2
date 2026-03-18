@@ -40,15 +40,22 @@ const INPUT_MODERN =
   'w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:outline-none transition-colors text-gray-900 disabled:opacity-60';
 
 export function AdminScreen() {
-  const { player, isAdmin, user, canDo } = useAuth();
+  const { player, isAdmin, user, canDo, loading: authLoading, role } = useAuth();
   const { navigate, goBack } = useNavigation();
 
-  // Bloqueio ao coordenador/capitão: redirecionar para Home com mensagem "Acesso Restrito à Administração Principal" (defensivo se o contexto atrasar)
+  // Debug: confirmar o cargo que a App está a ver
   useEffect(() => {
+    console.log('Cargo detetado na App:', role, { playerRole: player?.role, email: user?.email, isAdmin, canAccessAdmin: canDo('access_admin') });
+  }, [role, player?.role, user?.email, isAdmin, canDo]);
+
+  // Bloqueio ao coordenador/capitão: redirecionar para Home com mensagem "Acesso Restrito à Administração Principal" (defensivo se o contexto atrasar)
+  // Não redirecionar enquanto o perfil ainda está a carregar (evita bloquear admin por cache/race).
+  useEffect(() => {
+    if (authLoading) return;
     if (!canDo('access_admin')) {
       navigate({ name: 'home', state: { accessDeniedAdmin: true } });
     }
-  }, [canDo, navigate]);
+  }, [authLoading, canDo, navigate]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
   const [selectedRole, setSelectedRole] = useState<PlayerRole>(PlayerRoles.jogador);
@@ -555,11 +562,13 @@ export function AdminScreen() {
         <AddPlayerModal
           isOpen={showAddModal}
           onClose={() => setShowAddModal(false)}
-          onSuccess={() => {
-            loadPlayers();
+          onSuccess={async () => {
             showToast('Sucesso! Jogador criado.', 'success');
             setShowAddModal(false);
             navigate({ name: 'admin' });
+            // Aguardar confirmação da BD antes de atualizar a lista (evita race com replicação)
+            await new Promise((r) => setTimeout(r, 500));
+            await loadPlayers();
           }}
           onError={(msg) => showToast(msg, 'error')}
           teamId={player?.team_id ?? undefined}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { MIN_PASSWORD_LENGTH } from '../lib/authErrors';
@@ -49,6 +49,8 @@ export type AuthCtx = {
   mustChangePassword: boolean;
   /** Regras centralizadas: capitão só pode Criar Jogo, Abrir Convocatória, Registar Resultados */
   canDo: (action: SportAction) => boolean;
+  /** Erro de carregamento de perfil (ex.: recursão RLS 42P17) — mostrar ao utilizador e evitar loops */
+  profileLoadError: string | null;
 
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name?: string) => Promise<void>;
@@ -66,7 +68,7 @@ const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 /** Hardcoded Admin for project owner. Este e-mail recebe sempre role 'admin', ignorando a BD. */
 const HARDCODED_ADMIN_EMAIL = 'jco.simoes@gmail.com';
 
-/** Aplica role admin e team_id null para o dono do projeto, ignorando a BD e cache. Garante acesso total mesmo sem equipa. */
+/** Aplica role admin e team_id null para o dono do projeto, ignorando a BD. Garante acesso total mesmo sem equipa. */
 function applyHardcodedAdmin(profile: Player | null, email: string | null | undefined): Player | null {
   const isOwner = (email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
   // Hardcoded Admin for project owner: role = admin, team_id = null (limpa equipa antiga 75782791... para evitar 404).
@@ -87,25 +89,33 @@ function syntheticOwnerProfile(userId: string, authUser: { email?: string | null
   } as Player;
 }
 
+/** Mecanismo de segurança: se falhar com 42P17, não voltar a tentar (evita loop infinito). */
+let profileFetchBlocked = false;
+function setProfileFetchBlocked(v: boolean) {
+  profileFetchBlocked = v;
+}
+
 /**
  * Lê o perfil do utilizador da tabela players (coluna role: 'admin' | 'gestor' | 'coordenador' | 'capitao' | 'jogador').
- * A role é usada para menus e rotas (Gestão de Jogos para admin/coordenador/capitão). Aceita 'coordinator' (EN) → coordenador.
- * No Supabase o perfil está em public.players; não usar tabela profiles para a role.
+ * Query simples: select().eq('user_id', uid).maybeSingle() — sem funções complexas de filtro.
+ * Se profileFetchBlocked, falha imediatamente sem tentar (evita loop).
  */
 async function fetchPlayerByUserId(userId: string): Promise<Player | null> {
+  if (profileFetchBlocked) {
+    const err = new Error('Recursão RLS bloqueada — não voltar a tentar.') as Error & { code?: string };
+    err.code = '42P17';
+    throw err;
+  }
   const { data, error } = await supabase
     .from('players')
-    .select('*')
+    .select('id, user_id, name, email, role, team_id, phone, federation_points, preferred_side, is_active, profile_completed, must_change_password, liga_points')
     .eq('user_id', userId)
     .maybeSingle();
 
   if (error) {
     console.error('[AuthContext] fetchPlayerByUserId Supabase error:', {
       message: error.message,
-      details: (error as { details?: string }).details,
-      hint: (error as { hint?: string }).hint,
       code: (error as { code?: string }).code,
-      fullError: error,
     });
     throw error;
   }
@@ -206,10 +216,27 @@ async function ensurePlayerProfile(userId: string, authUser: { email?: string | 
   };
 
   console.log('[AuthContext.ensurePlayerProfile] ESCREVENDO INSERT: user_id=%s, email=%s, role=%s. Payload completo:', userId, email, payload.role, payload);
-  const { error: insertError } = await supabase.from('players').insert(payload);
+
+  let insertError: { code?: string; message?: string } | null = null;
+  try {
+    const result = await supabase.from('players').insert(payload);
+    insertError = result.error as { code?: string; message?: string } | null;
+    if (insertError) {
+      console.error('Erro detalhado no INSERT (players):', insertError);
+    }
+  } catch (err) {
+    console.error('Erro detalhado no INSERT (players):', err);
+    insertError = err as { code?: string; message?: string };
+  }
 
   if (insertError) {
-    const code = (insertError as { code?: string }).code;
+    const code = insertError?.code;
+    if (code === '42501') {
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert('Erro de permissão no Supabase: Verifica as políticas RLS.');
+      }
+      throw new Error('Erro de permissão no Supabase (42501). Verifica as políticas RLS.');
+    }
     if (code === '23505') {
       console.log('[AuthContext.ensurePlayerProfile] Conflito 23505: linha já existe para user_id=%s — refetch, NÃO escrever role.', userId);
       profile = await fetchPlayerByUserId(userId);
@@ -344,7 +371,7 @@ function clearOwnerStaleTeamCache(): void {
     Object.keys(window.localStorage)
       .filter((k) => /team/i.test(k))
       .forEach((k) => window.localStorage.removeItem(k));
-    // Limpar qualquer chave cujo valor seja o ID de equipa inválido
+    // Limpar qualquer chave cujo valor seja o ID de equipa inválida
     Object.keys(window.localStorage).forEach((k) => {
       if (window.localStorage.getItem(k) === DEAD_TEAM_ID) window.localStorage.removeItem(k);
     });
@@ -353,10 +380,33 @@ function clearOwnerStaleTeamCache(): void {
   }
 }
 
+/** Chaves de localStorage que podem guardar cargo/role — limpar no login para forçar leitura fresca do Supabase. */
+const ROLE_CACHE_KEYS = ['liga-m6-role', 'app-role', 'liga-m6-player-role', 'liga-m6-user-role'];
+
+function clearRoleCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    ROLE_CACHE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    Object.keys(window.localStorage)
+      .filter((k) => /role|player-role|cargo/i.test(k))
+      .forEach((k) => window.localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
+const RLS_RECURSION_CODE = '42P17';
+const MAX_PROFILE_LOAD_FAILURES = 3;
+const PROFILE_LOAD_ERROR_MSG = 'Erro ao carregar perfil. Verifica as políticas RLS no Supabase ou contacta o administrador.';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  const lastPlayerUserIdRef = useRef<string | null>(null);
+  const profileLoadFailuresRef = useRef(0);
+  const profileLoadBlockedRef = useRef(false);
 
   const user = session?.user ?? null;
   const isOwnerEmail = (user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
@@ -382,8 +432,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setPlayer(null);
       return;
     }
-    const p = await ensurePlayerProfile(user.id, user);
-    setPlayer(applyHardcodedAdmin(p, user?.email));
+    if (profileLoadBlockedRef.current) return;
+    try {
+      const p = await ensurePlayerProfile(user.id, user);
+      profileLoadFailuresRef.current = 0;
+      setProfileLoadError(null);
+      setPlayer(applyHardcodedAdmin(p, user?.email));
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code === RLS_RECURSION_CODE) {
+        profileLoadBlockedRef.current = true;
+        setProfileFetchBlocked(true);
+        setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+        return;
+      }
+      profileLoadFailuresRef.current += 1;
+      if (profileLoadFailuresRef.current >= MAX_PROFILE_LOAD_FAILURES) {
+        profileLoadBlockedRef.current = true;
+        setProfileFetchBlocked(true);
+        setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+      }
+      throw e;
+    }
   };
 
   const refreshProfile = refreshPlayer;
@@ -395,6 +465,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       if (cancelled) return;
       if (!s?.user) {
+        lastPlayerUserIdRef.current = null;
         setSession(null);
         setPlayer(null);
         setLoading(false);
@@ -405,18 +476,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthContext] getSession: auth user id=%s, email=%s', authId, authEmail);
       setSession(s);
       if (authEmail === HARDCODED_ADMIN_EMAIL) clearOwnerStaleTeamCache();
+      if (profileLoadBlockedRef.current) {
+        if (!cancelled) {
+          setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+          setPlayer(authEmail === HARDCODED_ADMIN_EMAIL ? syntheticOwnerProfile(s.user.id, s.user) : null);
+        }
+        setLoading(false);
+        return;
+      }
       ensurePlayerProfile(s.user.id, s.user)
         .then((p) => {
           if (cancelled) return;
+          profileLoadFailuresRef.current = 0;
+          setProfileLoadError(null);
           const final = applyHardcodedAdmin(p, s?.user?.email);
+          if (final?.user_id) lastPlayerUserIdRef.current = final.user_id;
           console.log('[AuthContext] setPlayer (inicial): player.id=%s, player.user_id=%s, player.email=%s, player.role=%s', final?.id ?? null, final?.user_id ?? null, final?.email ?? null, final?.role ?? null);
           setPlayer(final);
         })
-        .catch((e) => {
+        .catch(async (e) => {
           if (!cancelled) {
+            const code = (e as { code?: string })?.code;
+            if (code === RLS_RECURSION_CODE) {
+              profileLoadBlockedRef.current = true;
+              setProfileFetchBlocked(true);
+              setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+              setPlayer(authEmail === HARDCODED_ADMIN_EMAIL ? syntheticOwnerProfile(s.user.id, s.user) : null);
+              return;
+            }
+            profileLoadFailuresRef.current += 1;
+            if (profileLoadFailuresRef.current >= MAX_PROFILE_LOAD_FAILURES) {
+              profileLoadBlockedRef.current = true;
+              setProfileFetchBlocked(true);
+              setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+            }
             if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
               setPlayer(syntheticOwnerProfile(s.user.id, s.user));
+              lastPlayerUserIdRef.current = s.user.id;
             } else {
+              const { data: { session: nowSession } } = await supabase.auth.getSession();
+              if (nowSession?.user?.id !== s.user.id) return;
+              if (s.user.id === lastPlayerUserIdRef.current) return;
               setPlayer(null);
             }
           }
@@ -435,18 +535,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key == null || !e.key.includes('auth')) return;
+      if (profileLoadBlockedRef.current) return;
       supabase.auth.getSession().then(({ data: { session: s } }) => {
         setSession(s ?? null);
         if (!s?.user) {
+          lastPlayerUserIdRef.current = null;
           setPlayer(null);
           return;
         }
+        if (profileLoadBlockedRef.current) return;
         ensurePlayerProfile(s.user.id, s.user)
-          .then((p) => setPlayer(applyHardcodedAdmin(p, s?.user?.email)))
-          .catch(() => {
-            if ((s?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
-              setPlayer(syntheticOwnerProfile(s.user.id, s.user));
+          .then((p) => {
+            profileLoadFailuresRef.current = 0;
+            setProfileLoadError(null);
+            const final = applyHardcodedAdmin(p, s?.user?.email);
+            if (final?.user_id) lastPlayerUserIdRef.current = final.user_id;
+            setPlayer(final);
+          })
+          .catch(async (e) => {
+            const code = (e as { code?: string })?.code;
+            if (code === RLS_RECURSION_CODE) {
+              profileLoadBlockedRef.current = true;
+              setProfileFetchBlocked(true);
+              setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
             } else {
+              profileLoadFailuresRef.current += 1;
+              if (profileLoadFailuresRef.current >= MAX_PROFILE_LOAD_FAILURES) {
+                profileLoadBlockedRef.current = true;
+                setProfileFetchBlocked(true);
+                setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+              }
+            }
+            const authEmail = (s?.user?.email ?? '').trim().toLowerCase();
+            if (authEmail === HARDCODED_ADMIN_EMAIL) {
+              setPlayer(syntheticOwnerProfile(s.user.id, s.user));
+              lastPlayerUserIdRef.current = s.user.id;
+            } else {
+              const { data: { session: nowSession } } = await supabase.auth.getSession();
+              if (nowSession?.user?.id !== s.user.id) return;
+              if (s.user.id === lastPlayerUserIdRef.current) return;
               setPlayer(null);
             }
           });
@@ -461,6 +588,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(newSession ?? null);
 
       if (event === 'SIGNED_OUT' || !newSession?.user) {
+        lastPlayerUserIdRef.current = null;
+        profileLoadBlockedRef.current = false;
+        profileLoadFailuresRef.current = 0;
+        setProfileFetchBlocked(false);
+        setProfileLoadError(null);
         setPlayer(null);
         setLoading(false);
         return;
@@ -469,17 +601,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authId = newSession.user.id;
       const authEmail = (newSession?.user?.email ?? '').trim().toLowerCase();
       console.log('[AuthContext] onAuthStateChange: event=%s, auth user id=%s, email=%s', event, authId, authEmail);
+      if (event === 'SIGNED_IN') {
+        clearRoleCache();
+      }
+      if (profileLoadBlockedRef.current) {
+        setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+        setPlayer(authEmail === HARDCODED_ADMIN_EMAIL ? syntheticOwnerProfile(newSession.user.id, newSession.user) : null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       ensurePlayerProfile(newSession.user.id, newSession.user)
         .then((p) => {
+          profileLoadFailuresRef.current = 0;
+          setProfileLoadError(null);
           const final = applyHardcodedAdmin(p, newSession?.user?.email);
+          if (final?.user_id) lastPlayerUserIdRef.current = final.user_id;
           console.log('[AuthContext] setPlayer (onAuthStateChange): player.id=%s, player.user_id=%s, player.email=%s, player.role=%s', final?.id ?? null, final?.user_id ?? null, final?.email ?? null, final?.role ?? null);
           setPlayer(final);
         })
-        .catch((e) => {
+        .catch(async (e) => {
+          const code = (e as { code?: string })?.code;
+          if (code === RLS_RECURSION_CODE) {
+            profileLoadBlockedRef.current = true;
+            setProfileFetchBlocked(true);
+            setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+          } else {
+            profileLoadFailuresRef.current += 1;
+            if (profileLoadFailuresRef.current >= MAX_PROFILE_LOAD_FAILURES) {
+              profileLoadBlockedRef.current = true;
+              setProfileFetchBlocked(true);
+              setProfileLoadError(PROFILE_LOAD_ERROR_MSG);
+            }
+          }
           if ((newSession?.user?.email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
             setPlayer(syntheticOwnerProfile(newSession.user.id, newSession.user));
+            lastPlayerUserIdRef.current = newSession.user.id;
           } else {
+            const { data: { session: nowSession } } = await supabase.auth.getSession();
+            if (nowSession?.user?.id !== newSession.user.id) return;
+            if (newSession.user.id === lastPlayerUserIdRef.current) return;
             setPlayer(null);
           }
         })
@@ -557,13 +718,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       canManageFederationPoints,
       mustChangePassword,
       canDo: (action: SportAction) => canAction(player, role, action),
+      profileLoadError,
       signIn,
       signUp,
       signOut,
       refreshPlayer,
       refreshProfile,
     }),
-    [loading, session, user, player, role, isAdmin, canManageTeam, canManageSport, canManageFederationPoints, mustChangePassword]
+    [loading, session, user, player, role, isAdmin, canManageTeam, canManageSport, canManageFederationPoints, mustChangePassword, profileLoadError]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

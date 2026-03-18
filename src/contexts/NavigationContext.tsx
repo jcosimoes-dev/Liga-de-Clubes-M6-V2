@@ -86,12 +86,15 @@ export function NavigationProvider({
     pathnameToRoute(pathname, initialRouteName)
   );
 
-  const { role, session, user, mustChangePassword, player, canManageSport } = useAuth();
+  const { role, session, user, mustChangePassword, player, canManageSport, loading: authLoading } = useAuth();
   const isAdmin = (role || '').trim() === PlayerRoles.admin;
   const isOwnerEmail = (user?.email ?? '').trim().toLowerCase() === 'jco.simoes@gmail.com';
 
   const PUBLIC_ROUTES: RouteName[] = ['login', 'register', 'reset-password'];
   const isPublicRoute = PUBLIC_ROUTES.includes(route.name);
+
+  /** Não redirecionar da rota Admin enquanto o perfil ainda está a carregar (evita bloquear admin por cache/race). */
+  const waitForAuthBeforeAdminCheck = route.name === 'admin' && authLoading;
 
   // Sincronizar estado da rota com o pathname do router (ex.: botão voltar do browser).
   useEffect(() => {
@@ -126,7 +129,8 @@ export function NavigationProvider({
     ...(canManageSport || isOwnerEmail ? ROUTES_FOR_SPORT_MANAGEMENT : []),
     ...(isAdmin ? ['admin'] : []),
   ];
-  const isForbidden = route.name != null && !allowedForRole.includes(route.name);
+  /** Enquanto o perfil carrega na rota Admin, não bloquear (evita redirecionar admin por race/cache). */
+  const isForbidden = route.name != null && !allowedForRole.includes(route.name) && !waitForAuthBeforeAdminCheck;
 
   // Coordenador/Capitão/Jogador: Painel Admin oculto; ao aceder via URL redirecionar e mostrar "Acesso Restrito à Administração Principal 🔒".
   const ADMIN_REDIRECT_DELAY_MS = 5000;
