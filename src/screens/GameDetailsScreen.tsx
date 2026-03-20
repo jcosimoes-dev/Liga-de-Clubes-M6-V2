@@ -7,6 +7,9 @@ import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
 import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
+import {
+  confirmedPairCountFromPlayers,
+} from '../domain/registrationLimits';
 import { buildGoogleCalendarUrl } from '../lib/shareLinks';
 
 type Props = {
@@ -270,6 +273,12 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
                 <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
                   🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado{confirmedPlayers.length !== 1 ? 's' : ''}
+                  <span className="block mt-1 text-xs font-medium text-gray-600">
+                    {(() => {
+                      const n = confirmedPairCountFromPlayers(confirmedPlayers.length);
+                      return n === 1 ? '1 dupla inscrita' : `${n} duplas inscritas`;
+                    })()}
+                  </span>
                 </p>
                 <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
                   <Users className="w-4 h-4 text-gray-600" aria-hidden />

@@ -3,6 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Input, Button, Badge, Loading, Header, RestrictedAccessModal, Toast, ToastType, EditGameModal, ConfirmDialog } from '../components/ui';
 import { CATEGORY_STYLES, getCategoryFromPhase, GRID_CLASSES } from '../domain/categoryTheme';
+import {
+  maxTeamsForCategory,
+  maxPlayersForCategory,
+  emptyPairSlots,
+  confirmedPairCountFromPlayers,
+} from '../domain/registrationLimits';
 import { useAuth, RESTRICTED_COORDINATION_MSG } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
@@ -82,11 +88,7 @@ export function SportManagementScreen() {
   const [selectedGame, setSelectedGame] = useState<any | null>(null);
   const [availablePlayers, setAvailablePlayers] = useState<any[]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
-  const [pairs, setPairs] = useState<Array<{ player1_id: string; player2_id: string }>>([
-    { player1_id: '', player2_id: '' },
-    { player1_id: '', player2_id: '' },
-    { player1_id: '', player2_id: '' },
-  ]);
+  const [pairs, setPairs] = useState<Array<{ player1_id: string; player2_id: string }>>(() => emptyPairSlots(3));
   const [gamesLoading, setGamesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
@@ -422,11 +424,7 @@ export function SportManagementScreen() {
     } catch (_) {}
     setAvailablePlayers([]);
     setSelectedPlayerIds(new Set());
-    setPairs([
-      { player1_id: '', player2_id: '' },
-      { player1_id: '', player2_id: '' },
-      { player1_id: '', player2_id: '' },
-    ]);
+    setPairs(emptyPairSlots(3));
   }, [selectedGame?.id]);
 
   useEffect(() => {
@@ -471,7 +469,12 @@ export function SportManagementScreen() {
       if (!game) return;
       hasRestoredConvocationRef.current = true;
       setSelectedGame(game);
-      setPairs(data.pairs.length >= 3 ? data.pairs.slice(0, 3) : [...data.pairs, ...Array(3 - data.pairs.length).fill({ player1_id: '', player2_id: '' })].slice(0, 3));
+      const slots = maxTeamsForCategory(getCategoryFromPhase(game.phase));
+      const padded =
+        data.pairs.length >= slots
+          ? data.pairs.slice(0, slots)
+          : [...data.pairs, ...emptyPairSlots(slots - data.pairs.length)].slice(0, slots);
+      setPairs(padded);
       setSelectedPlayerIds(new Set(data.selectedPlayerIds));
       setActiveTabState('convocatorias');
       try {
@@ -485,6 +488,19 @@ export function SportManagementScreen() {
   const isLigaGame = selectedGame && ['Qualificação', 'Regionais', 'Nacionais'].includes(String(selectedGame.phase ?? ''));
   const minPlayers = isLigaGame ? 4 : 2;
   const requiredPairs = Math.floor(minPlayers / 2);
+  const convocatoryCategory = selectedGame ? getCategoryFromPhase(selectedGame.phase) : 'Liga';
+  const convocatoryMaxTeams = maxTeamsForCategory(convocatoryCategory);
+  const convocatoryMaxPlayers = maxPlayersForCategory(convocatoryCategory);
+
+  useEffect(() => {
+    if (!selectedGame) return;
+    const slots = maxTeamsForCategory(getCategoryFromPhase(selectedGame.phase));
+    setPairs((prev) => {
+      if (prev.length === slots) return prev;
+      if (prev.length > slots) return prev.slice(0, slots);
+      return [...prev, ...emptyPairSlots(slots - prev.length)];
+    });
+  }, [selectedGame?.id, selectedGame?.phase]);
 
   /** Total de pontos (Liga + FPP) — mesma lógica que Perfil e Equipa */
   const totalPlayerPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
@@ -499,8 +515,11 @@ export function SportManagementScreen() {
    * Sugestão de duplas por pontos (só quando o utilizador clica no botão). Nunca recalcular automaticamente.
    */
   const applySugestaoDuplas = () => {
+    if (!selectedGame || availablePlayers.length === 0) return;
+    const maxT = maxTeamsForCategory(getCategoryFromPhase(selectedGame.phase));
+    const maxP = maxT * 2;
     const n = selectedPlayerIds.size;
-    if ((n !== 2 && n !== 4 && n !== 6) || availablePlayers.length === 0) return;
+    if (n < minPlayers || n % 2 !== 0 || n > maxP) return;
     if (isLigaGame && n < 4) return;
     const ids = Array.from(selectedPlayerIds);
     const selected = ids
@@ -508,12 +527,12 @@ export function SportManagementScreen() {
       .filter(Boolean) as any[];
     if (selected.length !== n) return;
     const byPoints = [...selected].sort((a, b) => totalPlayerPoints(b) - totalPlayerPoints(a));
-    const pairCount = Math.floor(n / 2);
+    const pairCount = Math.min(Math.floor(n / 2), maxT);
     const newPairs: Array<{ player1_id: string; player2_id: string }> = [];
     for (let i = 0; i < pairCount; i++) {
       newPairs.push({ player1_id: byPoints[i * 2].id, player2_id: byPoints[i * 2 + 1].id });
     }
-    while (newPairs.length < 3) newPairs.push({ player1_id: '', player2_id: '' });
+    while (newPairs.length < maxT) newPairs.push({ player1_id: '', player2_id: '' });
     setPairs(newPairs);
   };
 
@@ -711,8 +730,9 @@ export function SportManagementScreen() {
   const togglePlayer = (id: string) => {
     setSelectedPlayerIds((prev) => {
       const next = new Set(prev);
+      const maxSel = selectedGame ? maxPlayersForCategory(getCategoryFromPhase(selectedGame.phase)) : 6;
       if (next.has(id)) next.delete(id);
-      else if (next.size < 6) next.add(id);
+      else if (next.size < maxSel) next.add(id);
       return next;
     });
   };
@@ -1541,8 +1561,8 @@ export function SportManagementScreen() {
           }
         >
           <p className="text-sm text-gray-600 mb-4">
-            Liga: mínimo 4 jogadores (2 duplas). Outros tipos: mínimo 2 jogadores (1 dupla). Escolhe da lista de{' '}
-            <strong>confirmados</strong>; as duplas são ordenadas por pontos. Ao confirmar, a convocatória é fechada.
+            Liga: até 3 duplas (6 jogadores), mínimo 4. Torneio/Mix/Treino: até 10 duplas (20 jogadores), mínimo 2. Escolhe da
+            lista de <strong>confirmados</strong>; as duplas são ordenadas por pontos. Ao confirmar, a convocatória é fechada.
             Jogos com data já passada continuam aqui até serem concluídos ou fechados — usa o ícone de lápis para adiar ou alterar o local.
           </p>
 
@@ -1609,7 +1629,12 @@ export function SportManagementScreen() {
                         if (raw) {
                           const data = JSON.parse(raw) as { selectedGameId?: string; pairs?: Array<{ player1_id: string; player2_id: string }>; selectedPlayerIds?: string[] };
                           if (data?.selectedGameId === game.id && Array.isArray(data.pairs) && Array.isArray(data.selectedPlayerIds)) {
-                            setPairs(data.pairs.length >= 3 ? data.pairs.slice(0, 3) : [...data.pairs, ...Array(3 - data.pairs.length).fill({ player1_id: '', player2_id: '' })].slice(0, 3));
+                            const slots = maxTeamsForCategory(getCategoryFromPhase(game.phase));
+                            const padded =
+                              data.pairs.length >= slots
+                                ? data.pairs.slice(0, slots)
+                                : [...data.pairs, ...emptyPairSlots(slots - data.pairs.length)].slice(0, slots);
+                            setPairs(padded);
                             setSelectedPlayerIds(new Set(data.selectedPlayerIds));
                           }
                         }
@@ -1726,6 +1751,10 @@ export function SportManagementScreen() {
                 </button>
               </div>
               <h4 className="text-sm font-medium text-gray-700 mb-2">Jogadores confirmados (status = confirmed)</h4>
+              <p className="text-xs text-gray-600 mb-2">
+                Limite do evento: até {convocatoryMaxTeams} duplas ({convocatoryMaxPlayers} jogadores). Inscritos:{' '}
+                {confirmedPairCountFromPlayers(availablePlayers.length)} / {convocatoryMaxTeams} duplas · {availablePlayers.length} confirmados.
+              </p>
 
               {availablePlayers.length < minPlayers ? (
                 <p className="text-sm text-amber-700 mb-4">
@@ -1733,7 +1762,10 @@ export function SportManagementScreen() {
                 </p>
               ) : (
                 <p className="text-sm text-gray-600 mb-4">
-                  {isLigaGame ? 'Seleciona 4 ou 6 jogadores (clica para selecionar).' : 'Seleciona 2, 4 ou 6 jogadores (clica para selecionar).'} As duplas são calculadas automaticamente por pontos.
+                  {isLigaGame
+                    ? `Seleciona 4 ou 6 jogadores (máx. ${convocatoryMaxPlayers}, clica para selecionar).`
+                    : `Seleciona um número par de jogadores entre ${minPlayers} e ${convocatoryMaxPlayers} (clica para selecionar).`}{' '}
+                  As duplas são calculadas automaticamente por pontos (botão Sugestão de Duplas).
                 </p>
               )}
 
@@ -1824,8 +1856,17 @@ export function SportManagementScreen() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {selectedGame && sortedConvocatoryPairs.map((ed, idx) => {
+                        const nRows = sortedConvocatoryPairs.length;
                         const label =
-                          idx === 0 ? 'Dupla 1 (maior soma)' : idx === 1 ? 'Dupla 2 (média)' : 'Dupla 3 (menor soma)';
+                          nRows <= 1
+                            ? 'Dupla 1'
+                            : idx === 0
+                              ? 'Dupla 1 (maior soma)'
+                              : idx === nRows - 1
+                                ? `Dupla ${idx + 1} (menor soma)`
+                                : nRows === 3 && idx === 1
+                                  ? 'Dupla 2 (média)'
+                                  : `Dupla ${idx + 1}`;
                         const duplaShort = `Dupla ${idx + 1}`;
                         const gameInfoDupla: GameShareInfo = {
                           gameType: getCategoryFromPhase(selectedGame.phase),
@@ -1957,6 +1998,11 @@ export function SportManagementScreen() {
               {selectedPlayerIds.size > 0 && selectedPlayerIds.size < minPlayers && (
                 <p className="text-sm text-amber-600">
                   Selecionados {selectedPlayerIds.size}/{minPlayers}. {isLigaGame ? 'Liga: escolhe pelo menos mais ' + (minPlayers - selectedPlayerIds.size) + '.' : 'Escolhe pelo menos mais ' + (minPlayers - selectedPlayerIds.size) + '.'}
+                </p>
+              )}
+              {selectedPlayerIds.size >= minPlayers && selectedPlayerIds.size > convocatoryMaxPlayers && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  Máximo {convocatoryMaxPlayers} jogadores ({convocatoryMaxTeams} duplas) para este evento.
                 </p>
               )}
             </div>

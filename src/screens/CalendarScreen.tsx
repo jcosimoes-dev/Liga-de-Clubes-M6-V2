@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, CategoryCard, Badge, Loading, Button, Header, Toast, ToastType } from '../components/ui';
 import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/categoryTheme';
+import { confirmedPairCountFromPlayers } from '../domain/registrationLimits';
 import { useNavigation } from '../contexts/NavigationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { GamesService, AvailabilitiesService } from '../services';
@@ -144,6 +145,7 @@ export function CalendarScreen() {
     }
     const playerId = String(player.id);
     const gameIdStr = String(gameId);
+    const gameRow = games.find((g) => String(g.id) === gameIdStr);
     if (!gameIdStr || !playerId) {
       showToast('Erro: ID de jogo ou jogador inválido', 'error');
       return;
@@ -227,6 +229,10 @@ export function CalendarScreen() {
     const isMultiDay = GamesService.isMultiDay(game);
     const cat = getCategoryFromPhase(game.phase);
     const styles = CATEGORY_STYLES[cat];
+    const duplasPreenchidas = confirmedPairCountFromPlayers(confirmedCount);
+    const duplasInscritasLabel =
+      duplasPreenchidas === 1 ? '1 dupla inscrita' : `${duplasPreenchidas} duplas inscritas`;
+    const confirmDisabled = savingFor === `${game.id}-${player?.id}`;
 
     return (
       <CategoryCard
@@ -280,11 +286,12 @@ export function CalendarScreen() {
             <div className="pt-3 border-t border-gray-200 space-y-2">
               <div className="grid grid-cols-3 gap-2">
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleAvailability(game.id, 'confirmed');
                   }}
-                  disabled={savingFor === `${game.id}-${player?.id}`}
+                  disabled={confirmDisabled}
                   className={`flex flex-col items-center py-2 px-1 rounded-lg border-2 transition-all relative ${
                     myAvail?.status === 'confirmed'
                       ? 'bg-green-50 border-green-500 text-green-700 ring-2 ring-green-300'
@@ -296,9 +303,10 @@ export function CalendarScreen() {
                   ) : (
                     <CheckCircle className="w-5 h-5 mb-1" />
                   )}
-                  <span className="text-xs font-medium">Confirmar</span>
+                  <span className="text-xs font-medium">Confirmar presença</span>
                 </button>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleAvailability(game.id, 'undecided');
@@ -318,6 +326,7 @@ export function CalendarScreen() {
                   <span className="text-xs font-medium">Talvez</span>
                 </button>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleAvailability(game.id, 'declined');
@@ -343,7 +352,7 @@ export function CalendarScreen() {
           <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-1">
               <Users className="w-3.5 h-3.5" />
-              <span>{confirmedCount} confirmados</span>
+              <span>{duplasInscritasLabel}</span>
             </div>
             {isUpcoming && daysUntil > 0 && (
               <div className="flex items-center gap-1">
