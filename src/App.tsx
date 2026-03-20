@@ -1,3 +1,4 @@
+// Force Deploy v1.7 - Unlimited Slots.
 import { HashRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NavigationProvider } from './contexts/NavigationContext';
