@@ -1,3 +1,7 @@
+/**
+ * Vite / PWA — v1.8.0
+ * - chunkFileNames + entryFileNames com carimbo de build (Rollup não suporta [timestamp] literal).
+ */
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -91,10 +95,10 @@ export default defineConfig({
       },
 
       manifest: {
-        name: 'Equipa M6 Trablisa',
-        short_name: 'M6 Trablisa',
-        version: '1.2',
-        description: 'Aplicação da Equipa M6 Trablisa (Liga de Clubes M6)',
+        name: 'Liga M6 — Equipa Trablisa',
+        short_name: 'Liga M6',
+        version: '1.8.0',
+        description: 'Liga de Clubes M6 (v1.8.0) — Equipa M6 Trablisa',
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',

@@ -1,3 +1,8 @@
+/**
+ * GameDetailsScreen — v1.8.0
+ * - Sem limite de 6 jogadores (ou outro teto) neste ecrã: lista de confirmados e duplas é só informativa.
+ * - Nomes de contexto (jornada / fase / torneio) alinhados ao calendário para o título do evento.
+ */
 import { useEffect, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, Button, Header, Loading, Toast, ToastType, Badge } from '../components/ui';
@@ -99,6 +104,13 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
   }, [gameId]);
 
   const gameTitle = game ? (GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo') : 'Jogo';
+  /** Jornada · fase (ex.: torneios, eliminatórias) — mesma lógica visual que o cartão no Calendário. */
+  const roundPhaseSubtitle = game
+    ? (() => {
+        const label = `${GamesService.formatRoundName(game.round_number, game.phase)} · ${game.phase ?? ''}`;
+        return label.replace(/^Final\s*·\s*/i, '').trim() || String(game.phase ?? '').trim() || '';
+      })()
+    : '';
   const startsAt = game?.starts_at ? new Date(game.starts_at) : null;
   const dateStr = startsAt ? startsAt.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
   const timeStr = startsAt ? startsAt.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : '—';
@@ -141,9 +153,16 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                 <div className="w-1 shrink-0 bg-emerald-500 rounded-l-2xl" aria-hidden />
                 <div className="flex-1 p-4 space-y-4">
                   <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
-                      {gameTitle}
-                    </h2>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
+                        {gameTitle}
+                      </h2>
+                      {roundPhaseSubtitle ? (
+                        <p className="mt-1.5 text-sm font-medium text-[#1A237E]/90 leading-snug">
+                          {roundPhaseSubtitle}
+                        </p>
+                      ) : null}
+                    </div>
                     {game.status ? (
                       (() => {
                         const statusStr = String(game.status);
@@ -269,6 +288,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </Card>
             )}
 
+            {/* v1.8.0: listagem completa de confirmados — sem truncar a 6 jogadores nem a 3 duplas. */}
             {confirmedPlayers.length > 0 && (
               <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
                 <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
