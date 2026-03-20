@@ -1,13 +1,19 @@
 import type { GameCategory } from './categoryTheme';
 
-/** Máximo de duplas por categoria de evento (inscrições / quadro de duplas). */
-export function maxTeamsForCategory(category: GameCategory): number {
-  return category === 'Liga' ? 3 : 10;
+/**
+ * v1.8.0: sem limite rígido de 3 duplas / 6 jogadores por categoria na aplicação.
+ * Valor alto só para compatibilidade se algum código legado consultar estes helpers.
+ */
+const UNLIMITED_MAX_TEAMS = 500;
+
+/** @deprecated Preferir pairSlotsForConvocatory / sem teto na UI — retorno alto, não 3/10. */
+export function maxTeamsForCategory(_category: GameCategory): number {
+  return UNLIMITED_MAX_TEAMS;
 }
 
-/** Máximo de jogadores que podem confirmar presença (= duplas × 2). */
-export function maxPlayersForCategory(category: GameCategory): number {
-  return maxTeamsForCategory(category) * 2;
+/** @deprecated Sem limite de inscrições no cliente. */
+export function maxPlayersForCategory(_category: GameCategory): number {
+  return UNLIMITED_MAX_TEAMS * 2;
 }
 
 /** Duplas “cheias” a partir do número de jogadores com presença confirmada. */

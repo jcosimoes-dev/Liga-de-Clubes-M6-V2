@@ -1,103 +1,20 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Liga M6 - v1.8.0</title>
-
-    <!-- PWA icons -->
-    <link rel="icon" type="image/png" href="/pwa192.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-
-    <!-- PWA / mobile web app -->
+    <meta name="theme-color" content="#000000" />
+    <meta name="application-name" content="Liga M6" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Liga M6" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-
-    <!-- theme -->
-    <meta name="theme-color" content="#000000" />
-
-    <!-- social -->
-    <meta property="og:title" content="Liga M6" />
-    <meta property="og:image" content="/pwa512.png" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="/pwa512.png" />
-
-    <style>
-      #preloader {
-        position: fixed;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        background: #f8fafc;
-        z-index: 9999;
-        transition: opacity 1s ease-out;
-      }
-      #preloader.fade-out {
-        opacity: 0;
-        pointer-events: none;
-      }
-      #preloader .logo-wrap {
-        width: min(50vw, 18rem);
-        height: min(50vw, 18rem);
-        max-width: 288px;
-        max-height: 288px;
-        display: grid;
-        place-items: center;
-      }
-      #preloader img {
-        width: 100%;
-        height: 100%;
-        min-width: 120px;
-        min-height: 120px;
-        object-fit: contain;
-        border-radius: 50%;
-        animation: logo-entrance 1s ease-out forwards;
-      }
-      @keyframes logo-entrance {
-        0% { opacity: 0; transform: scale(0.35); }
-        100% { opacity: 1; transform: scale(1); }
-      }
-    </style>
+    <link rel="icon" type="image/png" href="/pwa192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Liga M6 - v1.8.0 FINAL</title>
   </head>
-
   <body>
-    <div id="preloader">
-      <div class="logo-wrap">
-        <img src="/pwa192.png" alt="Liga M6" />
-      </div>
-    </div>
-
     <div id="root"></div>
-
     <script type="module" src="/src/main.tsx"></script>
-
-    <script>
-      window.addEventListener("DOMContentLoaded", () => {
-        const pre = document.getElementById("preloader");
-        const root = document.getElementById("root");
-        const start = Date.now();
-        const minTime = 2000;
-        const fadeOutDuration = 1000;
-
-        const stop = () => {
-          const elapsed = Date.now() - start;
-          const wait = Math.max(0, minTime - elapsed);
-          setTimeout(() => {
-            pre.classList.add("fade-out");
-            setTimeout(() => pre.remove(), fadeOutDuration);
-          }, wait);
-        };
-
-        const obs = new MutationObserver(() => {
-          if (root.childNodes.length > 0) {
-            obs.disconnect();
-            stop();
-          }
-        });
-        obs.observe(root, { childList: true });
-      });
-    </script>
   </body>
 </html>

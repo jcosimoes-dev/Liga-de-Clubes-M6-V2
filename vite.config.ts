@@ -130,3 +130,4 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
 });
+// Build Force v1.8.0.

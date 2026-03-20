@@ -1,4 +1,4 @@
-// Force Deploy v1.7 - Unlimited Slots.
+// Force Deploy v1.8.0 - Limite de Duplas Removido.
 import { HashRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NavigationProvider } from './contexts/NavigationContext';

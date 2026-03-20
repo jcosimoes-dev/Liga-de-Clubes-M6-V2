@@ -123,6 +123,7 @@ export const PairsService = {
   /**
    * Criar múltiplas duplas de uma vez. Grava primeiro sem select pesado para evitar
    * reentrada RLS (stack depth). O trigger recalcula pair_order.
+   * v1.8.0: sem limite no cliente (8, 10+ duplas) — o array enviado vai integralmente para o Supabase.
    */
   async createMultiple(pairs: Array<{
     game_id: string;

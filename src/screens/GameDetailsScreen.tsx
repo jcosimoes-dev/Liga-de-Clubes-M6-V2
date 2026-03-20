@@ -17,6 +17,15 @@ import {
 } from '../domain/registrationLimits';
 import { buildGoogleCalendarUrl } from '../lib/shareLinks';
 
+function getErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e !== null && 'message' in e) {
+    const m = (e as { message: unknown }).message;
+    return typeof m === 'string' ? m : String(m);
+  }
+  return String(e);
+}
+
 type Props = {
   id?: string;
   /** true quando aberto a partir do Início: esconde botões de ação (Google Calendar, etc.); apenas lista de confirmados e info. */
@@ -61,12 +70,13 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
         }
 
         const isClosed = ['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(data.status ?? '');
+        // v1.8.0: carregar todas as duplas gravadas (sem teto 3 duplas / 6 jogadores); resultados só com jogo fechado.
+        const [pairsData, resData] = await Promise.all([
+          PairsService.getByGame(gameId),
+          isClosed ? ResultsService.getByGame(gameId) : Promise.resolve([]),
+        ]);
+        setPairs(Array.isArray(pairsData) ? pairsData : []);
         if (isClosed) {
-          const [pairsData, resData] = await Promise.all([
-            PairsService.getByGame(gameId),
-            ResultsService.getByGame(gameId),
-          ]);
-          setPairs(Array.isArray(pairsData) ? pairsData : []);
           const resMap: Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }> = {};
           for (const r of resData ?? []) {
             const pid = (r as { pair_id?: string }).pair_id;
@@ -82,7 +92,6 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           }
           setResults(resMap);
         } else {
-          setPairs([]);
           setResults({});
         }
         try {
@@ -234,9 +243,13 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </div>
             )}
 
-            {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '') && pairs.length > 0 && (
+            {pairs.length > 0 && (
               <Card>
-                <h3 className="text-base font-semibold text-gray-900 mb-3">Duplas e resultado</h3>
+                <h3 className="text-base font-semibold text-gray-900 mb-3">
+                  {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '')
+                    ? 'Duplas e resultado'
+                    : 'Duplas'}
+                </h3>
                 <div className="space-y-4">
                   {pairs.map((pair: any, idx: number) => {
                     const pairId = pair?.id ?? '';
