@@ -5,12 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService, AvailabilitiesService, PairsService } from '../services';
 import { Calendar, MapPin, Users, CheckCircle, Lock, ArrowLeft } from 'lucide-react';
-import { getCategoryFromPhase } from '../domain/categoryTheme';
 import {
-  maxTeamsForCategory,
-  maxPlayersForCategory,
   emptyPairSlots,
   confirmedPairCountFromPlayers,
+  pairSlotsForConvocatory,
 } from '../domain/registrationLimits';
 
 /**
@@ -26,7 +24,7 @@ export function ConvocatoryManagementScreen() {
   const [selectedGame, setSelectedGame] = useState<any | null>(null);
   const [availablePlayers, setAvailablePlayers] = useState<any[]>([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
-  const [pairs, setPairs] = useState<Array<{ player1_id: string; player2_id: string }>>(() => emptyPairSlots(3));
+  const [pairs, setPairs] = useState<Array<{ player1_id: string; player2_id: string }>>(() => emptyPairSlots(2));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
@@ -43,7 +41,7 @@ export function ConvocatoryManagementScreen() {
     } else {
       setAvailablePlayers([]);
       setSelectedPlayerIds(new Set());
-      setPairs(emptyPairSlots(3));
+      setPairs(emptyPairSlots(2));
     }
   }, [selectedGame?.id]);
 
@@ -51,42 +49,37 @@ export function ConvocatoryManagementScreen() {
   const isLigaGame = selectedGame && ['Qualificação', 'Regionais', 'Nacionais'].includes(String(selectedGame.phase ?? ''));
   const minPlayers = isLigaGame ? 4 : 2;
   const requiredPairs = Math.floor(minPlayers / 2);
-  const convocatoryCategory = selectedGame ? getCategoryFromPhase(selectedGame.phase) : 'Liga';
-  const convocatoryMaxTeams = maxTeamsForCategory(convocatoryCategory);
-  const convocatoryMaxPlayers = maxPlayersForCategory(convocatoryCategory);
-
   useEffect(() => {
     if (!selectedGame) return;
-    const slots = maxTeamsForCategory(getCategoryFromPhase(selectedGame.phase));
+    const needed = pairSlotsForConvocatory(minPlayers, selectedPlayerIds.size);
     setPairs((prev) => {
-      if (prev.length === slots) return prev;
-      if (prev.length > slots) return prev.slice(0, slots);
-      return [...prev, ...emptyPairSlots(slots - prev.length)];
+      if (prev.length === needed) return prev;
+      if (prev.length > needed) return prev.slice(0, needed);
+      return [...prev, ...emptyPairSlots(needed - prev.length)];
     });
-  }, [selectedGame?.id, selectedGame?.phase]);
+  }, [selectedGame?.id, selectedGame?.phase, minPlayers, selectedPlayerIds.size]);
 
   /**
-   * Quando um número par de jogadores está selecionado (entre mínimo e máximo), calcula duplas por pontos (desc).
+   * Quando um número par de jogadores está selecionado (≥ mínimo), calcula duplas por pontos (desc).
    */
   useEffect(() => {
     if (!selectedGame || availablePlayers.length === 0) return;
-    const maxT = maxTeamsForCategory(getCategoryFromPhase(selectedGame.phase));
-    const maxP = maxT * 2;
     const n = selectedPlayerIds.size;
-    if (n < minPlayers || n % 2 !== 0 || n > maxP) return;
+    if (n < minPlayers || n % 2 !== 0) return;
     if (isLigaGame && n < 4) return;
+    const needed = pairSlotsForConvocatory(minPlayers, n);
     const ids = Array.from(selectedPlayerIds);
     const selected = ids
       .map((id) => availablePlayers.find((p: any) => p.id === id))
       .filter(Boolean) as any[];
     if (selected.length !== n) return;
     const byPoints = [...selected].sort((a, b) => (b.federation_points ?? 0) - (a.federation_points ?? 0));
-    const pairCount = Math.min(Math.floor(n / 2), maxT);
+    const pairCount = Math.floor(n / 2);
     const newPairs: Array<{ player1_id: string; player2_id: string }> = [];
     for (let i = 0; i < pairCount; i++) {
       newPairs.push({ player1_id: byPoints[i * 2].id, player2_id: byPoints[i * 2 + 1].id });
     }
-    while (newPairs.length < maxT) newPairs.push({ player1_id: '', player2_id: '' });
+    while (newPairs.length < needed) newPairs.push({ player1_id: '', player2_id: '' });
     setPairs(newPairs);
   }, [selectedPlayerIds, availablePlayers, isLigaGame, minPlayers, selectedGame?.id, selectedGame?.phase]);
 
@@ -129,9 +122,8 @@ export function ConvocatoryManagementScreen() {
   const togglePlayer = (id: string) => {
     setSelectedPlayerIds((prev) => {
       const next = new Set(prev);
-      const maxSel = selectedGame ? maxPlayersForCategory(getCategoryFromPhase(selectedGame.phase)) : 6;
       if (next.has(id)) next.delete(id);
-      else if (next.size < maxSel) next.add(id);
+      else next.add(id);
       return next;
     });
   };
@@ -222,8 +214,8 @@ export function ConvocatoryManagementScreen() {
             Jogos em Aberto
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Liga: até 3 duplas (6 jogadores). Torneio, Mix e Treino: até 10 duplas (20 jogadores). Mínimo: Liga 4 jogadores;
-            outros 2. Ao confirmar, a convocatória é fechada.
+            Liga: mínimo 4 jogadores; Torneio, Mix e Treino: mínimo 2. Sem limite máximo de inscritos — o quadro ajusta-se à seleção. Ao
+            confirmar, a convocatória é fechada.
           </p>
 
           {openGames.length === 0 ? (
@@ -265,9 +257,12 @@ export function ConvocatoryManagementScreen() {
             </h3>
 
             <p className="text-xs text-gray-600 mb-2">
-              Limite: até {convocatoryMaxTeams} duplas ({convocatoryMaxPlayers} jogadores). Inscritos:{' '}
-              {confirmedPairCountFromPlayers(availablePlayers.length)} / {convocatoryMaxTeams} duplas · {availablePlayers.length}{' '}
-              confirmados.
+              Inscritos:{' '}
+              {confirmedPairCountFromPlayers(availablePlayers.length) === 1
+                ? '1 dupla inscrita'
+                : `${confirmedPairCountFromPlayers(availablePlayers.length)} duplas inscritas`}{' '}
+              · {availablePlayers.length} jogador{availablePlayers.length !== 1 ? 'es' : ''} confirmado
+              {availablePlayers.length !== 1 ? 's' : ''}.
             </p>
             {availablePlayers.length < minPlayers ? (
               <p className="text-sm text-amber-700 mb-4">
@@ -276,8 +271,8 @@ export function ConvocatoryManagementScreen() {
             ) : (
               <p className="text-sm text-gray-600 mb-4">
                 {isLigaGame
-                  ? `Seleciona 4 ou 6 jogadores (máx. ${convocatoryMaxPlayers}, clica para selecionar).`
-                  : `Seleciona um número par entre ${minPlayers} e ${convocatoryMaxPlayers} (clica para selecionar).`}
+                  ? `Seleciona um número par de jogadores (mínimo 4; sem limite máximo — clica para selecionar).`
+                  : `Seleciona um número par (mínimo ${minPlayers}; sem limite máximo — clica para selecionar).`}
               </p>
             )}
 
@@ -304,8 +299,8 @@ export function ConvocatoryManagementScreen() {
                 <div className="mb-6 rounded-xl border-2 border-blue-200 bg-blue-50/50 p-4">
                   <h4 className="text-base font-semibold text-gray-900 mb-1">Quadro de Duplas</h4>
                   <p className="text-xs text-gray-600 mb-4">
-                    Calculado automaticamente por pontos: 1.ª dupla maior soma · última menor soma (até {convocatoryMaxTeams}{' '}
-                    duplas).
+                    Calculado automaticamente por pontos: 1.ª dupla maior soma · última menor soma. O número de linhas segue os jogadores
+                    selecionados.
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {sortedPairsForDisplay.map((ed, idx) => {

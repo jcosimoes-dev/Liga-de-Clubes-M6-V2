@@ -111,6 +111,8 @@ export const AvailabilitiesService = {
    * Upsert disponibilidade: cria ou atualiza por game_id + player_id.
    * player_id deve ser o UUID da tabela players (não user_id/auth).
    * onConflict deve coincidir com o índice único da BD: player_id, game_id.
+   *
+   * Sem validação de limite de inscritos no cliente — envio directo ao Supabase (gestão manual na coordenação).
    */
   async upsert(availability: { game_id: string; player_id: string; status: string }) {
     const game_id = String(availability.game_id ?? '').trim();

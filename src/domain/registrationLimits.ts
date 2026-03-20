@@ -23,3 +23,13 @@ export function registrationLimitReachedMessage(maxTeams: number): string {
 export function emptyPairSlots(count: number): Array<{ player1_id: string; player2_id: string }> {
   return Array.from({ length: count }, () => ({ player1_id: '', player2_id: '' }));
 }
+
+/**
+ * Número de linhas no quadro de duplas na gestão de convocatórias.
+ * Sem teto por categoria: cresce com os jogadores selecionados (coordenação gere manualmente).
+ */
+export function pairSlotsForConvocatory(minPlayers: number, selectedPlayerCount: number): number {
+  const minSlots = Math.ceil(minPlayers / 2);
+  const fromSelection = Math.ceil(selectedPlayerCount / 2);
+  return Math.max(minSlots, fromSelection);
+}

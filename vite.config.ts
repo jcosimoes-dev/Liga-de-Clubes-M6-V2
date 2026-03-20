@@ -25,8 +25,19 @@ function vitePluginSpaFallback() {
   };
 }
 
+const VITE_BUILD_STAMP = String(Date.now());
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        // [timestamp] não é placeholder Rollup; carimbo por build invalida cache (Vercel / PWA).
+        chunkFileNames: `assets/[name]-[hash]-${VITE_BUILD_STAMP}.js`,
+        entryFileNames: `assets/[name]-[hash]-${VITE_BUILD_STAMP}.js`,
+      },
+    },
+  },
   plugins: [
     react(),
     vitePluginSpaFallback(),
