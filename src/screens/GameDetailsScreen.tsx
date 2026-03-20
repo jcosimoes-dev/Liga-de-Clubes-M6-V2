@@ -1,21 +1,27 @@
 /**
- * GameDetailsScreen — v1.8.0
- * - Sem limite de 6 jogadores (ou outro teto) neste ecrã: lista de confirmados e duplas é só informativa.
- * - Nomes de contexto (jornada / fase / torneio) alinhados ao calendário para o título do evento.
+ * GameDetailsScreen — v2.0 FIX
+ * Lista todas as duplas devolvidas pelo Supabase (4, 8, 10+ jogadores) — sem truncar a 3 duplas / 6 jogadores.
+ * Resultados de sets só quando o jogo está fechado; pares carregam sempre que existirem.
  */
 import { useEffect, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
 import { Card, Button, Header, Loading, Toast, ToastType, Badge } from '../components/ui';
-import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
 import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
-import {
-  confirmedPairCountFromPlayers,
-} from '../domain/registrationLimits';
+import { confirmedPairCountFromPlayers } from '../domain/registrationLimits';
 import { buildGoogleCalendarUrl } from '../lib/shareLinks';
+
+type ResultRow = {
+  set1_casa: number;
+  set1_fora: number;
+  set2_casa: number;
+  set2_fora: number;
+  set3_casa: number | null;
+  set3_fora: number | null;
+};
 
 function getErrorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
@@ -26,15 +32,19 @@ function getErrorMessage(e: unknown): string {
   return String(e);
 }
 
+const CLOSED_STATUSES: readonly string[] = ['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'];
+
+function isGameClosed(status: string | null | undefined): boolean {
+  return CLOSED_STATUSES.includes(status ?? '');
+}
+
 type Props = {
   id?: string;
-  /** true quando aberto a partir do Início: esconde botões de ação (Google Calendar, etc.); apenas lista de confirmados e info. */
   viewOnly?: boolean;
 };
 
 export function GameDetailsScreen({ id, viewOnly }: Props) {
   const { goBack, navigate } = useNavigation();
-  const { user } = useAuth();
   const gameId = id && String(id).trim() ? String(id).trim() : null;
 
   const handleBack = () => (viewOnly ? navigate({ name: 'home' }) : goBack());
@@ -43,7 +53,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
   const [game, setGame] = useState<any>(null);
   const [pairs, setPairs] = useState<any[]>([]);
   const [confirmedPlayers, setConfirmedPlayers] = useState<any[]>([]);
-  const [results, setResults] = useState<Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }>>({});
+  const [results, setResults] = useState<Record<string, ResultRow>>({});
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
@@ -58,7 +68,8 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
     const run = async () => {
       setLoading(true);
       try {
-        const gamesCols = 'id, status, opponent, starts_at, end_date, location, phase, round_number, team_points';
+        const gamesCols =
+          'id, status, opponent, starts_at, end_date, location, phase, round_number, team_points';
         const { data, error } = await supabase.from('games').select(gamesCols).eq('id', gameId).maybeSingle();
 
         if (error) throw error;
@@ -69,18 +80,19 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           return;
         }
 
-        const isClosed = ['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(data.status ?? '');
-        // v1.8.0: carregar todas as duplas gravadas (sem teto 3 duplas / 6 jogadores); resultados só com jogo fechado.
+        const closed = isGameClosed(data.status);
         const [pairsData, resData] = await Promise.all([
           PairsService.getByGame(gameId),
-          isClosed ? ResultsService.getByGame(gameId) : Promise.resolve([]),
+          closed ? ResultsService.getByGame(gameId) : Promise.resolve([]),
         ]);
+
         setPairs(Array.isArray(pairsData) ? pairsData : []);
-        if (isClosed) {
-          const resMap: Record<string, { set1_casa: number; set1_fora: number; set2_casa: number; set2_fora: number; set3_casa: number | null; set3_fora: number | null }> = {};
+
+        if (closed) {
+          const resMap: Record<string, ResultRow> = {};
           for (const r of resData ?? []) {
             const pid = (r as { pair_id?: string }).pair_id;
-            if (pid)
+            if (pid) {
               resMap[pid] = {
                 set1_casa: (r as any).set1_casa ?? 0,
                 set1_fora: (r as any).set1_fora ?? 0,
@@ -89,11 +101,13 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                 set3_casa: (r as any).set3_casa ?? null,
                 set3_fora: (r as any).set3_fora ?? null,
               };
+            }
           }
           setResults(resMap);
         } else {
           setResults({});
         }
+
         try {
           const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
           setConfirmedPlayers(Array.isArray(players) ? players : []);
@@ -112,16 +126,19 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
-  const gameTitle = game ? (GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo') : 'Jogo';
-  /** Jornada · fase (ex.: torneios, eliminatórias) — mesma lógica visual que o cartão no Calendário. */
+  const gameTitle = game ? GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo' : 'Jogo';
+
   const roundPhaseSubtitle = game
     ? (() => {
         const label = `${GamesService.formatRoundName(game.round_number, game.phase)} · ${game.phase ?? ''}`;
         return label.replace(/^Final\s*·\s*/i, '').trim() || String(game.phase ?? '').trim() || '';
       })()
     : '';
+
   const startsAt = game?.starts_at ? new Date(game.starts_at) : null;
-  const dateStr = startsAt ? startsAt.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const dateStr = startsAt
+    ? startsAt.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+    : '—';
   const timeStr = startsAt ? startsAt.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : '—';
 
   const hasResults = Object.keys(results).length > 0;
@@ -156,20 +173,15 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           </Card>
         ) : (
           <>
-            {/* Card principal do evento: barra lateral colorida, gradiente subtil, ícones com cor, badge success para aberta */}
             <Card padding="none" className="overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-white to-gray-50/30">
               <div className="flex min-h-[1px]">
                 <div className="w-1 shrink-0 bg-emerald-500 rounded-l-2xl" aria-hidden />
                 <div className="flex-1 p-4 space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
-                        {gameTitle}
-                      </h2>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">{gameTitle}</h2>
                       {roundPhaseSubtitle ? (
-                        <p className="mt-1.5 text-sm font-medium text-[#1A237E]/90 leading-snug">
-                          {roundPhaseSubtitle}
-                        </p>
+                        <p className="mt-1.5 text-sm font-medium text-[#1A237E]/90 leading-snug">{roundPhaseSubtitle}</p>
                       ) : null}
                     </div>
                     {game.status ? (
@@ -191,7 +203,11 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                             </span>
                           );
                         }
-                        return <Badge variant="default" className="shrink-0">{statusStr}</Badge>;
+                        return (
+                          <Badge variant="default" className="shrink-0">
+                            {statusStr}
+                          </Badge>
+                        );
                       })()
                     ) : null}
                   </div>
@@ -213,7 +229,6 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </div>
             </Card>
 
-            {/* Botões de ação (Google Calendar, etc.): só quando showActions (não view-only). Conteúdo principal acima e abaixo é SEMPRE renderizado. */}
             {showActions && showGoogleCalendar && (
               <div className="mt-6">
                 <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
@@ -246,14 +261,12 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
             {pairs.length > 0 && (
               <Card>
                 <h3 className="text-base font-semibold text-gray-900 mb-3">
-                  {['convocatoria_fechada', 'closed', 'concluido', 'completed', 'final'].includes(game.status ?? '')
-                    ? 'Duplas e resultado'
-                    : 'Duplas'}
+                  {isGameClosed(game.status) ? 'Duplas e resultado' : 'Duplas'}
                 </h3>
                 <div className="space-y-4">
                   {pairs.map((pair: any, idx: number) => {
-                    const pairId = pair?.id ?? '';
-                    const res = results[pairId];
+                    const pairId = pair?.id ?? `idx-${idx}`;
+                    const res = results[pairId as string];
                     const p1 = pair.player1?.name ?? '—';
                     const p2 = pair.player2?.name ?? '—';
                     let setsStr = '—';
@@ -261,7 +274,8 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                     if (res && (res.set1_casa != null || res.set1_fora != null)) {
                       const s1 = `${res.set1_casa ?? 0}-${res.set1_fora ?? 0}`;
                       const s2 = `${res.set2_casa ?? 0}-${res.set2_fora ?? 0}`;
-                      const s3 = res.set3_casa != null && res.set3_fora != null ? `${res.set3_casa}-${res.set3_fora}` : null;
+                      const s3 =
+                        res.set3_casa != null && res.set3_fora != null ? `${res.set3_casa}-${res.set3_fora}` : null;
                       setsStr = s3 ? `${s1}, ${s2}, ${s3}` : `${s1}, ${s2}`;
                       let setsWon = 0;
                       let setsLost = 0;
@@ -282,30 +296,31 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                           <span className="font-medium text-gray-900">
                             Dupla {idx + 1}: {p1} + {p2}
                           </span>
-                          {outcome && (
+                          {outcome ? (
                             <Badge variant={outcome === 'Vitória' ? 'success' : 'danger'} size="sm">
                               {outcome}
                             </Badge>
-                          )}
+                          ) : null}
                         </div>
-                        {setsStr !== '—' && <p className="text-sm text-gray-600 mt-1">Sets: {setsStr}</p>}
+                        {setsStr !== '—' ? <p className="text-sm text-gray-600 mt-1">Sets: {setsStr}</p> : null}
                       </div>
                     );
                   })}
                 </div>
-                {game.team_points != null && (
+                {game.team_points != null ? (
                   <p className="text-sm text-gray-600 mt-3">
-                    <strong>Resultado da equipa:</strong> {game.team_points} {game.team_points === 1 ? 'ponto' : 'pontos'} (jogo)
+                    <strong>Resultado da equipa:</strong> {game.team_points}{' '}
+                    {game.team_points === 1 ? 'ponto' : 'pontos'} (jogo)
                   </p>
-                )}
+                ) : null}
               </Card>
             )}
 
-            {/* v1.8.0: listagem completa de confirmados — sem truncar a 6 jogadores nem a 3 duplas. */}
             {confirmedPlayers.length > 0 && (
               <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
                 <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
-                  🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado{confirmedPlayers.length !== 1 ? 's' : ''}
+                  🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado
+                  {confirmedPlayers.length !== 1 ? 's' : ''}
                   <span className="block mt-1 text-xs font-medium text-gray-600">
                     {(() => {
                       const n = confirmedPairCountFromPlayers(confirmedPlayers.length);
@@ -321,13 +336,14 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {confirmedPlayers.map((p: any, idx: number) => {
                     const name = p.name ?? '—';
-                    const initials = name
-                      .split(/\s+/)
-                      .map((s: string) => s[0])
-                      .filter(Boolean)
-                      .slice(0, 2)
-                      .join('')
-                      .toUpperCase() || '?';
+                    const initials =
+                      name
+                        .split(/\s+/)
+                        .map((s: string) => s[0])
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .join('')
+                        .toUpperCase() || '?';
                     const hue = (idx * 137) % 360;
                     const bgColor = `hsl(${hue}, 55%, 45%)`;
                     return (
@@ -344,9 +360,9 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                         </div>
                         <div className="min-w-0 flex-1">
                           <span className="font-medium text-gray-900 text-sm block truncate">{name}</span>
-                          {p.federation_points != null && (
+                          {p.federation_points != null ? (
                             <span className="text-[10px] text-gray-400">{p.federation_points} pts</span>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -355,9 +371,6 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </Card>
             )}
 
-            {/* Registo de resultados: fazer na Gestão de Jogos (aba Convocatórias) — card "Registo de Resultado". */}
-
-            {/* Botão Voltar (outline) no fundo */}
             <div className="pt-2">
               <Button variant="outline" fullWidth onClick={handleBack} className="inline-flex items-center justify-center gap-2 py-3">
                 <ArrowLeft className="w-4 h-4" />
@@ -367,7 +380,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           </>
         )}
 
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        {toast ? <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} /> : null}
       </div>
     </Layout>
   );
