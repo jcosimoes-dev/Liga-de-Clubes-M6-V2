@@ -214,6 +214,14 @@ export function buildWhatsAppDuplaConvocationUrl(
 }
 
 /**
+ * Abre o WhatsApp na mesma janela (navegação completa).
+ * Não usar `window.open(url, '_blank')` para wa.me — deixa um separador vazio ao voltar com «Atrás» para a convocatória.
+ */
+export function openWhatsAppUrl(url: string): void {
+  window.location.href = url;
+}
+
+/**
  * Gera o URL do Google Calendar para criar um evento.
  * Base: https://calendar.google.com/calendar/render (obrigatório para abrir o formulário de evento).
  * O parâmetro dates tem de estar presente e correto; caso contrário o Google pode redirecionar para a página do Workspace.

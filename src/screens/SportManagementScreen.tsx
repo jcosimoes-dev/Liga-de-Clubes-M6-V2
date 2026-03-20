@@ -16,7 +16,14 @@ import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStats
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle, TrendingUp, Settings, ClipboardList, ClipboardCheck } from 'lucide-react';
-import { buildWhatsAppShareUrl, buildWhatsAppConvocationUrl, buildWhatsAppDuplaConvocationUrl, buildGoogleCalendarUrl, getAppGameUrl } from '../lib/shareLinks';
+import {
+  buildWhatsAppShareUrl,
+  buildWhatsAppConvocationUrl,
+  buildWhatsAppDuplaConvocationUrl,
+  buildGoogleCalendarUrl,
+  getAppGameUrl,
+  openWhatsAppUrl,
+} from '../lib/shareLinks';
 import type { GameShareInfo } from '../lib/shareLinks';
 import { sendConvocationEmail } from '../services/emailService';
 
@@ -1579,7 +1586,7 @@ export function SportManagementScreen() {
                     e.preventDefault();
                     e.stopPropagation();
                     const url = buildWhatsAppConvocationUrl(convocationShareInfo.gameInfo);
-                    window.open(url, '_blank', 'noreferrer');
+                    openWhatsAppUrl(url);
                   }}
                   className="bg-green-600 hover:bg-green-700 text-white border-0 inline-flex items-center gap-2"
                 >
@@ -1685,7 +1692,7 @@ export function SportManagementScreen() {
                             location: game.location || '',
                             gameId: game.id,
                           });
-                          window.open(url, '_blank', 'noreferrer');
+                          openWhatsAppUrl(url);
                         }}
                         className="p-1.5 rounded-lg bg-white/90 hover:bg-green-100 text-gray-600 hover:text-green-700 transition-colors shadow-sm"
                         aria-label="Partilhar no WhatsApp"
@@ -1923,7 +1930,7 @@ export function SportManagementScreen() {
                                         e.stopPropagation();
                                         const url = buildWhatsAppDuplaConvocationUrl(gameInfoDupla, pl1.name ?? 'Jogador', duplaShort, pl1.phone);
                                         setSentConvocationWhatsAppIds((prev) => new Set(prev).add(pl1.id));
-                                        setTimeout(() => window.open(url, '_blank', 'noreferrer'), 0);
+                                        setTimeout(() => openWhatsAppUrl(url), 0);
                                       }}
                                       disabled={sent1}
                                       className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-colors ${
@@ -1962,7 +1969,7 @@ export function SportManagementScreen() {
                                         e.stopPropagation();
                                         const url = buildWhatsAppDuplaConvocationUrl(gameInfoDupla, pl2.name ?? 'Jogador', duplaShort, pl2.phone);
                                         setSentConvocationWhatsAppIds((prev) => new Set(prev).add(pl2.id));
-                                        setTimeout(() => window.open(url, '_blank', 'noreferrer'), 0);
+                                        setTimeout(() => openWhatsAppUrl(url), 0);
                                       }}
                                       disabled={sent2}
                                       className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 transition-colors ${
@@ -2311,7 +2318,7 @@ export function SportManagementScreen() {
                             location: game.location || '',
                             gameId: game.id,
                           });
-                          window.open(url, '_blank', 'noreferrer');
+                          openWhatsAppUrl(url);
                         }}
                         className="p-1.5 rounded-lg bg-white/90 hover:bg-green-100 text-gray-600 hover:text-green-700 transition-colors shadow-sm"
                         aria-label="Partilhar no WhatsApp"

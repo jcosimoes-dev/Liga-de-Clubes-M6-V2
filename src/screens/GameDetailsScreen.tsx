@@ -4,6 +4,7 @@
  * Resultados de sets só quando o jogo está fechado; pares carregam sempre que existirem.
  */
 import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card, Button, Header, Loading, Toast, ToastType, Badge } from '../components/ui';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -43,9 +44,17 @@ type Props = {
   viewOnly?: boolean;
 };
 
+function normalizeGameId(propId?: string, routeParam?: string): string | null {
+  const a = propId != null ? String(propId).trim() : '';
+  const b = routeParam != null ? String(routeParam).trim() : '';
+  const v = a || b;
+  return v ? v : null;
+}
+
 export function GameDetailsScreen({ id, viewOnly }: Props) {
   const { goBack, navigate } = useNavigation();
-  const gameId = id && String(id).trim() ? String(id).trim() : null;
+  const { id: idFromPath } = useParams<{ id: string }>();
+  const gameId = normalizeGameId(id, idFromPath);
 
   const handleBack = () => (viewOnly ? navigate({ name: 'home' }) : goBack());
 
@@ -81,16 +90,26 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
         }
 
         const closed = isGameClosed(data.status);
-        const [pairsData, resData] = await Promise.all([
-          PairsService.getByGame(gameId),
-          closed ? ResultsService.getByGame(gameId) : Promise.resolve([]),
-        ]);
 
-        setPairs(Array.isArray(pairsData) ? pairsData : []);
+        // Nunca deixar falhas em duplas/resultados/confirmados impedirem o cartão principal do jogo (RLS ou rede).
+        let pairsData: any[] = [];
+        try {
+          const raw = await PairsService.getByGame(gameId);
+          pairsData = Array.isArray(raw) ? raw : [];
+        } catch (pe) {
+          console.warn('[GameDetailsScreen] PairsService.getByGame:', pe);
+        }
+        setPairs(pairsData);
 
         if (closed) {
+          let resRows: any[] = [];
+          try {
+            resRows = await ResultsService.getByGame(gameId);
+          } catch (re) {
+            console.warn('[GameDetailsScreen] ResultsService.getByGame:', re);
+          }
           const resMap: Record<string, ResultRow> = {};
-          for (const r of resData ?? []) {
+          for (const r of resRows ?? []) {
             const pid = (r as { pair_id?: string }).pair_id;
             if (pid) {
               resMap[pid] = {
@@ -111,12 +130,17 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
         try {
           const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
           setConfirmedPlayers(Array.isArray(players) ? players : []);
-        } catch {
+        } catch (ce) {
+          console.warn('[GameDetailsScreen] getConfirmedPlayers:', ce);
           setConfirmedPlayers([]);
         }
       } catch (e) {
         console.error('[GameDetailsScreen] Erro ao carregar:', e);
         showToast(getErrorMessage(e), 'error');
+        setGame(null);
+        setPairs([]);
+        setResults({});
+        setConfirmedPlayers([]);
       } finally {
         setLoading(false);
       }
@@ -130,7 +154,8 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
 
   const roundPhaseSubtitle = game
     ? (() => {
-        const label = `${GamesService.formatRoundName(game.round_number, game.phase)} · ${game.phase ?? ''}`;
+        const rn = Number(game.round_number);
+        const label = `${GamesService.formatRoundName(Number.isFinite(rn) ? rn : 0, game.phase)} · ${game.phase ?? ''}`;
         return label.replace(/^Final\s*·\s*/i, '').trim() || String(game.phase ?? '').trim() || '';
       })()
     : '';
@@ -142,7 +167,9 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
   const timeStr = startsAt ? startsAt.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : '—';
 
   const hasResults = Object.keys(results).length > 0;
-  const showGoogleCalendar = !!game?.starts_at && !hasResults;
+  /** Só ações “extra”: calendário não faz sentido com jogo já fechado/concluído. Conteúdo principal não depende disto. */
+  const showGoogleCalendar =
+    !!game?.starts_at && !hasResults && game != null && !isGameClosed(game.status);
   const showActions = !viewOnly;
 
   if (loading) {
@@ -316,23 +343,32 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </Card>
             )}
 
-            {confirmedPlayers.length > 0 && (
-              <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
-                <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
-                  🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado
-                  {confirmedPlayers.length !== 1 ? 's' : ''}
-                  <span className="block mt-1 text-xs font-medium text-gray-600">
-                    {(() => {
-                      const n = confirmedPairCountFromPlayers(confirmedPlayers.length);
-                      return n === 1 ? '1 dupla inscrita' : `${n} duplas inscritas`;
-                    })()}
-                  </span>
-                </p>
-                <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-gray-600" aria-hidden />
-                  Quem confirmou disponibilidade
-                </h3>
-                <p className="text-sm text-gray-600 mb-4">Jogadores que disseram que podiam jogar nesta jornada.</p>
+            {/* Sempre mostrar secção de confirmados (conv. fechada / concluído incl.): lista pode estar vazia por RLS. */}
+            <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
+              <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
+                {confirmedPlayers.length > 0 ? (
+                  <>
+                    🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado
+                    {confirmedPlayers.length !== 1 ? 's' : ''}
+                    <span className="block mt-1 text-xs font-medium text-gray-600">
+                      {(() => {
+                        const n = confirmedPairCountFromPlayers(confirmedPlayers.length);
+                        return n === 1 ? '1 dupla inscrita' : `${n} duplas inscritas`;
+                      })()}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-gray-700">Confirmados neste jogo</span>
+                )}
+              </p>
+              <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Users className="w-4 h-4 text-gray-600" aria-hidden />
+                Quem confirmou disponibilidade
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Jogadores que confirmaram presença nesta jornada (ou duplas fechadas — a lista depende das permissões).
+              </p>
+              {confirmedPlayers.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {confirmedPlayers.map((p: any, idx: number) => {
                     const name = p.name ?? '—';
@@ -368,8 +404,13 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                     );
                   })}
                 </div>
-              </Card>
-            )}
+              ) : (
+                <p className="text-sm text-gray-500 py-2">
+                  Sem jogadores listados aqui. Se a convocatória estiver fechada, vê as <strong>duplas</strong> acima; a
+                  lista de confirmados pode estar limitada por permissões.
+                </p>
+              )}
+            </Card>
 
             <div className="pt-2">
               <Button variant="outline" fullWidth onClick={handleBack} className="inline-flex items-center justify-center gap-2 py-3">

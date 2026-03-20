@@ -9,6 +9,7 @@ import { UserPlus, ShieldCheck, Key, Lock, X, Loader2, ChevronDown, Search, Phon
 import type { Database } from '../lib/database.types';
 import { PlayerRoles, validateRole, type PlayerRole } from '../domain/constants';
 import { formatPhoneForWhatsApp, normalizePhoneForDb } from '../lib/phone';
+import { openWhatsAppUrl } from '../lib/shareLinks';
 
 type Player = Database['public']['Tables']['players']['Row'];
 
@@ -484,12 +485,10 @@ export function AdminScreen() {
                 const { playerName, phone, password } = resetModalData;
                 const waNum = formatPhoneForWhatsApp(phone);
                 if (waNum) {
-                  window.open(
+                  openWhatsAppUrl(
                     `https://wa.me/${waNum}?text=${encodeURIComponent(
                       `Olá ${playerName}, a tua password foi redefinida para: ${password}. Já podes entrar!`
-                    )}`,
-                    '_blank',
-                    'noopener,noreferrer'
+                    )}`
                   );
                 }
                 setResetModalData(null);
@@ -507,12 +506,10 @@ export function AdminScreen() {
                       const { playerName, phone, password } = resetModalData;
                       const waNum = formatPhoneForWhatsApp(phone);
                       if (waNum) {
-                        window.open(
+                        openWhatsAppUrl(
                           `https://wa.me/${waNum}?text=${encodeURIComponent(
                             `Olá ${playerName}, a tua password foi redefinida para: ${password}. Já podes entrar!`
-                          )}`,
-                          '_blank',
-                          'noopener,noreferrer'
+                          )}`
                         );
                       }
                       setResetModalData(null);
@@ -533,12 +530,10 @@ export function AdminScreen() {
                     onClick={() => {
                       const waNum = formatPhoneForWhatsApp(resetModalData.phone);
                       if (waNum) {
-                        window.open(
+                        openWhatsAppUrl(
                           `https://wa.me/${waNum}?text=${encodeURIComponent(
                             `Olá ${resetModalData.playerName}, a tua password foi redefinida para: ${resetModalData.password}. Já podes entrar!`
-                          )}`,
-                          '_blank',
-                          'noopener,noreferrer'
+                          )}`
                         );
                       }
                       setResetModalData(null);
