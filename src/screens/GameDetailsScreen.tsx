@@ -1,9 +1,10 @@
 /**
  * GameDetailsScreen — v2.0 FIX
- * Lista todas as duplas devolvidas pelo Supabase (4, 8, 10+ jogadores) — sem truncar a 3 duplas / 6 jogadores.
- * Resultados de sets só quando o jogo está fechado; pares carregam sempre que existirem.
+ * Sem verificação de role aqui: qualquer utilizador autenticado vê título, data, local, duplas (se houver) e confirmados.
+ * (Editar / fechar convocatória / resultados ficam na Gestão Desportiva com permissões próprias.)
+ * Lista todas as duplas devolvidas pelo Supabase; resultados de sets com jogo fechado.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card, Button, Header, Loading, Toast, ToastType, Badge } from '../components/ui';
@@ -51,10 +52,18 @@ function normalizeGameId(propId?: string, routeParam?: string): string | null {
   return v ? v : null;
 }
 
+/** Fallback se props/React Router não trouxerem o id (ex.: hash "#/jogos/uuid"). */
+function gameIdFromWindowHash(): string | null {
+  if (typeof window === 'undefined') return null;
+  const inner = (window.location.hash || '').replace(/^#/, '').split('?')[0];
+  const m = inner.match(/(?:^|\/)jogos\/([^/?#]+)/i);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export function GameDetailsScreen({ id, viewOnly }: Props) {
   const { goBack, navigate } = useNavigation();
   const { id: idFromPath } = useParams<{ id: string }>();
-  const gameId = normalizeGameId(id, idFromPath);
+  const gameId = normalizeGameId(id, idFromPath || gameIdFromWindowHash());
 
   const handleBack = () => (viewOnly ? navigate({ name: 'home' }) : goBack());
 
@@ -167,10 +176,27 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
   const timeStr = startsAt ? startsAt.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : '—';
 
   const hasResults = Object.keys(results).length > 0;
-  /** Só ações “extra”: calendário não faz sentido com jogo já fechado/concluído. Conteúdo principal não depende disto. */
+  /** Só ações “extra”: calendário não faz sentido com jogo já fechado/concluído. */
   const showGoogleCalendar =
     !!game?.starts_at && !hasResults && game != null && !isGameClosed(game.status);
   const showActions = !viewOnly;
+
+  const googleCalendarHref = useMemo(() => {
+    if (!showActions || !showGoogleCalendar || !game) return '';
+    try {
+      return buildGoogleCalendarUrl({
+        gameType: getCategoryFromPhase(game.phase),
+        opponentOrName: gameTitle,
+        startsAt: game.starts_at,
+        endDate: (game as { end_date?: string | null }).end_date ?? undefined,
+        location: game.location || '',
+        gameId: game.id,
+      });
+    } catch (e) {
+      console.warn('[GameDetailsScreen] buildGoogleCalendarUrl:', e);
+      return '';
+    }
+  }, [showActions, showGoogleCalendar, game, gameTitle]);
 
   if (loading) {
     return (
@@ -256,18 +282,11 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </div>
             </Card>
 
-            {showActions && showGoogleCalendar && (
+            {googleCalendarHref ? (
               <div className="mt-6">
                 <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
                 <a
-                  href={buildGoogleCalendarUrl({
-                    gameType: getCategoryFromPhase(game.phase),
-                    opponentOrName: gameTitle,
-                    startsAt: game.starts_at,
-                    endDate: (game as { end_date?: string | null }).end_date ?? undefined,
-                    location: game.location || '',
-                    gameId: game.id,
-                  })}
+                  href={googleCalendarHref}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full flex items-center justify-center gap-3 py-4 px-5 bg-white border-2 border-gray-200 rounded-xl shadow-md hover:shadow-lg hover:border-blue-200 transition-all text-gray-800 hover:bg-blue-50/50 font-semibold text-base no-underline"
@@ -283,7 +302,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                   <span>Adicionar ao meu Google Calendar</span>
                 </a>
               </div>
-            )}
+            ) : null}
 
             {pairs.length > 0 && (
               <Card>

@@ -17,6 +17,26 @@ type NavigationContextType = {
 
 const NavigationContext = createContext<NavigationContextType | null>(null);
 
+/**
+ * Com HashRouter, `location.pathname` é normalmente correcto; em alguns casos fica só "/"
+ * e a rota real existe apenas no hash (ex.: "#/jogos/<uuid>"), o que fazia o ecrã de detalhes
+ * montar sem `id` (branco para jogadores).
+ */
+function routingPathname(location: { pathname: string; hash?: string }): string {
+  let p = (location.pathname ?? '/').replace(/\/+$/, '') || '/';
+  const rawHash =
+    (typeof location.hash === 'string' && location.hash.length > 0
+      ? location.hash
+      : typeof window !== 'undefined'
+        ? window.location.hash
+        : '') || '';
+  const inner = rawHash.replace(/^#/, '').split('?')[0].replace(/\/+$/, '') || '';
+  if (inner && (p === '/' || p === '')) {
+    return inner.startsWith('/') ? inner : `/${inner}`;
+  }
+  return p;
+}
+
 /** Mapeamento pathname → rota (rota /gestao tratada apenas pelo router da SPA). */
 function pathnameToRoute(pathname: string, initialRouteName: string): RouteEntry {
   const p = (pathname ?? '/').replace(/\/+$/, '') || '/';
@@ -80,11 +100,9 @@ export function NavigationProvider({
 }) {
   const location = useLocation();
   const routerNavigate = useNavigate();
-  const pathname = location.pathname ?? '/';
+  const pathname = routingPathname(location);
 
-  const [route, setRoute] = useState<RouteEntry>(() =>
-    pathnameToRoute(pathname, initialRouteName)
-  );
+  const [route, setRoute] = useState<RouteEntry>(() => pathnameToRoute(pathname, initialRouteName));
 
   const { role, session, user, mustChangePassword, player, canManageSport, loading: authLoading } = useAuth();
   const isAdmin = (role || '').trim() === PlayerRoles.admin;
@@ -96,10 +114,10 @@ export function NavigationProvider({
   /** Não redirecionar da rota Admin enquanto o perfil ainda está a carregar (evita bloquear admin por cache/race). */
   const waitForAuthBeforeAdminCheck = route.name === 'admin' && authLoading;
 
-  // Sincronizar estado da rota com o pathname do router (ex.: botão voltar do browser).
+  // Sincronizar estado da rota com pathname + hash (HashRouter / voltar do browser).
   useEffect(() => {
     setRoute(pathnameToRoute(pathname, initialRouteName));
-  }, [pathname, initialRouteName]);
+  }, [pathname, location.hash, initialRouteName]);
 
   // Sem sessão: forçar login e URL raiz (router controla; sem replaceState directo).
   useLayoutEffect(() => {
@@ -117,7 +135,12 @@ export function NavigationProvider({
     }
     if (isAdmin) return;
     if (player && player.profile_completed === false) {
-      if (route.name !== 'complete-profile' && !PUBLIC_ROUTES.includes(route.name)) {
+      // Detalhes do jogo: qualquer utilizador autenticado pode ver (não redireccionar para o perfil).
+      if (
+        route.name !== 'complete-profile' &&
+        route.name !== 'game' &&
+        !PUBLIC_ROUTES.includes(route.name)
+      ) {
         setRoute({ name: 'complete-profile' });
         routerNavigate('/complete-profile', { replace: true });
       }
