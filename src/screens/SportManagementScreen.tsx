@@ -675,8 +675,13 @@ export function SportManagementScreen() {
         });
       }
       await GamesService.complete(game.id);
-      await syncPlayerPoints(player?.team_id ?? game?.team_id ?? undefined);
-      showToast('Resultados guardados. Pontos atualizados (10 vitória / 3 derrota).', 'success');
+      const isLigaGame = getCategoryFromPhase((game as { phase?: string | null }).phase) === 'Liga';
+      if (isLigaGame) {
+        await syncPlayerPoints(player?.team_id ?? game?.team_id ?? undefined);
+        showToast('Resultados guardados. Pontos da Liga atualizados (10 vitória / 3 derrota).', 'success');
+      } else {
+        showToast('Resultados guardados. Este tipo de jogo não altera o ranking / pontos da Liga.', 'success');
+      }
       setSelectedGameForResult(null);
       setResultPairs([]);
       setResultFormResults({});

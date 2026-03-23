@@ -19,6 +19,7 @@ export function TeamScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     name: '',
+    liga_points: 0,
     federation_points: 0,
     preferred_side: PreferredSides.right,
     role: PlayerRoles.jogador as PlayerRole,
@@ -98,6 +99,7 @@ export function TeamScreen() {
       : PlayerRoles.jogador;
     setEditForm({
       name: player.name ?? '',
+      liga_points: player.liga_points ?? 0,
       federation_points: player.federation_points ?? 0,
       preferred_side: (player.preferred_side || PreferredSides.right) as PreferredSide,
       role: role as PlayerRole,
@@ -137,6 +139,9 @@ export function TeamScreen() {
       preferred_side: editForm.preferred_side,
       phone: normalizePhoneForDb(editForm.phone) ?? (editForm.phone.trim() || null),
     };
+    if (canDo('edit_other_player')) {
+      profileUpdates.liga_points = Number.isFinite(editForm.liga_points) ? Math.trunc(editForm.liga_points) : 0;
+    }
 
     setSaving(true);
     try {
@@ -158,6 +163,9 @@ export function TeamScreen() {
 
       await PlayersService.updateProfile(editingId, profileUpdates);
       await loadPlayers();
+      if (editingPlayer && isOwnProfile(editingPlayer)) {
+        await refreshPlayer();
+      }
       setEditingId(null);
       showToast('Perfil atualizado com sucesso', 'success');
     } catch (error) {
@@ -415,7 +423,28 @@ export function TeamScreen() {
                   </button>
                 </div>
                 <Input label="Nome" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-                <Input label="Pontos de Federação" type="number" value={editForm.federation_points} onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value) || 0 })} />
+                {canDo('edit_other_player') && (
+                  <>
+                    <Input
+                      label="Pontos Liga (Liga M6)"
+                      type="number"
+                      value={editForm.liga_points}
+                      onChange={(e) => setEditForm({ ...editForm, liga_points: parseInt(e.target.value, 10) || 0 })}
+                    />
+                    <Input
+                      label="Pontos Federação (FPP)"
+                      type="number"
+                      value={editForm.federation_points}
+                      onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value, 10) || 0 })}
+                    />
+                    <p className="text-sm font-semibold text-amber-900 tabular-nums">
+                      Total: {(Number.isFinite(editForm.liga_points) ? editForm.liga_points : 0) + (Number.isFinite(editForm.federation_points) ? editForm.federation_points : 0)}
+                    </p>
+                  </>
+                )}
+                {!canDo('edit_other_player') && (
+                  <Input label="Pontos de Federação" type="number" value={editForm.federation_points} onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value, 10) || 0 })} />
+                )}
                 <Input label="Telemóvel" type="tel" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="912 345 678 ou +351 912 345 678" />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Lado Preferencial</label>

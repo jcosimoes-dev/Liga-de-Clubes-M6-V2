@@ -9,6 +9,7 @@ const ALLOWED_PLAYER_UPDATE_KEYS = [
   'phone',
   'preferred_side',
   'federation_points',
+  'liga_points',
   'is_active',
   'must_change_password',
 ] as const;
@@ -120,9 +121,9 @@ export const PlayersService = {
     for (const [key, value] of Object.entries(updates)) {
       if (restricted.has(key)) continue;
       if (!allowed.has(key) || value === undefined) continue;
-      if (key === 'federation_points') {
+      if (key === 'federation_points' || key === 'liga_points') {
         const n = typeof value === 'number' ? value : Number(value);
-        payload[key] = Number.isFinite(n) ? n : 0;
+        payload[key] = Number.isFinite(n) ? Math.trunc(n) : 0;
       } else if (key === 'name' && (value === '' || (typeof value === 'string' && !value.trim()))) {
         payload[key] = 'Utilizador';
       } else {
@@ -139,7 +140,7 @@ export const PlayersService = {
       .from('players')
       .update(payload)
       .eq('id', id)
-      .select('id, name, phone, preferred_side, federation_points, is_active')
+      .select('id, name, phone, preferred_side, federation_points, liga_points, is_active')
       .maybeSingle();
 
     if (error) {

@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
+import { getCategoryFromPhase } from '../domain/categoryTheme';
 import { updatePlayerLigaPoints } from './adminAuth';
 
 /**
@@ -93,12 +94,12 @@ export async function syncPlayerPoints(teamId?: string): Promise<{ updated: numb
   // 1) Jogos considerados finalizados (final | concluido | completed)
   let query = supabase
     .from('games')
-    .select('id, team_id, status')
+    .select('id, team_id, status, phase')
     .in('status', [...STATUS_FINAL_VALUES]);
   if (teamId) {
     query = query.eq('team_id', teamId);
   }
-  const { data: games, error: gamesError } = await query;
+  const { data: gamesRaw, error: gamesError } = await query;
 
   if (gamesError) {
     console.error(`${LOG_PREFIX} Erro ao carregar jogos:`, gamesError);
@@ -106,10 +107,19 @@ export async function syncPlayerPoints(teamId?: string): Promise<{ updated: numb
     return { updated: 0, errors };
   }
 
-  console.log(`${LOG_PREFIX} Jogos finalizados:`, games?.length ?? 0, games?.map((g) => ({ id: g.id, status: (g as { status?: string }).status })) ?? []);
+  /** Só a Liga de Clubes (fases Qualificação / Regionais / Nacionais) altera liga_points automaticamente. */
+  const games = (gamesRaw ?? []).filter((g) => getCategoryFromPhase((g as { phase?: string | null }).phase) === 'Liga');
 
-  if (!games?.length) {
-    console.log(`${LOG_PREFIX} Nenhum jogo 'final'. Nada a atualizar.`);
+  console.log(
+    `${LOG_PREFIX} Jogos finalizados (totais / só Liga):`,
+    gamesRaw?.length ?? 0,
+    '/',
+    games.length,
+    games.map((g) => ({ id: g.id, status: (g as { status?: string }).status, phase: (g as { phase?: string }).phase })),
+  );
+
+  if (!games.length) {
+    console.log(`${LOG_PREFIX} Nenhum jogo final da Liga de Clubes. Pontos automáticos não alterados.`);
     return { updated: 0, errors };
   }
 
