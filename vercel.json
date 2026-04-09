@@ -23,6 +23,15 @@
     { "source": "/login", "destination": "/index.html" },
     { "source": "/register", "destination": "/index.html" },
     { "source": "/reset-password", "destination": "/index.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/admin/:path*", "destination": "/index.html" },
+    { "source": "/team", "destination": "/index.html" },
+    { "source": "/team/", "destination": "/index.html" },
+    { "source": "/history", "destination": "/index.html" },
+    { "source": "/history/", "destination": "/index.html" },
+    { "source": "/complete-profile", "destination": "/index.html" },
+    { "source": "/complete-profile/", "destination": "/index.html" },
+    { "source": "/bootstrap", "destination": "/index.html" },
+    { "source": "/bootstrap/", "destination": "/index.html" }
   ]
 }

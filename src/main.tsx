@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import { DeploymentConfigError } from './components/DeploymentConfigError';
+import { RootErrorBoundary } from './components/RootErrorBoundary';
 
 /**
  * Variáveis têm de existir no build da Vercel (Environment Variables).
@@ -31,11 +32,16 @@ async function bootstrap(): Promise<void> {
     import('virtual:pwa-register'),
   ]);
 
-  registerSW({ immediate: true });
+  /** Depois do primeiro paint — evita o SW a competir com o carregamento inicial dos chunks. */
+  requestAnimationFrame(() => {
+    registerSW({ immediate: true });
+  });
 
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
-      <App />
+      <RootErrorBoundary>
+        <App />
+      </RootErrorBoundary>
     </React.StrictMode>,
   );
 }
