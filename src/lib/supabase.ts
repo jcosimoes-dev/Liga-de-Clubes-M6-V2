@@ -20,8 +20,16 @@ function readSupabaseEnv(key: "VITE_SUPABASE_URL" | "VITE_SUPABASE_ANON_KEY"): s
 const supabaseUrl = readSupabaseEnv("VITE_SUPABASE_URL");
 const supabaseAnonKey = readSupabaseEnv("VITE_SUPABASE_ANON_KEY");
 
-if (!supabaseUrl) throw new Error("Falta VITE_SUPABASE_URL (ou SUPABASE_URL) no .env.local");
-if (!supabaseAnonKey) throw new Error("Falta VITE_SUPABASE_ANON_KEY (ou SUPABASE_ANON_KEY) no .env.local");
+if (!supabaseUrl) {
+  throw new Error(
+    "Falta VITE_SUPABASE_URL (ou SUPABASE_URL). Em produção (Vercel), define-a nas Environment Variables e faz redeploy.",
+  );
+}
+if (!supabaseAnonKey) {
+  throw new Error(
+    "Falta VITE_SUPABASE_ANON_KEY (ou SUPABASE_ANON_KEY). Em produção (Vercel), define-a nas Environment Variables e faz redeploy.",
+  );
+}
 
 // Supabase client: storageKey nova para não reutilizar sessão antiga do Chrome (localStorage).
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
