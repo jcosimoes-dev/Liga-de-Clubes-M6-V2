@@ -49,7 +49,7 @@ export interface Database {
           team_id: string | null
           preferred_side: PreferredSide
           federation_points: number
-          /** Pontos da liga M6 (10v/3d). Atualizado só pelo recálculo. */
+          /** Pontos da liga M6 (eliminatória; decimais). Atualizado pelo recálculo. */
           liga_points: number
           points_updated_at: string | null
           profile_completed: boolean

@@ -1,17 +1,20 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
+import { computeLigaPointsForEliminatoriaGame, roundLigaPointsTotal } from '../domain/ligaPointsEliminatoria';
 import { updatePlayerLigaPoints } from './adminAuth';
 
-/**
- * Serviço de pontuação. A coluna de pontos na tabela players é federation_points.
- * Recálculo: +10 por vitória da dupla, +3 por derrota (jogos com status 'final').
- */
+/** Opções do recálculo automático de `liga_points`. */
+export interface SyncPlayerPointsOptions {
+  /** Só jogos com este `round_number` (jornada). Se omitido, contam todas as jornadas finalizadas da Liga. */
+  roundNumber?: number;
+}
 
-/** Pontos por vitória da dupla (sets casa > sets fora) */
-export const POINTS_WIN = 10;
-/** Pontos por derrota da dupla (sets casa <= sets fora) */
-export const POINTS_LOSS = 3;
+/**
+ * Serviço de pontuação. `federation_points` é manual; `liga_points` vem do recálculo
+ * por jogo de eliminatória (regras em `domain/ligaPointsEliminatoria.ts`).
+ */
 
 /** Status que consideram o jogo final. Incluir 'concluido'/'completed' se a BD ainda não tiver 'final'. */
 const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed'] as const;
@@ -84,147 +87,295 @@ function isPairWin(r: ResultRow): boolean {
 }
 
 /**
- * Calcula pontos por jogador a partir de jogos 'final': para cada jogo, pega nas 3 duplas (pairs),
- * lê o resultado de cada dupla (results), atribui +10 a quem ganhou e +3 a quem perdeu.
- * Não usa availabilities — só quem está escalado nas duplas recebe pontos.
+ * Calcula se a equipa ganhou o jogo com base nos resultados (maioria de sets ganhos por dupla).
+ * Ignora sets 0-0; só conta set perdido quando fora > casa.
  */
-export async function syncPlayerPoints(teamId?: string): Promise<{ updated: number; errors: string[] }> {
+function teamWonFromResults(rows: ResultRow[]): boolean {
+  let setsWon = 0;
+  let setsLost = 0;
+  for (const r of rows) {
+    const { setsWon: w, setsLost: l } = countSetsWonLost(r);
+    setsWon += w;
+    setsLost += l;
+  }
+  return setsWon > setsLost;
+}
+
+type GameForLigaPoints = {
+  id: string;
+  team_id?: string | null;
+  team_points?: number | null;
+  no_show?: boolean | null;
+};
+
+type PairRow = { id: string; game_id: string; player1_id: string; player2_id: string };
+
+/**
+ * Resultado da equipa no jogo: vitória (3 pts equipa na BD ou maioria de sets) ou derrota.
+ * `null` = não atribuir pontos (ex.: falta, sem dados).
+ */
+function resolveTeamOutcomeFromGame(
+  game: GameForLigaPoints,
+  resultRows: ResultRow[],
+): 'win' | 'loss' | null {
+  if (game.no_show) return null;
+  const tp = game.team_points;
+  if (tp === 3) return 'win';
+  if (tp === 1) return 'loss';
+  if (resultRows.length > 0) return teamWonFromResults(resultRows) ? 'win' : 'loss';
+  return null;
+}
+
+/**
+ * Soma `liga_points` por jogador: por cada jogo da Liga, aplica `computeLigaPointsForEliminatoriaGame`.
+ */
+function accumulateEliminatoriaLigaPointsByPlayer(
+  games: GameForLigaPoints[],
+  pairs: PairRow[],
+  resultByPair: Map<string, ResultRow>,
+  teamRosters: Map<string, string[]>,
+): Map<string, number> {
+  const pairsByGame = new Map<string, PairRow[]>();
+  for (const p of pairs) {
+    const arr = pairsByGame.get(p.game_id) ?? [];
+    arr.push(p);
+    pairsByGame.set(p.game_id, arr);
+  }
+
+  const totals = new Map<string, number>();
+
+  for (const game of games) {
+    const tid = game.team_id?.trim();
+    if (!tid) continue;
+
+    const pairsFor = pairsByGame.get(game.id) ?? [];
+    const resultRows: ResultRow[] = [];
+    for (const pr of pairsFor) {
+      const r = resultByPair.get(pr.id);
+      if (r) resultRows.push(r);
+    }
+
+    const outcome = resolveTeamOutcomeFromGame(game, resultRows);
+    if (outcome === null) continue;
+
+    const teamWon = outcome === 'win';
+
+    const inAnyPair = new Set<string>();
+    const pairScored = new Map<string, { won: boolean }>();
+    for (const pr of pairsFor) {
+      if (pr.player1_id) inAnyPair.add(pr.player1_id);
+      if (pr.player2_id) inAnyPair.add(pr.player2_id);
+      const res = resultByPair.get(pr.id);
+      if (!res) continue;
+      const won = isPairWin(res);
+      if (pr.player1_id) pairScored.set(pr.player1_id, { won });
+      if (pr.player2_id) pairScored.set(pr.player2_id, { won });
+    }
+
+    const roster = teamRosters.get(tid);
+    if (!roster?.length) continue;
+
+    for (const pid of roster) {
+      let pts: number;
+      if (pairScored.has(pid)) {
+        pts = computeLigaPointsForEliminatoriaGame({
+          teamWonElimination: teamWon,
+          playedWithScoredPair: true,
+          pairWonIndividual: pairScored.get(pid)!.won,
+        });
+      } else if (inAnyPair.has(pid)) {
+        pts = 0;
+      } else {
+        pts = computeLigaPointsForEliminatoriaGame({
+          teamWonElimination: teamWon,
+          playedWithScoredPair: false,
+          pairWonIndividual: null,
+        });
+      }
+      totals.set(pid, (totals.get(pid) ?? 0) + pts);
+    }
+  }
+
+  return totals;
+}
+
+/**
+ * Recalcula `liga_points` com um cliente Supabase (ex.: service role em script Node).
+ * `federation_points` nunca é alterado. O total no perfil = `liga_points` + `federation_points`.
+ */
+export async function syncPlayerPointsWithClient(
+  client: SupabaseClient,
+  teamId?: string,
+  options?: SyncPlayerPointsOptions,
+): Promise<{ updated: number; errors: string[] }> {
   const errors: string[] = [];
+  const roundNumber = options?.roundNumber;
+
+  const persist = async (playerId: string, totalRounded: number) => {
+    const { error } = await client.from('players').update({ liga_points: totalRounded }).eq('id', playerId).select().maybeSingle();
+    if (error) throw error;
+  };
+
+  return runSyncPlayerPointsCore(client, teamId, roundNumber, persist, errors);
+}
+
+/**
+ * Recalcula `liga_points` a partir de jogos finalizados da Liga de Clubes (fases Qualificação / Regionais / Nacionais).
+ * Regras por jogo: ver `computeLigaPointsForEliminatoriaGame`.
+ * Usa o cliente anónimo da app para leituras e service role para gravar (`updatePlayerLigaPoints`).
+ */
+export async function syncPlayerPoints(
+  teamId?: string,
+  options?: SyncPlayerPointsOptions,
+): Promise<{ updated: number; errors: string[] }> {
+  const errors: string[] = [];
+  const roundNumber = options?.roundNumber;
+  const persist = async (playerId: string, totalRounded: number) => {
+    await updatePlayerLigaPoints(playerId, totalRounded);
+  };
+  return runSyncPlayerPointsCore(supabase, teamId, roundNumber, persist, errors);
+}
+
+async function runSyncPlayerPointsCore(
+  client: SupabaseClient,
+  teamId: string | undefined,
+  roundNumber: number | undefined,
+  persistLigaPoints: (playerId: string, totalRounded: number) => Promise<void>,
+  errors: string[],
+): Promise<{ updated: number; errors: string[] }> {
   try {
-  // 1) Jogos considerados finalizados (final | concluido | completed)
-  let query = supabase
-    .from('games')
-    .select('id, team_id, status, phase')
-    .in('status', [...STATUS_FINAL_VALUES]);
-  if (teamId) {
-    query = query.eq('team_id', teamId);
-  }
-  const { data: gamesRaw, error: gamesError } = await query;
-
-  if (gamesError) {
-    console.error(`${LOG_PREFIX} Erro ao carregar jogos:`, gamesError);
-    errors.push(`Erro ao carregar jogos: ${gamesError.message}`);
-    return { updated: 0, errors };
-  }
-
-  /** Só a Liga de Clubes (fases Qualificação / Regionais / Nacionais) altera liga_points automaticamente. */
-  const games = (gamesRaw ?? []).filter((g) => getCategoryFromPhase((g as { phase?: string | null }).phase) === 'Liga');
-
-  console.log(
-    `${LOG_PREFIX} Jogos finalizados (totais / só Liga):`,
-    gamesRaw?.length ?? 0,
-    '/',
-    games.length,
-    games.map((g) => ({ id: g.id, status: (g as { status?: string }).status, phase: (g as { phase?: string }).phase })),
-  );
-
-  if (!games.length) {
-    console.log(`${LOG_PREFIX} Nenhum jogo final da Liga de Clubes. Pontos automáticos não alterados.`);
-    return { updated: 0, errors };
-  }
-
-  const gameIds = games.map((g) => g.id);
-  const gameTeamIds = new Set(games.map((g) => g.team_id).filter(Boolean));
-
-  // 2) Duplas desses jogos
-  const { data: pairs, error: pairsError } = await supabase
-    .from('pairs')
-    .select('id, game_id, player1_id, player2_id')
-    .in('game_id', gameIds);
-
-  if (pairsError) {
-    console.error(`${LOG_PREFIX} Erro ao carregar pairs:`, pairsError);
-    errors.push(`Erro ao carregar duplas: ${pairsError.message}`);
-    return { updated: 0, errors };
-  }
-
-  console.log(`${LOG_PREFIX} Duplas encontradas:`, pairs?.length ?? 0, pairs ?? []);
-
-  // 3) Resultados por jogo (para saber quem ganhou/perdeu em cada dupla)
-  const { data: results, error: resultsError } = await supabase
-    .from('results')
-    .select('game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora')
-    .in('game_id', gameIds);
-
-  if (resultsError) {
-    console.error(`${LOG_PREFIX} Erro ao carregar results:`, resultsError);
-    errors.push(`Erro ao carregar resultados: ${resultsError.message}`);
-    return { updated: 0, errors };
-  }
-
-  const resultByPair = new Map<string, ResultRow>();
-  for (const r of results ?? []) {
-    resultByPair.set((r as { pair_id: string }).pair_id, r as ResultRow);
-  }
-  console.log(`${LOG_PREFIX} Resultados por pair_id:`, resultByPair.size, Array.from(resultByPair.entries()).map(([pid, r]) => ({ pair_id: pid, win: isPairWin(r) })));
-
-  // 4) Agregar pontos por jogador (apenas quem está nas duplas)
-  const playerPoints = new Map<string, number>();
-  for (const pair of pairs ?? []) {
-    const res = resultByPair.get(pair.id);
-    if (!res) continue;
-    const won = isPairWin(res);
-    const pts = won ? POINTS_WIN : POINTS_LOSS;
-    for (const pid of [pair.player1_id, pair.player2_id].filter(Boolean)) {
-      if (pid) {
-        const cur = playerPoints.get(pid) ?? 0;
-        playerPoints.set(pid, cur + pts);
-        console.log(`${LOG_PREFIX} Dupla ${pair.id} (jogo ${pair.game_id}): ${won ? 'Vitória' : 'Derrota'} → ${pid} +${pts} (total: ${cur + pts})`);
-      }
+    let query = client
+      .from('games')
+      .select('id, team_id, status, phase, round_number, team_points, no_show')
+      .in('status', [...STATUS_FINAL_VALUES]);
+    if (teamId) {
+      query = query.eq('team_id', teamId);
     }
-  }
+    const { data: gamesRaw, error: gamesError } = await query;
 
-  // 5) Se recalc por equipa: pôr a 0 os jogadores da equipa que não têm pontos (não foram escalados)
-  if (teamId) {
-    const { data: teamPlayers } = await supabase
-      .from('players')
-      .select('id')
-      .eq('team_id', teamId);
-    for (const p of teamPlayers ?? []) {
-      if (!playerPoints.has(p.id)) {
-        playerPoints.set(p.id, 0);
-        console.log(`${LOG_PREFIX} Jogador ${p.id} (equipa): 0 convocatórias → 0 pontos`);
-      }
+    if (gamesError) {
+      console.error(`${LOG_PREFIX} Erro ao carregar jogos:`, gamesError);
+      errors.push(`Erro ao carregar jogos: ${gamesError.message}`);
+      return { updated: 0, errors };
     }
-  } else {
+
+    let games = (gamesRaw ?? []).filter((g) => getCategoryFromPhase((g as { phase?: string | null }).phase) === 'Liga');
+
+    if (roundNumber != null) {
+      games = games.filter((g) => Number((g as { round_number?: unknown }).round_number) === roundNumber);
+      console.log(`${LOG_PREFIX} Filtro jornada round_number=${roundNumber}: ${games.length} jogo(s) Liga (após filtro).`);
+    }
+
+    console.log(
+      `${LOG_PREFIX} Jogos finalizados (totais BD / só Liga após filtros):`,
+      gamesRaw?.length ?? 0,
+      '/',
+      games.length,
+      games.map((g) => ({
+        id: g.id,
+        status: (g as { status?: string }).status,
+        phase: (g as { phase?: string }).phase,
+        round_number: (g as { round_number?: number }).round_number,
+      })),
+    );
+
+    if (!games.length) {
+      console.log(`${LOG_PREFIX} Nenhum jogo final da Liga de Clubes (com os filtros aplicados). Pontos automáticos não alterados.`);
+      return { updated: 0, errors };
+    }
+
+    const gameIds = games.map((g) => g.id);
+    const gameTeamIds = new Set(games.map((g) => g.team_id).filter(Boolean));
+
+    const { data: pairs, error: pairsError } = await client.from('pairs').select('id, game_id, player1_id, player2_id').in('game_id', gameIds);
+
+    if (pairsError) {
+      console.error(`${LOG_PREFIX} Erro ao carregar pairs:`, pairsError);
+      errors.push(`Erro ao carregar duplas: ${pairsError.message}`);
+      return { updated: 0, errors };
+    }
+
+    console.log(`${LOG_PREFIX} Duplas encontradas:`, pairs?.length ?? 0, pairs ?? []);
+
+    const { data: results, error: resultsError } = await client
+      .from('results')
+      .select('game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora')
+      .in('game_id', gameIds);
+
+    if (resultsError) {
+      console.error(`${LOG_PREFIX} Erro ao carregar results:`, resultsError);
+      errors.push(`Erro ao carregar resultados: ${resultsError.message}`);
+      return { updated: 0, errors };
+    }
+
+    const resultByPair = new Map<string, ResultRow>();
+    for (const r of results ?? []) {
+      resultByPair.set((r as { pair_id: string }).pair_id, r as ResultRow);
+    }
+    console.log(
+      `${LOG_PREFIX} Resultados por pair_id:`,
+      resultByPair.size,
+      Array.from(resultByPair.entries()).map(([pid, r]) => ({ pair_id: pid, win: isPairWin(r) })),
+    );
+
+    const teamRosters = new Map<string, string[]>();
     for (const tid of gameTeamIds) {
       if (!tid) continue;
-      const { data: teamPlayers } = await supabase
-        .from('players')
-        .select('id')
-        .eq('team_id', tid);
+      const { data: teamPlayers } = await client.from('players').select('id').eq('team_id', tid);
+      teamRosters.set(tid, (teamPlayers ?? []).map((p) => p.id));
+    }
+
+    const playerPoints = accumulateEliminatoriaLigaPointsByPlayer(
+      games as GameForLigaPoints[],
+      (pairs ?? []) as PairRow[],
+      resultByPair,
+      teamRosters,
+    );
+    console.log(`${LOG_PREFIX} Totais brutos (eliminatória):`, Object.fromEntries(playerPoints));
+
+    if (teamId) {
+      const { data: teamPlayers } = await client.from('players').select('id').eq('team_id', teamId);
       for (const p of teamPlayers ?? []) {
         if (!playerPoints.has(p.id)) {
           playerPoints.set(p.id, 0);
+          console.log(`${LOG_PREFIX} Jogador ${p.id} (equipa): sem linha de recálculo → 0 pontos`);
+        }
+      }
+    } else {
+      for (const tid of gameTeamIds) {
+        if (!tid) continue;
+        const { data: teamPlayers } = await client.from('players').select('id').eq('team_id', tid);
+        for (const p of teamPlayers ?? []) {
+          if (!playerPoints.has(p.id)) {
+            playerPoints.set(p.id, 0);
+          }
         }
       }
     }
-  }
 
-  console.log(`${LOG_PREFIX} Totais por jogador:`, Object.fromEntries(playerPoints));
+    console.log(`${LOG_PREFIX} Totais por jogador:`, Object.fromEntries(playerPoints));
 
-  /** Extrai mensagem legível do erro (Supabase devolve objeto, não Error). */
-  const toErrorMsg = (e: unknown): string => {
-    if (e instanceof Error) return e.message;
-    if (typeof e === 'object' && e != null && 'message' in e) return String((e as { message?: string }).message);
-    if (typeof e === 'object' && e != null && 'error_description' in e) return String((e as { error_description?: string }).error_description);
-    return String(e);
-  };
+    const toErrorMsg = (e: unknown): string => {
+      if (e instanceof Error) return e.message;
+      if (typeof e === 'object' && e != null && 'message' in e) return String((e as { message?: string }).message);
+      if (typeof e === 'object' && e != null && 'error_description' in e) return String((e as { error_description?: string }).error_description);
+      return String(e);
+    };
 
-  // 6) Atualizar apenas liga_points (federation_points nunca é sobrescrito)
-  let updated = 0;
-  for (const [playerId, total] of playerPoints) {
-    try {
-      await updatePlayerLigaPoints(playerId, total);
-      updated++;
-    } catch (e) {
-      const msg = toErrorMsg(e);
-      if (import.meta.env?.DEV) console.error(`${LOG_PREFIX} PATCH falhou para ${playerId}:`, e);
-      errors.push(`Jogador ${playerId}: ${msg}`);
+    let updated = 0;
+    const devLog = typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV;
+    for (const [playerId, total] of playerPoints) {
+      try {
+        await persistLigaPoints(playerId, roundLigaPointsTotal(total));
+        updated++;
+      } catch (e) {
+        const msg = toErrorMsg(e);
+        if (devLog) console.error(`${LOG_PREFIX} PATCH falhou para ${playerId}:`, e);
+        errors.push(`Jogador ${playerId}: ${msg}`);
+      }
     }
-  }
 
-  return { updated, errors };
+    return { updated, errors };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     errors.push(msg);
@@ -246,27 +397,12 @@ export interface PlayerRankingRow {
   name: string;
   wins: number;
   losses: number;
-  /** Pontos Liga M6: 10 pts vitória, 3 pts derrota (calculado a partir do histórico). */
+  /** Pontos Liga M6 (eliminatória: regras em `ligaPointsEliminatoria`). */
   pontos_liga: number;
   /** Pontos Federação: valor da coluna federation_points na tabela players. */
   federation_points: number;
   /** Pontos Totais: Pontos Liga + Pontos Federação. */
   total_points: number;
-}
-
-/**
- * Calcula se a equipa ganhou o jogo com base nos resultados (maioria de sets ganhos por dupla).
- * Ignora sets 0-0; só conta set perdido quando fora > casa.
- */
-function teamWonFromResults(rows: ResultRow[]): boolean {
-  let setsWon = 0;
-  let setsLost = 0;
-  for (const r of rows) {
-    const { setsWon: w, setsLost: l } = countSetsWonLost(r);
-    setsWon += w;
-    setsLost += l;
-  }
-  return setsWon > setsLost;
 }
 
 /**
@@ -388,7 +524,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   try {
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
-    .select('id, team_id, status, phase')
+    .select('id, team_id, status, phase, team_points, no_show')
     .in('status', [...STATUS_FINAL_VALUES])
     .eq('team_id', teamId);
 
@@ -461,19 +597,17 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     resultByPair.set((r as { pair_id: string }).pair_id, r as ResultRow);
   }
 
-  const playerStats = new Map<string, { wins: number; losses: number; points: number }>();
+  const playerStats = new Map<string, { wins: number; losses: number }>();
   for (const pair of pairsList) {
     const res = resultByPair.get(pair.id);
     if (!res) continue;
     const won = isPairWin(res);
-    const pts = won ? POINTS_WIN : POINTS_LOSS;
     for (const pid of [pair.player1_id, pair.player2_id].filter(Boolean)) {
       if (!pid) continue;
-      const cur = playerStats.get(pid) ?? { wins: 0, losses: 0, points: 0 };
+      const cur = playerStats.get(pid) ?? { wins: 0, losses: 0 };
       playerStats.set(pid, {
         wins: cur.wins + (won ? 1 : 0),
         losses: cur.losses + (won ? 0 : 1),
-        points: cur.points + pts,
       });
     }
   }
@@ -486,6 +620,16 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
       : playerIdsFromPairs;
   const ids = needAllTeamPlayers ? (playerIds as { id: string }[]).map((p) => p.id) : playerIdsFromPairs;
   if (ids.length === 0) return [];
+
+  const eliminatoriaTotals =
+    category === 'Liga'
+      ? accumulateEliminatoriaLigaPointsByPlayer(
+          games as GameForLigaPoints[],
+          pairsList as PairRow[],
+          resultByPair,
+          new Map([[teamId, ids]]),
+        )
+      : null;
 
   const { data: players } = await supabase
     .from('players')
@@ -508,16 +652,16 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     : new Map((players ?? []).map((p) => [p.id, readNum((p as { liga_points?: number | string | null }).liga_points)]));
   const fedPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { federation_points?: number | string | null }).federation_points)]));
 
-  if (useComputedLigaPoints) {
-    for (const id of playerStats.keys()) {
-      ligaPointsMap.set(id, playerStats.get(id)!.points);
+  if (useComputedLigaPoints && eliminatoriaTotals) {
+    for (const id of ids) {
+      ligaPointsMap.set(id, roundLigaPointsTotal(eliminatoriaTotals.get(id) ?? 0));
     }
   }
 
   const out = ids
     .filter((id) => !isGestor(id))
     .map((id) => {
-      const s = playerStats.get(id) ?? { wins: 0, losses: 0, points: 0 };
+      const s = playerStats.get(id) ?? { wins: 0, losses: 0 };
       const ligaPoints = ligaPointsMap.get(id) ?? 0;
       const federationPoints = category === 'Treino' ? 0 : (fedPointsMap.get(id) ?? 0);
       const totalPoints = ligaPoints + federationPoints;
@@ -553,7 +697,7 @@ export interface SeasonStatRow {
   convocatorias: number;
   /** Taxa de Escolha = Convocatórias / Disponibilidade (ex: 1/4 = 25%). */
   taxa_escolha: number;
-  /** Pontos Liga M6 (10v/3d) — coluna liga_points. */
+  /** Pontos Liga M6 (eliminatória) — coluna liga_points. */
   pontos_liga: number;
   wins: number;
   losses: number;
@@ -610,7 +754,7 @@ function isInDateRange(gameDate: Date | null, startDate?: Date, endDate?: Date):
  * - Disponibilidade: checks verdes (availabilities confirmed).
  * - Convocatórias: jogos 'final' em que o jogador está numa dupla.
  * - Taxa de Escolha: Convocatórias / Disponibilidade (ex: 1/4 = 25%).
- * - Pontos Liga M6: liga_points (10v/3d). Vitórias/Derrotas e Eficácia a partir de results.
+ * - Pontos Liga M6: liga_points (recálculo / BD). Vitórias/Derrotas e Eficácia a partir de results.
  * - Com options.startDate/endDate, filtra por game_date no lado do cliente.
  */
 export async function getSeasonStats(

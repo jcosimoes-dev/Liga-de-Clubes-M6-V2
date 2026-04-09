@@ -319,6 +319,8 @@ export type SportAction =
   | 'create_game'
   | 'open_convocation'
   | 'register_results'
+  /** Alterar resultados depois do jogo concluído — apenas admin e coordenador (capitão não). */
+  | 'reedit_completed_results'
   | 'edit_game'
   | 'delete_game'
   | 'close_convocation'
@@ -341,6 +343,8 @@ export function canAction(player: Player | null, effectiveRole: string, action: 
     case 'open_convocation':
     case 'register_results':
       return r === PlayerRoles.admin || r === PlayerRoles.coordenador || r === PlayerRoles.capitao;
+    case 'reedit_completed_results':
+      return r === PlayerRoles.admin || r === PlayerRoles.coordenador;
     case 'edit_game':
     case 'delete_game':
     case 'close_convocation':

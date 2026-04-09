@@ -4,6 +4,7 @@ import { Card, Button, Badge, Loading, Header, Toast, ToastType } from '../compo
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService, AvailabilitiesService, PairsService } from '../services';
+import { OPEN_GAMES_INVALIDATE_EVENT } from '../lib/openGamesInvalidate';
 import { Calendar, MapPin, Users, CheckCircle, Lock, ArrowLeft } from 'lucide-react';
 import {
   emptyPairSlots,
@@ -33,6 +34,21 @@ export function ConvocatoryManagementScreen() {
 
   useEffect(() => {
     loadOpenGames();
+  }, []);
+
+  useEffect(() => {
+    const onInvalidate = () => {
+      void (async () => {
+        try {
+          const games = await GamesService.getOpenGames();
+          setOpenGames(Array.isArray(games) ? games : []);
+        } catch {
+          setOpenGames([]);
+        }
+      })();
+    };
+    window.addEventListener(OPEN_GAMES_INVALIDATE_EVENT, onInvalidate);
+    return () => window.removeEventListener(OPEN_GAMES_INVALIDATE_EVENT, onInvalidate);
   }, []);
 
   useEffect(() => {

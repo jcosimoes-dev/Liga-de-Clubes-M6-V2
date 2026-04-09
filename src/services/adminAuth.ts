@@ -7,13 +7,32 @@ import { createClient } from '@supabase/supabase-js';
  * num backend (Edge Function ou API) para não expor a chave. Para ferramentas internas ou
  * protótipos, define VITE_SUPABASE_SERVICE_ROLE_KEY no .env.local (nunca faças commit desta chave).
  */
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+function readAdminEnv(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_SERVICE_ROLE_KEY'): string | undefined {
+  try {
+    const im = import.meta as unknown as { env?: Record<string, string | undefined> };
+    const v = im.env?.[key];
+    if (typeof v === 'string' && v.trim() !== '') return v;
+  } catch {
+    /* empty */
+  }
+  if (typeof process !== 'undefined' && process.env) {
+    if (key === 'VITE_SUPABASE_URL') {
+      return process.env.VITE_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim() || undefined;
+    }
+    return (
+      process.env.VITE_SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || undefined
+    );
+  }
+  return undefined;
+}
+
+const supabaseUrl = readAdminEnv('VITE_SUPABASE_URL');
+const serviceRoleKey = readAdminEnv('VITE_SUPABASE_SERVICE_ROLE_KEY');
 
 function getAdminClient() {
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error(
-      'Falta VITE_SUPABASE_URL ou VITE_SUPABASE_SERVICE_ROLE_KEY. Adiciona no .env.local (a service role key só deve ser usada em contexto seguro).'
+      'Falta VITE_SUPABASE_URL ou VITE_SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_*). Adiciona no .env.local (a service role key só deve ser usada em contexto seguro).'
     );
   }
   return createClient(supabaseUrl, serviceRoleKey, {
@@ -58,7 +77,7 @@ export async function updatePlayerFederationPoints(playerId: string, valor: numb
 
 /**
  * Atualiza apenas liga_points de um jogador (ignora RLS; usa SERVICE_ROLE).
- * Usado pelo botão "Recalcular Pontos" — pontos da liga M6 (10v/3d). federation_points não é tocado.
+ * Usado pelo botão "Recalcular Pontos" — pontos da liga M6 (regras de eliminatória em `ligaPointsEliminatoria`). federation_points não é tocado.
  */
 export async function updatePlayerLigaPoints(playerId: string, valor: number): Promise<void> {
   const admin = getAdminClient();
@@ -75,7 +94,7 @@ export async function updatePlayerLigaPoints(playerId: string, valor: number): P
  * Atualiza o status de um jogo usando SERVICE_ROLE (ignora RLS).
  * Usado no fecho da convocatória para garantir que o Coordenador consegue persistir.
  * @param gameId - UUID do jogo
- * @param status - 'convocatoria_fechada' | 'final' | outro valor válido
+ * @param status - 'convocatoria_fechada' | 'concluido' | 'final' | outro valor válido
  */
 export async function closeGameStatusAdmin(
   gameId: string,
@@ -87,6 +106,44 @@ export async function closeGameStatusAdmin(
   console.log('[adminAuth] A fechar jogo ID:', gameId, 'status:', status, extra ? 'extra:' : '', extra);
   const { error } = await admin.from('games').update(payload).eq('id', gameId);
   if (error) throw error;
+}
+
+/**
+ * Atualiza campos editáveis do jogo com SERVICE_ROLE (ignora RLS).
+ * Usado quando o cliente autenticado devolve 0 linhas no SELECT após UPDATE ou falha de permissão.
+ */
+export async function updateGameDetailsAdmin(
+  gameId: string,
+  updates: Record<string, unknown>
+): Promise<Record<string, unknown> | null> {
+  const admin = getAdminClient();
+  const cols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
+  const colsGameDate = 'id, status, opponent, game_date, end_date, location, phase, round_number';
+
+  const run = (payload: Record<string, unknown>, selectCols: string) =>
+    admin.from('games').update(payload).eq('id', gameId).select(selectCols).maybeSingle();
+
+  let res = await run(updates, cols);
+  if (res.error) {
+    const msg = res.error.message?.toLowerCase() ?? '';
+    const code = (res.error as { code?: string }).code;
+    const tryLegacy =
+      updates.starts_at != null &&
+      (code === 'PGRST204' ||
+        code === '42703' ||
+        /column|schema|undefined column|could not find|starts_at|game_date/i.test(msg));
+    if (tryLegacy) {
+      const legacy: Record<string, unknown> = { ...updates };
+      legacy.game_date = legacy.starts_at;
+      delete legacy.starts_at;
+      res = await run(legacy, colsGameDate);
+    }
+  }
+  if (res.error) throw res.error;
+  const row = res.data as Record<string, unknown> | null;
+  if (!row) return null;
+  const dateVal = row.starts_at ?? row.game_date;
+  return { ...row, starts_at: dateVal ?? '', end_date: row.end_date ?? null };
 }
 
 /**

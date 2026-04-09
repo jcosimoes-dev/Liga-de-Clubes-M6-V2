@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { closeGameStatusAdmin } from './adminAuth';
+import { closeGameStatusAdmin, updateGameDetailsAdmin } from './adminAuth';
 import type { Game, GameStatus } from '../lib/database.types';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -85,15 +85,70 @@ export const GamesService = {
       }
     }
 
-    const openStatuses = ['convocatoria_aberta', 'open', 'agendado', 'scheduled', 'pendente', 'pending', 'aberto'];
+    const openStatuses = [
+      'draft',
+      'convocatoria_aberta',
+      'open',
+      'agendado',
+      'scheduled',
+      'pendente',
+      'pending',
+      'aberto',
+    ];
+    /** Nunca mostrar como “convocatória aberta” jogos já fechados ou concluídos (evita UI enganadora). */
+    const excludedFromOpenList = new Set([
+      'concluido',
+      'completed',
+      'final',
+      'closed',
+      'convocatoria_fechada',
+      'cancelado',
+    ]);
     const filtered = (data ?? []).filter((g) => {
-      const s = String((g.status as string) ?? '').trim();
-      return openStatuses.includes(s) || openStatuses.includes(s.toLowerCase());
+      const s = String((g.status as string) ?? '').trim().toLowerCase();
+      if (!s || excludedFromOpenList.has(s)) return false;
+      return openStatuses.includes(s);
     });
     const normalized = filtered.map((g) => this._normalizeGame(g));
-    if (includePast) return normalized;
+    const ids = normalized.map((g) => String((g as { id?: string }).id ?? '')).filter(Boolean);
+    let visible = normalized;
+    if (ids.length > 0) {
+      const { data: resRows } = await supabase.from('results').select('game_id').in('game_id', ids);
+      const withResults = new Set((resRows ?? []).map((r: { game_id: string }) => r.game_id));
+      visible = normalized.filter((g) => !withResults.has(String((g as { id?: string }).id)));
+    }
+    if (includePast) return visible;
     const now = new Date();
-    return normalized.filter((g) => new Date(g.starts_at) >= now);
+    return visible.filter((g) => new Date(g.starts_at) >= now);
+  },
+
+  /**
+   * Jogos com linhas em `results` devem estar `concluido` (alinhado com o registo de resultados).
+   * Corrige estados antigos na BD quando existe VITE_SUPABASE_SERVICE_ROLE_KEY.
+   */
+  async backfillConcluidoFromResults(): Promise<number> {
+    let fixed = 0;
+    try {
+      const { data: rows, error } = await supabase.from('results').select('game_id');
+      if (error || !rows?.length) return 0;
+      const unique = [...new Set(rows.map((r: { game_id: string }) => r.game_id))];
+      const terminal = new Set(['concluido', 'completed', 'final', 'closed', 'cancelado']);
+      for (const gid of unique.slice(0, 200)) {
+        const { data: g } = await supabase.from('games').select('id, status').eq('id', gid).maybeSingle();
+        if (!g) continue;
+        const s = String((g as { status?: string }).status ?? '').trim().toLowerCase();
+        if (terminal.has(s)) continue;
+        try {
+          await closeGameStatusAdmin(gid, 'concluido');
+          fixed += 1;
+        } catch {
+          /* sem service key ou política — ignorar */
+        }
+      }
+    } catch {
+      return fixed;
+    }
+    return fixed;
   },
 
   /**
@@ -225,25 +280,81 @@ export const GamesService = {
    */
   async updateGame(
     id: string,
-    data: { starts_at?: string; end_date?: string | null; location?: string }
+    data: { starts_at?: string; end_date?: string | null; location?: string; opponent?: string }
   ) {
     return this.update(id, data);
   },
 
   /**
-   * Actualizar jogo (apenas capitão)
+   * Actualizar jogo (data, local, etc.).
+   * Tenta `starts_at`; se a BD ainda tiver só `game_date`, faz fallback (mesmo padrão que getAll/getOpenGames).
    */
   async update(id: string, updates: Partial<Game>) {
     const cols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
-    const { data, error } = await supabase
-      .from('games')
-      .update(updates)
-      .eq('id', id)
-      .select(cols)
-      .maybeSingle();
+    const colsGameDate = 'id, status, opponent, game_date, end_date, location, phase, round_number';
 
-    if (error) throw error;
-    return data ?? null;
+    const tryUpdate = async (payload: Record<string, unknown>, selectCols: string) => {
+      return supabase.from('games').update(payload).eq('id', id).select(selectCols).maybeSingle();
+    };
+
+    const tryAdmin = async (): Promise<Game | null> => {
+      try {
+        const row = await updateGameDetailsAdmin(id, updates as Record<string, unknown>);
+        return row ? (this._normalizeGame(row) as Game) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const { data, error } = await tryUpdate(updates as Record<string, unknown>, cols);
+
+    if (!error && data) {
+      return this._normalizeGame(data as Record<string, unknown>) as Game;
+    }
+
+    /** UPDATE pode ter aplicado mas o SELECT devolver 0 linhas (RLS) — mesmo padrão que resultados. */
+    if (!error && !data) {
+      const viaAdmin = await tryAdmin();
+      if (viaAdmin) return viaAdmin;
+    }
+
+    if (error) {
+      const msg = (error.message ?? '').toLowerCase();
+      const code = (error as { code?: string }).code;
+      const rls =
+        code === '42501' ||
+        code === 'PGRST301' ||
+        /row-level security|permission denied for/i.test(msg);
+      if (rls) {
+        const viaAdmin = await tryAdmin();
+        if (viaAdmin) return viaAdmin;
+        throw error;
+      }
+
+      const looksLikeMissingStartsAt =
+        code === 'PGRST204' ||
+        code === '42703' ||
+        /column|schema|undefined column|could not find|starts_at|game_date/i.test(msg);
+
+      if (updates.starts_at != null && looksLikeMissingStartsAt) {
+        const legacy: Record<string, unknown> = { ...(updates as Record<string, unknown>) };
+        legacy.game_date = legacy.starts_at;
+        delete legacy.starts_at;
+        const { data: data2, error: err2 } = await tryUpdate(legacy, colsGameDate);
+        if (!err2 && data2) {
+          return this._normalizeGame(data2 as Record<string, unknown>) as Game;
+        }
+        if (!err2 && !data2) {
+          const viaAdmin = await tryAdmin();
+          if (viaAdmin) return viaAdmin;
+        }
+        if (err2) throw err2;
+      }
+
+      throw error;
+    }
+
+    return null;
   },
 
   /**
@@ -277,12 +388,30 @@ export const GamesService = {
   },
 
   /**
-   * Marcar jogo como concluído (apenas capitão/coordenador).
-   * Usa supabaseAdmin para evitar RLS. Status 'final' ativa trigger de team_points e syncPlayerPoints.
+   * Marcar jogo como concluído (após gravar resultados).
+   * Usa service role para evitar RLS. Status 'concluido' alinha com o schema; pontos/sync aceitam também 'final'/'completed'.
    */
   async complete(id: string, options?: { no_show?: boolean }) {
     const extra = options?.no_show === true ? { no_show: true } : undefined;
-    await closeGameStatusAdmin(id, 'final', extra);
+    await closeGameStatusAdmin(id, 'concluido', extra);
+  },
+
+  /**
+   * Jogos já terminados (concluido / final / completed) para corrigir resultados na Gestão Desportiva.
+   */
+  async getCompletedForResultEdit() {
+    const cols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
+    const terminal = ['concluido', 'final', 'completed'];
+    const { data, error } = await supabase
+      .from('games')
+      .select(cols)
+      .in('status', terminal)
+      .order('starts_at', { ascending: false });
+    if (error) {
+      console.error('[GamesService.getCompletedForResultEdit] Supabase error:', error?.message);
+      return [];
+    }
+    return (data ?? []).map((g: Record<string, unknown>) => this._normalizeGame(g));
   },
 
   /**

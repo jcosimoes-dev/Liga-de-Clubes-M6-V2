@@ -8,6 +8,7 @@ import { normalizePhoneForDb } from '../lib/phone';
 import { Trophy, X, Save, Trash2, Mail, KeyRound, Pencil, ArrowLeftRight, ArrowLeft, ArrowRight, Lock, Check, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayerRoles, PreferredSides, validatePreferredSide, validateRole, type PreferredSide, type PlayerRole } from '../domain/constants';
+import { roundLigaPointsTotal } from '../domain/ligaPointsEliminatoria';
 
 const TEAM_LOAD_ERROR_MSG = 'Erro ao carregar equipa. Verifica as permissões de Admin';
 
@@ -140,7 +141,7 @@ export function TeamScreen() {
       phone: normalizePhoneForDb(editForm.phone) ?? (editForm.phone.trim() || null),
     };
     if (canDo('edit_other_player')) {
-      profileUpdates.liga_points = Number.isFinite(editForm.liga_points) ? Math.trunc(editForm.liga_points) : 0;
+      profileUpdates.liga_points = Number.isFinite(editForm.liga_points) ? roundLigaPointsTotal(editForm.liga_points) : 0;
     }
 
     setSaving(true);
@@ -428,8 +429,13 @@ export function TeamScreen() {
                     <Input
                       label="Pontos Liga (Liga M6)"
                       type="number"
+                      step="0.01"
                       value={editForm.liga_points}
-                      onChange={(e) => setEditForm({ ...editForm, liga_points: parseInt(e.target.value, 10) || 0 })}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const n = parseFloat(v);
+                        setEditForm({ ...editForm, liga_points: v === '' || Number.isNaN(n) ? 0 : n });
+                      }}
                     />
                     <Input
                       label="Pontos Federação (FPP)"

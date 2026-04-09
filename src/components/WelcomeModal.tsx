@@ -41,7 +41,7 @@ const GUIDES = [
   {
     icon: Trophy,
     title: 'Pontos',
-    text: 'Vitória = 10 pts | Presença = 3 pts. O teu Total soma os pontos da Liga + FPP.',
+    text: 'Pontos da Liga dependem do resultado da equipa na eliminatória e se jogaste (valores como 9,38 ou 3,13). O Total soma Liga + FPP.',
   },
 ] as const;
 

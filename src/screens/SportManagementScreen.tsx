@@ -8,12 +8,13 @@ import {
   confirmedPairCountFromPlayers,
   pairSlotsForConvocatory,
 } from '../domain/registrationLimits';
-import { useAuth, RESTRICTED_COORDINATION_MSG } from '../contexts/AuthContext';
+import { useAuth, RESTRICTED_COORDINATION_MSG, canAction } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
 import { GamesService, AvailabilitiesService, PairsService, PlayersService, ResultsService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints } from '../services';
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
+import { invalidateOpenGamesListCaches } from '../lib/openGamesInvalidate';
 import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { Plus, Calendar, Users, Lock, RefreshCw, Loader2, Pencil, AlertTriangle, Medal, Trophy, BarChart2, UserCheck, MessageCircle, Trash2, Check, Circle, TrendingUp, Settings, ClipboardList, ClipboardCheck } from 'lucide-react';
 import {
@@ -65,6 +66,60 @@ const OWNER_EMAIL = 'jco.simoes@gmail.com';
 const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 const isOwnerEmail = (email: string | null | undefined) =>
   (email ?? '').trim().toLowerCase() === OWNER_EMAIL;
+
+/** Jogo já terminado — só admin/coordenador podem voltar a gravar resultados. */
+function isTerminalGameStatus(status: string | null | undefined): boolean {
+  const s = String(status ?? '').trim().toLowerCase();
+  return s === 'concluido' || s === 'final' || s === 'completed';
+}
+
+const OPEN_CONVOCATION_STATUSES = new Set([
+  'draft',
+  'convocatoria_aberta',
+  'open',
+  'agendado',
+  'scheduled',
+  'pendente',
+  'pending',
+  'aberto',
+]);
+
+function isOpenConvocationStatus(status: string | null | undefined): boolean {
+  return OPEN_CONVOCATION_STATUSES.has(String(status ?? '').trim().toLowerCase());
+}
+
+function formatGameCardDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('pt-PT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return String(iso);
+  }
+}
+
+/** Badge alinhado com `game.status` (o texto fixo "Aberto" enganava para jogos agendados ou já fora do fluxo). */
+function openConvocationCardBadge(
+  game: { status?: string | null },
+  isPastDate: boolean
+): { label: string; variant: 'success' | 'warning' | 'gray' } {
+  const s = String(game.status ?? '').trim().toLowerCase();
+  if (s === 'draft') {
+    return { label: 'Rascunho', variant: 'gray' };
+  }
+  if (['agendado', 'scheduled', 'pendente', 'pending'].includes(s)) {
+    return { label: 'Agendado', variant: 'gray' };
+  }
+  if (isPastDate && (s === 'convocatoria_aberta' || s === 'open' || s === 'aberto')) {
+    return { label: 'Aberto — data passada', variant: 'warning' };
+  }
+  return { label: 'Aberto', variant: 'success' };
+}
 
 export function SportManagementScreen() {
   const { player, user, canManageSport, role, loading: authLoading, canDo } = useAuth();
@@ -129,6 +184,10 @@ export function SportManagementScreen() {
   const [resultFormSaving, setResultFormSaving] = useState(false);
   const [resultFormConfirmOpen, setResultFormConfirmOpen] = useState(false);
   const [resultFormLoading, setResultFormLoading] = useState(false);
+  const [completedGamesForReedit, setCompletedGamesForReedit] = useState<any[]>([]);
+  const [completedGamesReeditLoading, setCompletedGamesReeditLoading] = useState(false);
+
+  const canReeditCompletedResults = player ? canAction(player, role, 'reedit_completed_results') : false;
 
   const hasRestoredConvocationRef = useRef(false);
   const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
@@ -236,13 +295,31 @@ export function SportManagementScreen() {
 
   // Carregar jogos/dashboard só ao entrar na gestão. Não refazer quando player/team_id muda (ex.: sync de outro separador)
   // para não resetar o ecrã de Convocatória Aberta enquanto o Admin envia notificações WhatsApp.
+  const loadCompletedGamesForReedit = async () => {
+    setCompletedGamesReeditLoading(true);
+    try {
+      const games = await GamesService.getCompletedForResultEdit();
+      setCompletedGamesForReedit(Array.isArray(games) ? games : []);
+    } catch {
+      showToast('Erro ao carregar jogos concluídos', 'error');
+      setCompletedGamesForReedit([]);
+    } finally {
+      setCompletedGamesReeditLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (canManageSport) {
       loadOpenGames();
       loadClosedGames();
       loadDashboard();
+      if (canReeditCompletedResults) {
+        loadCompletedGamesForReedit();
+      } else {
+        setCompletedGamesForReedit([]);
+      }
     }
-  }, [canManageSport]);
+  }, [canManageSport, canReeditCompletedResults, player?.id, role]);
 
   /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
   useEffect(() => {
@@ -553,18 +630,43 @@ export function SportManagementScreen() {
       .sort((a, b) => b.total - a.total);
   }, [pairs, availablePlayers]);
 
-  const loadOpenGames = async () => {
-    setGamesLoading(true);
+  /** Funde a linha devolvida pelo servidor na lista e no jogo selecionado (atualização imediata antes do refetch). */
+  const mergeUpdatedGameIntoConvocatoryState = (patch: Record<string, unknown> | null | undefined) => {
+    if (!patch || typeof patch !== 'object' || !patch.id) return;
+    const id = String(patch.id);
+    setOpenGames((prev) => prev.map((g: any) => (g.id === id ? { ...g, ...patch } : g)));
+    setSelectedGame((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  const loadOpenGames = async (opts?: { showLoading?: boolean }): Promise<any[]> => {
+    const showSpinner = opts?.showLoading !== false;
+    if (showSpinner) setGamesLoading(true);
     try {
+      if (showSpinner) {
+        await GamesService.backfillConcluidoFromResults();
+      }
       const games = await GamesService.getOpenGames(true);
-      setOpenGames(games);
+      const list = Array.isArray(games) ? games : [];
+      setOpenGames(list);
+      return list;
     } catch (e) {
       showToast('Erro ao carregar jogos', 'error');
       setOpenGames([]);
+      return [];
     } finally {
-      setGamesLoading(false);
+      if (showSpinner) setGamesLoading(false);
     }
   };
+
+  /** Mantém o painel da convocatória igual ao item da lista (inclui adversário após editar). */
+  useEffect(() => {
+    if (openGames.length === 0) return;
+    setSelectedGame((prev) => {
+      if (!prev?.id) return prev;
+      const fresh = openGames.find((g: any) => g.id === prev.id);
+      return fresh ?? prev;
+    });
+  }, [openGames]);
 
   const loadAvailablePlayers = async (gameId: string) => {
     try {
@@ -649,6 +751,18 @@ export function SportManagementScreen() {
   const handleSaveResultConfirm = async () => {
     const game = selectedGameForResult;
     if (!game?.id || !player?.user_id) return;
+    const terminal = isTerminalGameStatus(game.status);
+    if (terminal) {
+      if (!canDo('reedit_completed_results')) {
+        setResultFormConfirmOpen(false);
+        showToast('Apenas Administração ou Coordenação podem alterar resultados de jogos já concluídos.', 'error');
+        return;
+      }
+    } else if (!canDo('register_results')) {
+      setResultFormConfirmOpen(false);
+      showToast('Sem permissão para registar resultados.', 'error');
+      return;
+    }
     setResultFormConfirmOpen(false);
     setResultFormSaving(true);
     try {
@@ -674,11 +788,13 @@ export function SportManagementScreen() {
             : {}),
         });
       }
-      await GamesService.complete(game.id);
+      if (!terminal) {
+        await GamesService.complete(game.id);
+      }
       const isLigaGame = getCategoryFromPhase((game as { phase?: string | null }).phase) === 'Liga';
       if (isLigaGame) {
         await syncPlayerPoints(player?.team_id ?? game?.team_id ?? undefined);
-        showToast('Resultados guardados. Pontos da Liga atualizados (10 vitória / 3 derrota).', 'success');
+        showToast('Resultados guardados. Pontos da Liga atualizados (regras de eliminatória).', 'success');
       } else {
         showToast('Resultados guardados. Este tipo de jogo não altera o ranking / pontos da Liga.', 'success');
       }
@@ -686,6 +802,7 @@ export function SportManagementScreen() {
       setResultPairs([]);
       setResultFormResults({});
       await loadClosedGames();
+      if (canReeditCompletedResults) await loadCompletedGamesForReedit();
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Erro ao gravar resultados', 'error');
     } finally {
@@ -840,6 +957,7 @@ export function SportManagementScreen() {
       await loadOpenGames();
       await loadClosedGames();
       await loadDashboard();
+      invalidateOpenGamesListCaches();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao fechar convocatória';
       showToast(msg, 'error');
@@ -938,6 +1056,7 @@ export function SportManagementScreen() {
         setGameError('');
         await loadOpenGames();
         await loadClosedGames();
+        invalidateOpenGamesListCaches();
         showToast('Jogo criado. A lista foi atualizada.', 'success');
       } else {
         setGameError(errorMessage);
@@ -1616,8 +1735,12 @@ export function SportManagementScreen() {
           ) : openGames.length === 0 ? (
             <div className="text-center py-6">
               <Lock className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-gray-600 font-medium">{effectiveTeamId ? 'Sem jogos em aberto' : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}</p>
-              <p className="text-xs text-gray-500 mt-1">{effectiveTeamId ? 'Cria um jogo acima para abrir convocatória' : 'Vai ao Painel Admin para criar a equipa e os jogadores.'}</p>
+              <p className="text-gray-600 font-medium">Sem jogos em aberto ou agendados nesta lista.</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Cria um jogo acima para abrir convocatória.
+                {!effectiveTeamId && ' Sem equipa no perfil, associa uma no Painel Admin.'} Se vês jogos no
+                Calendário mas não aqui, recarrega a página (a lista pode ter falhado a carregar).
+              </p>
             </div>
           ) : (
             <div className={GRID_CLASSES}>
@@ -1626,9 +1749,11 @@ export function SportManagementScreen() {
                 const styles = CATEGORY_STYLES[cat];
                 const isPastDate = new Date(game.starts_at) < new Date();
                 const isSameGame = selectedGame?.id === game.id;
+                const statusBadge = openConvocationCardBadge(game, isPastDate);
+                const cardKey = `${game.id}:${game.starts_at}:${String(game.location ?? '')}:${String(game.opponent ?? '')}`;
                 return (
                   <div
-                    key={game.id}
+                    key={cardKey}
                     role="button"
                     tabIndex={0}
                     onClick={() => {
@@ -1709,7 +1834,10 @@ export function SportManagementScreen() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!canDo('edit_game')) {
+                          const canEditSchedule =
+                            canDo('edit_game') ||
+                            (isOpenConvocationStatus(game.status) && canDo('open_convocation'));
+                          if (!canEditSchedule) {
                             showToast(RESTRICTED_COORDINATION_MSG, 'error');
                             return;
                           }
@@ -1732,9 +1860,11 @@ export function SportManagementScreen() {
                     </div>
                     <div className="p-3 bg-white">
                       <span className="text-xs text-gray-600">
-                        {new Date(game.starts_at).toLocaleDateString('pt-PT')} — {game.location}
+                        {formatGameCardDateTime(game.starts_at)} — {game.location}
                       </span>
-                      <Badge variant="success" className="mt-2">Aberto</Badge>
+                      <Badge variant={statusBadge.variant} className="mt-2">
+                        {statusBadge.label}
+                      </Badge>
                     </div>
                   </div>
                 );
@@ -1747,7 +1877,8 @@ export function SportManagementScreen() {
               <div className="flex items-center justify-between gap-4 mb-4">
                 <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
                   <Users className="w-5 h-5" />
-                  Convocatória aberta — {selectedGame.opponent || 'Jogo'}
+                  Convocatória aberta —{' '}
+                  {GamesService.formatOpponentDisplay(selectedGame.opponent) || selectedGame.opponent || 'Jogo'}
                 </h3>
                 <button
                   type="button"
@@ -2032,55 +2163,103 @@ export function SportManagementScreen() {
           }
         >
           <p className="text-sm text-gray-600 mb-4">
-            Regista os parciais (sets) dos jogos com convocatória já fechada. O card só está ativo quando o jogo tem duplas definidas ou a data já passou. Após gravar, o jogo fica <strong>Finalizado</strong> e os pontos (10 vitória / 3 derrota) são atualizados automaticamente.
+            Regista os parciais (sets) dos jogos com convocatória fechada. Antes de gravar, deves <strong>confirmar</strong> no diálogo. O estado do jogo passa a <strong>concluído</strong> e os pontos da Liga (resultado da equipa × jogaste ou não × resultado da tua dupla) são atualizados. Jogos já concluídos só podem ser reeditados por <strong>Administração ou Coordenação</strong>.
           </p>
 
-          {closedGamesLoading ? (
+          {closedGamesLoading || (canReeditCompletedResults && completedGamesReeditLoading) ? (
             <Loading text="A carregar jogos..." />
-          ) : closedGames.length === 0 ? (
-            <p className="text-sm text-gray-500">{effectiveTeamId ? 'Nenhum jogo com convocatória fechada para registar resultado.' : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}</p>
+          ) : closedGames.length === 0 &&
+            (!canReeditCompletedResults || completedGamesForReedit.length === 0) ? (
+            <p className="text-sm text-gray-500">
+              {effectiveTeamId
+                ? 'Nenhum jogo disponível para registar ou corrigir resultados.'
+                : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}
+            </p>
           ) : (
-            <div className="space-y-4">
-              <div className={GRID_CLASSES}>
-                {closedGames.map((game: any) => {
-                  const cat = getCategoryFromPhase(game.phase);
-                  const styles = CATEGORY_STYLES[cat];
-                  const isPastDate = new Date(game.starts_at) < new Date();
-                  const isSelected = selectedGameForResult?.id === game.id;
-                  return (
-                    <button
-                      key={game.id}
-                      type="button"
-                      onClick={() => setSelectedGameForResult(isSelected ? null : game)}
-                      className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all hover:shadow-xl ${
-                        isSelected ? 'ring-2 ring-offset-2 ring-emerald-500 border-emerald-500' : isPastDate ? 'border-amber-400 bg-amber-50/30' : 'border-transparent'
-                      }`}
-                    >
-                      <div className={`px-3 py-2 ${styles.headerGradient} text-white text-sm font-semibold`}>
-                        {GamesService.formatOpponentDisplay(game.opponent)}
-                      </div>
-                      <div className="p-3 bg-white">
-                        <span className="text-xs text-gray-600">
-                          {new Date(game.starts_at).toLocaleDateString('pt-PT')} — {game.location}
-                        </span>
-                        {isPastDate && (
-                          <div className="mt-2 flex items-center gap-1 text-amber-700 text-xs font-medium">
-                            <AlertTriangle className="w-3.5 h-3.5" />
-                            Data passada
+            <div className="space-y-6">
+              {closedGames.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-800 mb-2">Convocatória fechada — primeiro registo</p>
+                  <div className={GRID_CLASSES}>
+                    {closedGames.map((game: any) => {
+                      const cat = getCategoryFromPhase(game.phase);
+                      const styles = CATEGORY_STYLES[cat];
+                      const isPastDate = new Date(game.starts_at) < new Date();
+                      const isSelected = selectedGameForResult?.id === game.id;
+                      return (
+                        <button
+                          key={game.id}
+                          type="button"
+                          onClick={() => setSelectedGameForResult(isSelected ? null : game)}
+                          className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all hover:shadow-xl ${
+                            isSelected ? 'ring-2 ring-offset-2 ring-emerald-500 border-emerald-500' : isPastDate ? 'border-amber-400 bg-amber-50/30' : 'border-transparent'
+                          }`}
+                        >
+                          <div className={`px-3 py-2 ${styles.headerGradient} text-white text-sm font-semibold`}>
+                            {GamesService.formatOpponentDisplay(game.opponent)}
                           </div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                          <div className="p-3 bg-white">
+                            <span className="text-xs text-gray-600">
+                              {new Date(game.starts_at).toLocaleDateString('pt-PT')} — {game.location}
+                            </span>
+                            {isPastDate && (
+                              <div className="mt-2 flex items-center gap-1 text-amber-700 text-xs font-medium">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                Data passada
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {canReeditCompletedResults && completedGamesForReedit.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-800 mb-1">Jogos concluídos — correção de resultados</p>
+                  <p className="text-xs text-gray-500 mb-2">Apenas Administração e Coordenação podem alterar estes resultados.</p>
+                  <div className={GRID_CLASSES}>
+                    {completedGamesForReedit.map((game: any) => {
+                      const cat = getCategoryFromPhase(game.phase);
+                      const styles = CATEGORY_STYLES[cat];
+                      const isPastDate = new Date(game.starts_at) < new Date();
+                      const isSelected = selectedGameForResult?.id === game.id;
+                      return (
+                        <button
+                          key={`reedit-${game.id}`}
+                          type="button"
+                          onClick={() => setSelectedGameForResult(isSelected ? null : game)}
+                          className={`relative text-left rounded-xl overflow-hidden shadow-lg border-2 transition-all hover:shadow-xl ${
+                            isSelected ? 'ring-2 ring-offset-2 ring-emerald-500 border-emerald-500' : isPastDate ? 'border-amber-400 bg-amber-50/30' : 'border-transparent'
+                          }`}
+                        >
+                          <div className={`px-3 py-2 ${styles.headerGradient} text-white text-sm font-semibold flex items-center justify-between gap-2`}>
+                            <span>{GamesService.formatOpponentDisplay(game.opponent)}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wide bg-white/20 px-1.5 py-0.5 rounded">Concluído</span>
+                          </div>
+                          <div className="p-3 bg-white">
+                            <span className="text-xs text-gray-600">
+                              {new Date(game.starts_at).toLocaleDateString('pt-PT')} — {game.location}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {selectedGameForResult && (
                 <div className="mt-6 pt-6 border-t border-gray-200 rounded-xl border border-gray-200 overflow-hidden shadow-md bg-white">
                   <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 border-b border-gray-200">
-                    <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                    <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
                       <ClipboardCheck className="w-5 h-5 text-emerald-600" />
                       Resultados — {selectedGameForResult.opponent || 'Jogo'}
+                      {isTerminalGameStatus(selectedGameForResult.status) && (
+                        <span className="text-xs font-semibold text-violet-700 bg-violet-100 px-2 py-0.5 rounded-md">Correção</span>
+                      )}
                     </h3>
                     <button
                       type="button"
@@ -2212,6 +2391,19 @@ export function SportManagementScreen() {
                           className="mt-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg rounded-xl font-semibold"
                           disabled={resultFormSaving}
                           onClick={() => {
+                            const g = selectedGameForResult;
+                            if (g && isTerminalGameStatus(g.status)) {
+                              if (!canDo('reedit_completed_results')) {
+                                showToast(
+                                  'Apenas Administração ou Coordenação podem corrigir resultados de jogos concluídos.',
+                                  'error'
+                                );
+                                return;
+                              }
+                            } else if (g && !canDo('register_results')) {
+                              showToast('Sem permissão para registar resultados.', 'error');
+                              return;
+                            }
                             const is66 = (c: number | null | undefined, f: number | null | undefined) =>
                               c === 6 && f === 6;
                             for (const pair of resultPairs) {
@@ -2250,8 +2442,16 @@ export function SportManagementScreen() {
 
           <ConfirmDialog
             isOpen={resultFormConfirmOpen}
-            title="Confirmar gravação"
-            message="Tem a certeza de que os dados estão corretos? O jogo ficará Finalizado e os pontos (10 vitória / 3 derrota) serão atualizados."
+            title={
+              selectedGameForResult && isTerminalGameStatus(selectedGameForResult.status)
+                ? 'Confirmar correção'
+                : 'Confirmar gravação'
+            }
+            message={
+              selectedGameForResult && isTerminalGameStatus(selectedGameForResult.status)
+                ? 'Confirma a atualização destes resultados? Os pontos da Liga (regras de eliminatória) serão recalculados.'
+                : 'Confirma a gravação? O jogo ficará com estado Concluído e os pontos da Liga serão atualizados. Verifica os parciais antes de continuar.'
+            }
             confirmText="Gravar"
             cancelText="Cancelar"
             variant="warning"
@@ -2539,6 +2739,7 @@ export function SportManagementScreen() {
               await loadOpenGames();
               await loadClosedGames();
               await loadDashboard();
+              invalidateOpenGamesListCaches();
               showToast('Convocatória eliminada. A lista e o Ranking foram atualizados.', 'success');
             } catch (e) {
               showToast(e instanceof Error ? e.message : 'Erro ao eliminar convocatória.', 'error');
@@ -2553,12 +2754,20 @@ export function SportManagementScreen() {
           isOpen={!!gameToEdit}
           game={gameToEdit}
           onClose={() => setGameToEdit(null)}
-          onSuccess={async () => {
-            await loadOpenGames();
+          onSuccess={async (updated) => {
+            const editedId = updated?.id ?? gameToEdit?.id;
+            if (updated) {
+              mergeUpdatedGameIntoConvocatoryState(updated as Record<string, unknown>);
+            }
+            const freshOpen = await loadOpenGames({ showLoading: false });
+            if (editedId) {
+              const g = freshOpen.find((x: any) => x.id === editedId);
+              if (g) setSelectedGame(g);
+            }
             await loadClosedGames();
             await loadDashboard();
+            invalidateOpenGamesListCaches();
             showToast('Jogo atualizado com sucesso', 'success');
-            setGameToEdit(null);
           }}
         />
 

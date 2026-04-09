@@ -6,6 +6,7 @@ import { useAuth, RESTRICTED_COORDINATION_MSG, RESTRICTED_ADMIN_MSG } from '../c
 import { useNavigation } from '../contexts/NavigationContext';
 import { GamesService } from '../services';
 import { supabase } from '../lib/supabase';
+import { OPEN_GAMES_INVALIDATE_EVENT } from '../lib/openGamesInvalidate';
 import { Calendar, MapPin, Users, Trophy, UserCircle } from 'lucide-react';
 
 type OpenGamesTab = 'liga' | 'outros';
@@ -32,6 +33,21 @@ export function HomeScreen({ accessDenied, accessDeniedAdmin }: { accessDenied?:
   );
   const filteredOpenGames = openGamesTab === 'liga' ? ligaGames : outrosGames;
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
+
+  useEffect(() => {
+    const onOpenGamesInvalidate = () => {
+      void (async () => {
+        try {
+          const open = await GamesService.getOpenGames();
+          setOpenGames(open ?? []);
+        } catch {
+          setOpenGames([]);
+        }
+      })();
+    };
+    window.addEventListener(OPEN_GAMES_INVALIDATE_EVENT, onOpenGamesInvalidate);
+    return () => window.removeEventListener(OPEN_GAMES_INVALIDATE_EVENT, onOpenGamesInvalidate);
+  }, []);
 
   useEffect(() => {
     if (accessDeniedAdmin || route.params?.accessDeniedAdmin) {

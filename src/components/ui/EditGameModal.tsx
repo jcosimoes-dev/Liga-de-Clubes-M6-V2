@@ -11,13 +11,16 @@ export type GameForEdit = {
   status?: string;
   phase?: string;
   end_date?: string | null;
+  opponent?: string | null;
+  round_number?: number;
 };
 
 interface EditGameModalProps {
   isOpen: boolean;
   game: GameForEdit | null;
   onClose: () => void;
-  onSuccess: () => void;
+  /** Recebe a linha devolvida pelo UPDATE (PostgREST); o pai deve fundir na lista e/ou refetch. */
+  onSuccess: (updated: GameForEdit | null) => void | Promise<void>;
 }
 
 /** Converte ISO string para valor datetime-local (yyyy-MM-ddThh:mm). */
@@ -54,6 +57,7 @@ function isTorneioOrMix(phase: string | undefined): boolean {
  */
 export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModalProps) {
   const [startsAt, setStartsAt] = useState('');
+  const [opponent, setOpponent] = useState('');
   const [location, setLocation] = useState('');
   const [isMultiDayEvent, setIsMultiDayEvent] = useState(false);
   const [startDateOnly, setStartDateOnly] = useState('');
@@ -61,12 +65,14 @@ export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModa
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const isCompleted = game?.status && COMPLETED_STATUSES.includes(game.status);
+  const isCompleted =
+    Boolean(game?.status) && COMPLETED_STATUSES.includes(String(game?.status ?? ''));
   const canMultiDay = game && isTorneioOrMix(game.phase);
 
   useEffect(() => {
     if (game && isOpen) {
       setStartsAt(toDatetimeLocal(game.starts_at));
+      setOpponent(game.opponent ?? '');
       setLocation(game.location ?? '');
       const hasEnd = game.end_date && String(game.end_date).trim() && String(game.end_date) !== 'null';
       const multi = canMultiDay && hasEnd;
@@ -83,21 +89,48 @@ export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModa
     setError('');
     setSaving(true);
     try {
-      const loc = location.trim();
-      const payload: { starts_at?: string; end_date?: string | null; location?: string } = {};
-      if (loc) payload.location = loc;
+      const payload: {
+        starts_at?: string;
+        end_date?: string | null;
+        location?: string;
+        opponent?: string;
+      } = {
+        location: location.trim(),
+        opponent: (opponent.trim() || (game.opponent ?? '').trim() || 'Jogo').trim(),
+      };
 
-      if (canMultiDay && isMultiDayEvent && startDateOnly && endDateOnly) {
+      if (canMultiDay && isMultiDayEvent) {
+        if (!startDateOnly || !endDateOnly) {
+          setError('Preenche a data de início e a data de fim.');
+          setSaving(false);
+          return;
+        }
         payload.starts_at = new Date(startDateOnly + 'T00:00:00').toISOString();
         payload.end_date = endDateOnly.trim().split('T')[0] || null;
       } else {
-        const iso = startsAt ? new Date(startsAt).toISOString() : undefined;
-        if (iso) payload.starts_at = iso;
+        if (!startsAt) {
+          setError('Indica a data e hora do jogo.');
+          setSaving(false);
+          return;
+        }
+        const d = new Date(startsAt);
+        if (Number.isNaN(d.getTime())) {
+          setError('Data ou hora inválida.');
+          setSaving(false);
+          return;
+        }
+        payload.starts_at = d.toISOString();
         if (canMultiDay && !isMultiDayEvent) payload.end_date = null;
       }
 
-      await GamesService.updateGame(game.id, payload);
-      onSuccess();
+      const updated = await GamesService.updateGame(game.id, payload);
+      if (!updated) {
+        setError(
+          'Não foi possível confirmar a gravação (a BD pode não ter devolvido a linha). Confirma permissões ou define VITE_SUPABASE_SERVICE_ROLE_KEY no .env.local para gravar como na Gestão de resultados.'
+        );
+        return;
+      }
+      await Promise.resolve(onSuccess(updated as GameForEdit | null));
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao guardar.');
@@ -184,6 +217,15 @@ export function EditGameModal({ isOpen, game, onClose, onSuccess }: EditGameModa
               disabled={isCompleted}
             />
           )}
+
+          <Input
+            label="Adversário / Nome do jogo"
+            type="text"
+            value={opponent}
+            onChange={(e) => setOpponent(e.target.value)}
+            placeholder="Ex.: Clube A vs Clube B"
+            disabled={isCompleted}
+          />
 
           <Input
             label="Localização / Campo"
