@@ -1,35 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
+import { getSupabasePublicConfig } from "./supabasePublicEnv";
 
-function readSupabaseEnv(key: "VITE_SUPABASE_URL" | "VITE_SUPABASE_ANON_KEY"): string | undefined {
-  try {
-    const im = import.meta as unknown as { env?: Record<string, string | undefined> };
-    const v = im.env?.[key];
-    if (typeof v === "string" && v.trim() !== "") return v;
-  } catch {
-    /* sem import.meta (ex.: alguns runners) */
-  }
-  if (typeof process !== "undefined" && process.env) {
-    if (key === "VITE_SUPABASE_URL") {
-      return process.env.VITE_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim() || undefined;
-    }
-    return process.env.VITE_SUPABASE_ANON_KEY?.trim() || process.env.SUPABASE_ANON_KEY?.trim() || undefined;
-  }
-  return undefined;
-}
-
-const supabaseUrl = readSupabaseEnv("VITE_SUPABASE_URL");
-const supabaseAnonKey = readSupabaseEnv("VITE_SUPABASE_ANON_KEY");
-
-if (!supabaseUrl) {
+const _cfg = getSupabasePublicConfig();
+if (!_cfg) {
   throw new Error(
-    "Falta VITE_SUPABASE_URL (ou SUPABASE_URL). Em produção (Vercel), define-a nas Environment Variables e faz redeploy.",
+    "Faltam URL e anon key do Supabase. Na Vercel define VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY (ou SUPABASE_URL e SUPABASE_ANON_KEY) e faz redeploy.",
   );
 }
-if (!supabaseAnonKey) {
-  throw new Error(
-    "Falta VITE_SUPABASE_ANON_KEY (ou SUPABASE_ANON_KEY). Em produção (Vercel), define-a nas Environment Variables e faz redeploy.",
-  );
-}
+const supabaseUrl = _cfg.url;
+const supabaseAnonKey = _cfg.anonKey;
 
 // Supabase client: storageKey nova para não reutilizar sessão antiga do Chrome (localStorage).
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

@@ -2,7 +2,7 @@
  * Vite / PWA — v1.8.0
  * - chunkFileNames + entryFileNames com carimbo de build (Rollup não suporta [timestamp] literal).
  */
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -32,7 +32,17 @@ function vitePluginSpaFallback() {
 const VITE_BUILD_STAMP = String(Date.now());
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  /** Variáveis sem prefixo VITE_ não são expostas ao cliente; injetamos só URL + anon (públicos). */
+  const env = loadEnv(mode, process.cwd(), '');
+  const supabaseUrlFallback = env.SUPABASE_URL ?? '';
+  const supabaseAnonFallback = env.SUPABASE_ANON_KEY ?? '';
+
+  return {
+  define: {
+    'import.meta.env.SUPABASE_URL': JSON.stringify(supabaseUrlFallback),
+    'import.meta.env.SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonFallback),
+  },
   build: {
     rollupOptions: {
       output: {
@@ -129,5 +139,6 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+};
 });
 // Build Force v1.8.0.

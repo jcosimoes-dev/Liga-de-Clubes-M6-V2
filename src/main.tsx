@@ -3,15 +3,13 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import { DeploymentConfigError } from './components/DeploymentConfigError';
 import { RootErrorBoundary } from './components/RootErrorBoundary';
+import { isSupabasePublicEnvReady } from './lib/supabasePublicEnv';
 
 /**
- * Variáveis têm de existir no build da Vercel (Environment Variables).
- * Se falarem, não importar App (evita throw em supabase.ts = página em branco).
+ * URL + anon key têm de existir no bundle (VITE_* ou SUPABASE_* injetados no build — ver vite.config).
  */
 function hasSupabaseBuildEnv(): boolean {
-  const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
-  const key = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
-  return Boolean(url && key);
+  return isSupabasePublicEnvReady();
 }
 
 async function bootstrap(): Promise<void> {
