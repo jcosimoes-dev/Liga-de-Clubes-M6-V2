@@ -7,9 +7,10 @@ import { supabase } from '../lib/supabase';
 import { getAuthErrorMessage, MIN_PASSWORD_LENGTH } from '../lib/authErrors';
 import { normalizePhoneForDb } from '../lib/phone';
 import { PlayerRoles, PreferredSides, validatePreferredSide, type PreferredSide } from '../domain/constants';
+import { OFFICIAL_M6_TEAM_ID } from '../domain/teamConstants';
 
 /** ID da equipa principal (FK teams). Usado no registo de novos jogadores. */
-const DEFAULT_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
+const DEFAULT_TEAM_ID = OFFICIAL_M6_TEAM_ID;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isValidTeamId(id: string | null | undefined): boolean {

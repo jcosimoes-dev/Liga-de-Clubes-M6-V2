@@ -68,12 +68,11 @@ const DEFAULT_TEAM_ID = '00000000-0000-0000-0000-000000000001';
 /** Hardcoded Admin for project owner. Este e-mail recebe sempre role 'admin', ignorando a BD. */
 const HARDCODED_ADMIN_EMAIL = 'jco.simoes@gmail.com';
 
-/** Aplica role admin e team_id null para o dono do projeto, ignorando a BD. Garante acesso total mesmo sem equipa. */
+/** Aplica role admin ao dono do projeto; mantém `team_id` da BD para dashboards usarem a equipa real (M6). */
 function applyHardcodedAdmin(profile: Player | null, email: string | null | undefined): Player | null {
   const isOwner = (email ?? '').trim().toLowerCase() === HARDCODED_ADMIN_EMAIL;
-  // Hardcoded Admin for project owner: role = admin, team_id = null (limpa equipa antiga 75782791... para evitar 404).
   if (isOwner && profile) {
-    return { ...profile, role: PlayerRoles.admin, team_id: null };
+    return { ...profile, role: PlayerRoles.admin };
   }
   return profile;
 }

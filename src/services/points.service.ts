@@ -4,6 +4,9 @@ import { GESTOR_HIDE_EMAIL } from '../lib/gestorFilter';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
 import { computeLigaPointsForEliminatoriaGame, roundLigaPointsTotal } from '../domain/ligaPointsEliminatoria';
 import { updatePlayerLigaPoints } from './adminAuth';
+import { PlayerRoles } from '../domain/constants';
+
+export { OFFICIAL_M6_TEAM_ID } from '../domain/teamConstants';
 
 /** Opções do recálculo automático de `liga_points`. */
 export interface SyncPlayerPointsOptions {
@@ -23,9 +26,6 @@ const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed', 'closed'] as con
 /** Statuses para o card Performance da Equipa (jogos que contam para V-D-F). */
 const STATUS_TEAM_PERFORMANCE = ['final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
 
-/** ID oficial da equipa M6 (último fallback se a BD não tiver jogos/equipas). */
-export const OFFICIAL_M6_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
-
 const LOG_PREFIX = '[Points]';
 
 /** Diagnóstico Performance / Gestão Técnica — filtra a consola por esta string. */
@@ -36,36 +36,13 @@ function isDeadOrEmptyTeamId(teamId: string | null | undefined): boolean {
 }
 
 /**
- * Resolve o UUID da equipa para o dashboard: perfil → último jogo na BD → primeira equipa → constante M6.
- * Evita listas vazias quando o UUID hardcoded não coincide com o `team_id` real dos jogos/jogadores.
+ * Resolve o UUID da equipa para o dashboard: apenas o `team_id` do perfil do utilizador.
+ * Não inferir a partir de jogos/jogadores aleatórios nem de constantes — isso misturava dados de teste / outras equipas.
  */
 export async function resolveDashboardTeamId(preferredTeamId?: string | null): Promise<string | undefined> {
   const p = typeof preferredTeamId === 'string' ? preferredTeamId.trim() : '';
   if (p) return p;
-
-  const { data: fromGame, error: gameErr } = await supabase
-    .from('games')
-    .select('team_id')
-    .not('team_id', 'is', null)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!gameErr && fromGame?.team_id) return fromGame.team_id;
-  if (gameErr) console.warn(`${LOG_PREFIX} resolveDashboardTeamId jogos:`, gameErr);
-
-  const { data: fromPlayer, error: playerErr } = await supabase
-    .from('players')
-    .select('team_id')
-    .not('team_id', 'is', null)
-    .limit(1)
-    .maybeSingle();
-  if (!playerErr && fromPlayer?.team_id) return fromPlayer.team_id;
-
-  const { data: fromTeams } = await supabase.from('teams').select('id').limit(1).maybeSingle();
-  if (fromTeams?.id) return fromTeams.id;
-
-  return OFFICIAL_M6_TEAM_ID;
+  return undefined;
 }
 
 type PlayerRowForDashboard = {
@@ -74,25 +51,40 @@ type PlayerRowForDashboard = {
   email?: string | null;
   liga_points?: number | string | null;
   federation_points?: number | string | null;
+  is_active?: boolean | null;
+  role?: string | null;
 };
 
-/** Jogadores com `team_id` = equipa, ou (se vazio) quem aparece em duplas dos jogos dessa equipa. */
+/** Exclui administradores de contagem desportiva; ranking/época = só jogadores ativos na equipa. */
+function isEligibleSportRosterMember(p: { is_active?: boolean | null; role?: string | null }): boolean {
+  if (p.is_active !== true) return false;
+  const r = (p.role ?? '').trim().toLowerCase();
+  if (r === PlayerRoles.admin) return false;
+  return true;
+}
+
+/** Jogadores com `team_id` = equipa (ativos, não admin), ou fallback por duplas dos jogos dessa equipa. */
 async function fetchPlayersByTeamOrPairs(
   teamId: string,
   gameIdsForPairFallback: string[],
   columns: 'season' | 'ranking',
 ): Promise<PlayerRowForDashboard[]> {
-  const selectCols = columns === 'season' ? 'id, name, liga_points' : 'id, name, email, federation_points, liga_points';
+  const selectCols =
+    columns === 'season'
+      ? 'id, name, liga_points, is_active, role'
+      : 'id, name, email, federation_points, liga_points, is_active, role';
   const { data: byTeam, error: e1 } = await supabase
     .from('players')
     .select(selectCols)
     .eq('team_id', teamId)
+    .eq('is_active', true)
     .neq('email', GESTOR_HIDE_EMAIL);
   if (e1) {
     console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (team_id):`, e1);
     return [];
   }
-  if ((byTeam ?? []).length > 0) return (byTeam ?? []) as PlayerRowForDashboard[];
+  const teamList = ((byTeam ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
+  if (teamList.length > 0) return teamList;
 
   let gameIds = gameIdsForPairFallback;
   if (!gameIds.length) {
@@ -125,7 +117,7 @@ async function fetchPlayersByTeamOrPairs(
     console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (in id):`, e3);
     return [];
   }
-  return (byPairs ?? []) as PlayerRowForDashboard[];
+  return ((byPairs ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
 }
 
 /** Result row from DB (sets per pair) */
@@ -673,16 +665,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
       return list.sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
     }
     if (category === 'Geral') {
-      let players = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
-      if (players.length === 0) {
-        const { data: allP } = await supabase
-          .from('players')
-          .select('id, name, email, federation_points, liga_points')
-          .eq('is_active', true)
-          .neq('email', GESTOR_HIDE_EMAIL)
-          .limit(400);
-        players = (allP ?? []) as PlayerRowForDashboard[];
-      }
+      const players = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
       const readNum = (raw: number | string | null | undefined): number => {
         if (raw == null || raw === '') return 0;
         const n = Number(raw);
@@ -768,7 +751,14 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   const needAllTeamPlayers = category === 'Liga';
   let teamPlayerRows =
     needAllTeamPlayers
-      ? (await supabase.from('players').select('id').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL)).data ?? []
+      ? (await supabase
+          .from('players')
+          .select('id, role, is_active')
+          .eq('team_id', teamId)
+          .eq('is_active', true)
+          .neq('email', GESTOR_HIDE_EMAIL)).data?.filter((row) =>
+          isEligibleSportRosterMember(row as { is_active?: boolean | null; role?: string | null }),
+        ) ?? []
       : [];
   if (needAllTeamPlayers && teamPlayerRows.length === 0 && pairFallbackGameIds.length > 0) {
     const roster = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
@@ -788,10 +778,15 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
         )
       : null;
 
-  const { data: players } = await supabase
+  const { data: playersRaw } = await supabase
     .from('players')
-    .select('id, name, email, federation_points, liga_points')
+    .select('id, name, email, federation_points, liga_points, is_active, role')
     .in('id', ids);
+  const players = (playersRaw ?? []).filter((row) =>
+    isEligibleSportRosterMember(row as { is_active?: boolean | null; role?: string | null }),
+  );
+  const eligibleIdSet = new Set(players.map((p) => p.id));
+  const idsRanked = ids.filter((id) => eligibleIdSet.has(id));
 
   if (players?.[0]) {
     const lp0 = (players[0] as { liga_points?: unknown }).liga_points;
@@ -816,12 +811,12 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   const fedPointsMap = new Map((players ?? []).map((p) => [p.id, readNum((p as { federation_points?: number | string | null }).federation_points)]));
 
   if (useComputedLigaPoints && eliminatoriaTotals) {
-    for (const id of ids) {
+    for (const id of idsRanked) {
       ligaPointsMap.set(id, roundLigaPointsTotal(eliminatoriaTotals.get(id) ?? 0));
     }
   }
 
-  const out = ids
+  const out = idsRanked
     .filter((id) => !isGestor(id))
     .map((id) => {
       const s = playerStats.get(id) ?? { wins: 0, losses: 0 };
@@ -952,16 +947,7 @@ export async function getSeasonStats(
 
   /** Sem jogos na equipa: ainda mostrar plantel (disp/conv a zeros) para não parecer "sem equipa". */
   if (!allTeamGames?.length) {
-    let playersOnly = await fetchPlayersByTeamOrPairs(teamId, [], 'season');
-    if (playersOnly.length === 0) {
-      const { data: allP } = await supabase
-        .from('players')
-        .select('id, name, liga_points')
-        .eq('is_active', true)
-        .neq('email', GESTOR_HIDE_EMAIL)
-        .limit(400);
-      playersOnly = (allP ?? []) as PlayerRowForDashboard[];
-    }
+    const playersOnly = await fetchPlayersByTeamOrPairs(teamId, [], 'season');
     const readLigaOnly = (row: { liga_points?: number | string | null }): number => {
       const raw = row.liga_points;
       if (raw == null || raw === '') return 0;
@@ -1074,16 +1060,6 @@ export async function getSeasonStats(
     console.log(DIAG, 'getSeasonStats: tipo de liga_points (1.º jogador, vindo da BD)', typeof lp, lp);
   }
 
-  if (players.length === 0 && (allTeamGames?.length ?? 0) > 0) {
-    console.warn(`${LOG_PREFIX} getSeasonStats: sem plantel por team_id/pares; a usar jogadores ativos (modo clube único)`);
-    const { data: allP } = await supabase
-      .from('players')
-      .select('id, name, liga_points')
-      .eq('is_active', true)
-      .neq('email', GESTOR_HIDE_EMAIL)
-      .limit(400);
-    players = (allP ?? []) as PlayerRowForDashboard[];
-  }
   const pairsFinal = (pairsFinalRes as { data?: { id: string; game_id: string; player1_id: string; player2_id: string }[] }).data ?? [];
   const resultsFinal = (resultsFinalRes as { data?: ResultRow[] }).data ?? [];
 

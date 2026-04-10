@@ -12,7 +12,7 @@ import { config } from 'dotenv';
 config();
 config({ path: '.env.local' });
 
-const TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
+const TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
 /** Status 'final' existe na BD (Row); Insert pode não listar — usamos cast. */
 const GAME_STATUS_FINAL = 'final' as const;

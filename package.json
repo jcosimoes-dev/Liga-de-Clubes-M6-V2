@@ -14,7 +14,8 @@
     "list-auth-users": "tsx scripts/list-auth-users.ts",
     "sync-players-from-auth": "tsx scripts/sync-players-from-auth.ts",
     "seed-games-results": "tsx scripts/seed-games-results.ts",
-    "recalc-liga-jornada": "tsx scripts/recalc-liga-jornada.ts"
+    "recalc-liga-jornada": "tsx scripts/recalc-liga-jornada.ts",
+    "list-teams": "tsx scripts/list-teams.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

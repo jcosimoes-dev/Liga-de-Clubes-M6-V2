@@ -13,7 +13,7 @@ import { config } from 'dotenv';
 config();
 config({ path: '.env.local' });
 
-const TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
+const TEAM_ID = '00000000-0000-0000-0000-000000000001';
 const FEDERATION_POINTS_BASE = 0;
 const PREFERRED_SIDE = 'both';
 const ROLE_JOGADOR = 'jogador';

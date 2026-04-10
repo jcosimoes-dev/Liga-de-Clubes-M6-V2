@@ -88,17 +88,16 @@ function isTerminalGameStatus(status: string | null | undefined): boolean {
 const DASH_DIAG = '[DashboardDiag]';
 
 /**
- * UUID da equipa para queries do dashboard: explícito → estado React → `team_id` do perfil → equipa M6 oficial.
- * Sem isto, `dashboardTeamId` pode ficar indefinido até `resolveDashboardTeamId` terminar e o `useEffect`
- * nunca chama `loadDashboard` — ecrã "Sem dados" com `teamStats === null` e sem loading.
+ * UUID da equipa para queries: argumento explícito → estado React → `team_id` do perfil.
+ * Não usar ID estático de teste: os dados vêm sempre da equipa associada ao utilizador na BD.
  */
 function effectiveDashboardTeamIdForQueries(
   explicit: string | undefined,
   dashboardState: string | undefined,
   profileTeamId: string | undefined,
-): string {
+): string | undefined {
   const t = (s: string | undefined) => (typeof s === 'string' && s.trim() !== '' ? s.trim() : '');
-  return t(explicit) || t(dashboardState) || t(profileTeamId) || OFFICIAL_M6_TEAM_ID;
+  return t(explicit) || t(dashboardState) || t(profileTeamId) || undefined;
 }
 
 const OPEN_CONVOCATION_STATUSES = new Set([
@@ -181,12 +180,11 @@ export function SportManagementScreen() {
       .then((id) => {
         if (!cancelled) {
           console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído', { resolvedTeamId: id });
-          setDashboardTeamId(id ?? OFFICIAL_M6_TEAM_ID);
+          if (id) setDashboardTeamId(id);
         }
       })
       .catch((e) => {
-        console.error(DASH_DIAG, 'resolveDashboardTeamId: falhou — a usar equipa M6 por defeito', e);
-        if (!cancelled) setDashboardTeamId(OFFICIAL_M6_TEAM_ID);
+        console.error(DASH_DIAG, 'resolveDashboardTeamId: falhou (sem alterar equipa no estado)', e);
       });
     return () => {
       cancelled = true;
@@ -299,6 +297,10 @@ export function SportManagementScreen() {
   const handleRecalcularPontos = async () => {
     if (recalculatingPoints) return;
     const teamIdForSync = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
+    if (!teamIdForSync) {
+      showToast('Associa uma equipa ao teu perfil para recalcular pontos.', 'error');
+      return;
+    }
     setRecalculatingPoints(true);
     try {
       const { updated, errors } = await syncPlayerPoints(teamIdForSync);
@@ -325,6 +327,17 @@ export function SportManagementScreen() {
     // uma closure obsoleta com authLoading=true anulava teamStats e mostrava "Sem dados".
     if (!canManage) {
       console.info(`${DASH_DIAG} loadDashboard:abort sem permissão canManage=false`);
+      setRanking([]);
+      setTeamStats(null);
+      setSeasonStatsEpoca([]);
+      setSeasonStatsMes([]);
+      setTotalGamesEpoca(0);
+      setTotalGamesMes(0);
+      setDashboardLoading(false);
+      return;
+    }
+    if (!tid) {
+      console.info(`${DASH_DIAG} loadDashboard:abort sem team_id no perfil`);
       setRanking([]);
       setTeamStats(null);
       setSeasonStatsEpoca([]);
@@ -456,6 +469,13 @@ export function SportManagementScreen() {
     let cancelled = false;
     setRankingCategoryLoading(true);
     const tid = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
+    if (!tid) {
+      setRankingCategoryStats(null);
+      setRankingCategoryTotalGames(0);
+      setRankingByCategory(null);
+      setRankingCategoryLoading(false);
+      return;
+    }
     Promise.all([
       getSeasonStats(tid, { category: category || 'Geral' }),
       getPlayerRanking(tid, { category: category || 'Geral' }),

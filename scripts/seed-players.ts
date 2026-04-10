@@ -17,7 +17,7 @@ config();
 config({ path: '.env.local' });
 
 /** ID da equipa M6 criada (usar sempre este no seed). */
-const TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
+const TEAM_ID = '00000000-0000-0000-0000-000000000001';
 
 /** Jogadores a reinserir. Substitui os emails pelos emails reais do Supabase Auth. */
 const SEED_PLAYERS: { name: string; email: string; federation_points: number }[] = [
