@@ -63,7 +63,12 @@ function isEligibleSportRosterMember(p: { is_active?: boolean | null; role?: str
   return true;
 }
 
-/** Jogadores com `team_id` = equipa (ativos, não admin), ou fallback por duplas dos jogos dessa equipa. */
+/**
+ * Jogadores da equipa para o dashboard: tenta **pares primeiro** (jogadores reais nos jogos),
+ * depois `team_id` como fallback (caso não haja jogos/pares ainda).
+ * Ao usar pares primeiro evita-se que jogadores de teste com `team_id` correto apareçam
+ * antes dos jogadores reais que estão nos pares mas têm outro `team_id` no perfil.
+ */
 async function fetchPlayersByTeamOrPairs(
   teamId: string,
   gameIdsForPairFallback: string[],
@@ -73,6 +78,39 @@ async function fetchPlayersByTeamOrPairs(
     columns === 'season'
       ? 'id, name, liga_points, is_active, role'
       : 'id, name, email, federation_points, liga_points, is_active, role';
+
+  // 1. Tentar jogadores via pares (prioridade: jogadores reais que jogaram os jogos)
+  let gameIds = gameIdsForPairFallback;
+  if (!gameIds.length) {
+    const { data: gRows } = await supabase.from('games').select('id').eq('team_id', teamId);
+    gameIds = (gRows ?? []).map((g) => g.id);
+  }
+  if (gameIds.length > 0) {
+    const { data: pairs, error: e2 } = await supabase
+      .from('pairs')
+      .select('player1_id, player2_id')
+      .in('game_id', gameIds);
+    if (!e2) {
+      const ids = new Set<string>();
+      for (const row of pairs ?? []) {
+        if (row.player1_id) ids.add(row.player1_id);
+        if (row.player2_id) ids.add(row.player2_id);
+      }
+      if (ids.size > 0) {
+        const { data: byPairs, error: e3 } = await supabase
+          .from('players')
+          .select(selectCols)
+          .in('id', [...ids])
+          .neq('email', GESTOR_HIDE_EMAIL);
+        if (!e3) {
+          const pairsList = ((byPairs ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
+          if (pairsList.length > 0) return pairsList;
+        }
+      }
+    }
+  }
+
+  // 2. Fallback: jogadores com team_id = equipa (sem jogos criados ainda)
   const { data: byTeam, error: e1 } = await supabase
     .from('players')
     .select(selectCols)
@@ -83,41 +121,7 @@ async function fetchPlayersByTeamOrPairs(
     console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (team_id):`, e1);
     return [];
   }
-  const teamList = ((byTeam ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
-  if (teamList.length > 0) return teamList;
-
-  let gameIds = gameIdsForPairFallback;
-  if (!gameIds.length) {
-    const { data: gRows } = await supabase.from('games').select('id').eq('team_id', teamId);
-    gameIds = (gRows ?? []).map((g) => g.id);
-  }
-  if (!gameIds.length) return [];
-
-  const { data: pairs, error: e2 } = await supabase
-    .from('pairs')
-    .select('player1_id, player2_id')
-    .in('game_id', gameIds);
-  if (e2) {
-    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (pairs):`, e2);
-    return [];
-  }
-  const ids = new Set<string>();
-  for (const row of pairs ?? []) {
-    if (row.player1_id) ids.add(row.player1_id);
-    if (row.player2_id) ids.add(row.player2_id);
-  }
-  if (ids.size === 0) return [];
-
-  const { data: byPairs, error: e3 } = await supabase
-    .from('players')
-    .select(selectCols)
-    .in('id', [...ids])
-    .neq('email', GESTOR_HIDE_EMAIL);
-  if (e3) {
-    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (in id):`, e3);
-    return [];
-  }
-  return ((byPairs ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
+  return ((byTeam ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
 }
 
 /** Result row from DB (sets per pair) */
@@ -747,25 +751,10 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     }
   }
 
-  const playerIdsFromPairs = [...playerStats.keys()];
-  const needAllTeamPlayers = category === 'Liga';
-  let teamPlayerRows =
-    needAllTeamPlayers
-      ? (await supabase
-          .from('players')
-          .select('id, role, is_active')
-          .eq('team_id', teamId)
-          .eq('is_active', true)
-          .neq('email', GESTOR_HIDE_EMAIL)).data?.filter((row) =>
-          isEligibleSportRosterMember(row as { is_active?: boolean | null; role?: string | null }),
-        ) ?? []
-      : [];
-  if (needAllTeamPlayers && teamPlayerRows.length === 0 && pairFallbackGameIds.length > 0) {
-    const roster = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
-    teamPlayerRows = roster.map((p) => ({ id: p.id }));
-  }
-  const playerIds = needAllTeamPlayers ? teamPlayerRows : playerIdsFromPairs;
-  const ids = needAllTeamPlayers ? (playerIds as { id: string }[]).map((p) => p.id) : playerIdsFromPairs;
+  // Usar sempre os jogadores encontrados via pares (jogadores reais que jogaram os jogos da categoria).
+  // Não usar .eq('team_id') aqui — isso devolve jogadores de teste que têm o team_id certo no perfil
+  // mas nunca jogaram, enquanto os jogadores reais podem ter outro team_id no perfil.
+  const ids = [...playerStats.keys()];
   if (ids.length === 0) return [];
 
   const eliminatoriaTotals =
