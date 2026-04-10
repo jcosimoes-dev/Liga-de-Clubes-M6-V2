@@ -365,8 +365,6 @@ export const RESTRICTED_ADMIN_MSG = 'Acesso Restrito à Administração Principa
 
 /** Chaves de localStorage que podem guardar teamId antigo — limpar no login do dono para evitar 404. */
 const POSSIBLE_TEAM_CACHE_KEYS = ['app-team-id', 'liga-m6-team-id', 'team_id', 'selectedTeamId'];
-/** ID de equipa que já não existe na BD — forçar reset para o dono do projeto. */
-const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 
 function clearOwnerStaleTeamCache(): void {
   if (typeof window === 'undefined') return;
@@ -375,10 +373,6 @@ function clearOwnerStaleTeamCache(): void {
     Object.keys(window.localStorage)
       .filter((k) => /team/i.test(k))
       .forEach((k) => window.localStorage.removeItem(k));
-    // Limpar qualquer chave cujo valor seja o ID de equipa inválida
-    Object.keys(window.localStorage).forEach((k) => {
-      if (window.localStorage.getItem(k) === DEAD_TEAM_ID) window.localStorage.removeItem(k);
-    });
   } catch {
     // ignore
   }
@@ -421,15 +415,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canManageSport = isOwnerEmail || computeCanManageSport(player);
   const canManageFederationPoints = isOwnerEmail || computeCanManageFederationPoints(player);
 
-  // Limpeza de memória: ao detetar login do dono, limpar teamId antigo do localStorage e do estado para evitar 404
+  // Limpeza de memória: ao detetar login do dono, limpar teamId antigo do localStorage (evita IDs obsoletos em cache)
   useEffect(() => {
-    if (user?.email && (user.email.trim().toLowerCase() === HARDCODED_ADMIN_EMAIL)) {
+    if (user?.email && user.email.trim().toLowerCase() === HARDCODED_ADMIN_EMAIL) {
       clearOwnerStaleTeamCache();
-      if (player && player.team_id === DEAD_TEAM_ID) {
-        setPlayer((prev) => (prev ? { ...prev, team_id: null } : null));
-      }
     }
-  }, [user?.email, player?.team_id]);
+  }, [user?.email]);
 
   const refreshPlayer = async () => {
     if (!user?.id) {

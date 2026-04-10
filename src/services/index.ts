@@ -14,5 +14,14 @@ export {
   LIGA_PTS_LOSS_ELIM_NO_PLAY,
   LIGA_PTS_LOSS_ELIM_PLAYED,
 } from '../domain/ligaPointsEliminatoria';
-export { syncPlayerPoints, syncPlayerPointsWithClient, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, resetAllPlayerPoints, OFFICIAL_M6_TEAM_ID } from './points.service';
+export {
+  syncPlayerPoints,
+  syncPlayerPointsWithClient,
+  getPlayerRanking,
+  getTeamPerformanceStats,
+  getSeasonStats,
+  resetAllPlayerPoints,
+  OFFICIAL_M6_TEAM_ID,
+  resolveDashboardTeamId,
+} from './points.service';
 export type { PlayerRankingRow, SeasonStatRow, TeamPerformanceStats, GetSeasonStatsOptions, GetSeasonStatsResult, SeasonStatsCategory, GetPlayerRankingOptions, SyncPlayerPointsOptions } from './points.service';

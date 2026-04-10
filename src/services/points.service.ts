@@ -17,23 +17,115 @@ export interface SyncPlayerPointsOptions {
  */
 
 /** Status que consideram o jogo final. Incluir 'concluido'/'completed' se a BD ainda não tiver 'final'. */
-const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed'] as const;
+/** Inclui `closed` por compatibilidade com estados antigos na BD. */
+const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed', 'closed'] as const;
 
 /** Statuses para o card Performance da Equipa (jogos que contam para V-D-F). */
 const STATUS_TEAM_PERFORMANCE = ['final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
 
-/** ID oficial da equipa M6 para garantir o filtro no card de Performance. */
+/** ID oficial da equipa M6 (último fallback se a BD não tiver jogos/equipas). */
 export const OFFICIAL_M6_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
-
-/** Equipa que já não existe na BD — não fazer fetch para evitar 404. Retornar [] ou default. */
-const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 
 const LOG_PREFIX = '[Points]';
 
+/** Diagnóstico Performance / Gestão Técnica — filtra a consola por esta string. */
+const DIAG = '[DashboardDiag]';
+
 function isDeadOrEmptyTeamId(teamId: string | null | undefined): boolean {
-  if (teamId == null || typeof teamId !== 'string' || teamId.trim() === '') return true;
-  if (teamId === DEAD_TEAM_ID) return true;
-  return false;
+  return teamId == null || typeof teamId !== 'string' || teamId.trim() === '';
+}
+
+/**
+ * Resolve o UUID da equipa para o dashboard: perfil → último jogo na BD → primeira equipa → constante M6.
+ * Evita listas vazias quando o UUID hardcoded não coincide com o `team_id` real dos jogos/jogadores.
+ */
+export async function resolveDashboardTeamId(preferredTeamId?: string | null): Promise<string | undefined> {
+  const p = typeof preferredTeamId === 'string' ? preferredTeamId.trim() : '';
+  if (p) return p;
+
+  const { data: fromGame, error: gameErr } = await supabase
+    .from('games')
+    .select('team_id')
+    .not('team_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!gameErr && fromGame?.team_id) return fromGame.team_id;
+  if (gameErr) console.warn(`${LOG_PREFIX} resolveDashboardTeamId jogos:`, gameErr);
+
+  const { data: fromPlayer, error: playerErr } = await supabase
+    .from('players')
+    .select('team_id')
+    .not('team_id', 'is', null)
+    .limit(1)
+    .maybeSingle();
+  if (!playerErr && fromPlayer?.team_id) return fromPlayer.team_id;
+
+  const { data: fromTeams } = await supabase.from('teams').select('id').limit(1).maybeSingle();
+  if (fromTeams?.id) return fromTeams.id;
+
+  return OFFICIAL_M6_TEAM_ID;
+}
+
+type PlayerRowForDashboard = {
+  id: string;
+  name: string | null;
+  email?: string | null;
+  liga_points?: number | string | null;
+  federation_points?: number | string | null;
+};
+
+/** Jogadores com `team_id` = equipa, ou (se vazio) quem aparece em duplas dos jogos dessa equipa. */
+async function fetchPlayersByTeamOrPairs(
+  teamId: string,
+  gameIdsForPairFallback: string[],
+  columns: 'season' | 'ranking',
+): Promise<PlayerRowForDashboard[]> {
+  const selectCols = columns === 'season' ? 'id, name, liga_points' : 'id, name, email, federation_points, liga_points';
+  const { data: byTeam, error: e1 } = await supabase
+    .from('players')
+    .select(selectCols)
+    .eq('team_id', teamId)
+    .neq('email', GESTOR_HIDE_EMAIL);
+  if (e1) {
+    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (team_id):`, e1);
+    return [];
+  }
+  if ((byTeam ?? []).length > 0) return (byTeam ?? []) as PlayerRowForDashboard[];
+
+  let gameIds = gameIdsForPairFallback;
+  if (!gameIds.length) {
+    const { data: gRows } = await supabase.from('games').select('id').eq('team_id', teamId);
+    gameIds = (gRows ?? []).map((g) => g.id);
+  }
+  if (!gameIds.length) return [];
+
+  const { data: pairs, error: e2 } = await supabase
+    .from('pairs')
+    .select('player1_id, player2_id')
+    .in('game_id', gameIds);
+  if (e2) {
+    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (pairs):`, e2);
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const row of pairs ?? []) {
+    if (row.player1_id) ids.add(row.player1_id);
+    if (row.player2_id) ids.add(row.player2_id);
+  }
+  if (ids.size === 0) return [];
+
+  const { data: byPairs, error: e3 } = await supabase
+    .from('players')
+    .select(selectCols)
+    .in('id', [...ids])
+    .neq('email', GESTOR_HIDE_EMAIL);
+  if (e3) {
+    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (in id):`, e3);
+    return [];
+  }
+  return (byPairs ?? []) as PlayerRowForDashboard[];
 }
 
 /** Result row from DB (sets per pair) */
@@ -421,6 +513,14 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
     .eq('team_id', teamId)
     .in('status', [...STATUS_TEAM_PERFORMANCE]);
 
+  console.log(DIAG, 'getTeamPerformanceStats: resposta Supabase (games)', {
+    teamId,
+    rowCount: games?.length ?? 0,
+    error: error ?? null,
+    sample: (games ?? []).slice(0, 2),
+    teamPointsTypesSample: (games ?? []).slice(0, 2).map((g) => typeof (g as { team_points?: unknown }).team_points),
+  });
+
   if (error) {
     console.error(`${LOG_PREFIX} getTeamPerformanceStats erro:`, error);
     return EMPTY_TEAM_STATS;
@@ -522,6 +622,9 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   if (isDeadOrEmptyTeamId(teamId)) return [];
   const category = options?.category || 'Geral';
   try {
+  const { data: gidRows } = await supabase.from('games').select('id').eq('team_id', teamId);
+  const pairFallbackGameIds = (gidRows ?? []).map((r) => r.id);
+
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
     .select('id, team_id, status, phase, team_points, no_show')
@@ -533,17 +636,32 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     if (code !== 'PGRST116' && code !== '404') console.error(`${LOG_PREFIX} getPlayerRanking erro jogos:`, gamesError);
     return [];
   }
-  if (!gamesRaw || !Array.isArray(gamesRaw) || gamesRaw.length === 0) return [];
+  const gamesRawList = Array.isArray(gamesRaw) ? gamesRaw : [];
+
+  console.log(DIAG, 'getPlayerRanking: resposta Supabase (games status final)', {
+    teamId,
+    category,
+    rowCount: gamesRawList.length,
+    error: gamesError ?? null,
+    statusFilter: [...STATUS_FINAL_VALUES],
+    sample: gamesRawList.slice(0, 2),
+  });
 
   const games =
     !category || category === 'Geral'
-      ? gamesRaw ?? []
-      : (gamesRaw ?? []).filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category));
+      ? gamesRawList
+      : gamesRawList.filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category));
 
+  console.log(DIAG, 'getPlayerRanking: após filtro de categoria (Liga/Treino/Geral)', {
+    category,
+    count: games.length,
+  });
+
+  /** Sem jogos finalizados (ou sem fase no filtro): plantel com pontos da BD; evita ranking vazio só com convocatórias abertas. */
   if (!games?.length && category !== 'Treino') {
     if (category === 'Liga') {
-      const { data: players } = await supabase.from('players').select('id, name, email').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL);
-      const list = (players ?? []).map((p) => ({
+      const roster = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+      const list = roster.map((p) => ({
         player_id: p.id,
         name: p.name ?? '—',
         wins: 0,
@@ -554,12 +672,46 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
       }));
       return list.sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
     }
+    if (category === 'Geral') {
+      let players = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+      if (players.length === 0) {
+        const { data: allP } = await supabase
+          .from('players')
+          .select('id, name, email, federation_points, liga_points')
+          .eq('is_active', true)
+          .neq('email', GESTOR_HIDE_EMAIL)
+          .limit(400);
+        players = (allP ?? []) as PlayerRowForDashboard[];
+      }
+      const readNum = (raw: number | string | null | undefined): number => {
+        if (raw == null || raw === '') return 0;
+        const n = Number(raw);
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      };
+      const gestorEmailNorm = GESTOR_HIDE_EMAIL.trim().toLowerCase();
+      const list = players
+        .filter((p) => ((p as { email?: string }).email ?? '').trim().toLowerCase() !== gestorEmailNorm)
+        .map((p) => {
+          const liga = readNum((p as { liga_points?: number | string | null }).liga_points);
+          const fed = readNum((p as { federation_points?: number | string | null }).federation_points);
+          return {
+            player_id: p.id,
+            name: p.name ?? '—',
+            wins: 0,
+            losses: 0,
+            pontos_liga: liga,
+            federation_points: fed,
+            total_points: liga + fed,
+          };
+        });
+      return list.sort((a, b) => b.total_points - a.total_points);
+    }
     return [];
   }
 
   if (category === 'Treino') {
-    const { data: players } = await supabase.from('players').select('id, name, email').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL);
-    const list = (players ?? []).map((p) => ({
+    const players = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+    const list = players.map((p) => ({
       player_id: p.id,
       name: p.name ?? '—',
       wins: 0,
@@ -614,10 +766,15 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
 
   const playerIdsFromPairs = [...playerStats.keys()];
   const needAllTeamPlayers = category === 'Liga';
-  const playerIds =
+  let teamPlayerRows =
     needAllTeamPlayers
       ? (await supabase.from('players').select('id').eq('team_id', teamId).neq('email', GESTOR_HIDE_EMAIL)).data ?? []
-      : playerIdsFromPairs;
+      : [];
+  if (needAllTeamPlayers && teamPlayerRows.length === 0 && pairFallbackGameIds.length > 0) {
+    const roster = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+    teamPlayerRows = roster.map((p) => ({ id: p.id }));
+  }
+  const playerIds = needAllTeamPlayers ? teamPlayerRows : playerIdsFromPairs;
   const ids = needAllTeamPlayers ? (playerIds as { id: string }[]).map((p) => p.id) : playerIdsFromPairs;
   if (ids.length === 0) return [];
 
@@ -635,6 +792,12 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     .from('players')
     .select('id, name, email, federation_points, liga_points')
     .in('id', ids);
+
+  if (players?.[0]) {
+    const lp0 = (players[0] as { liga_points?: unknown }).liga_points;
+    console.log(DIAG, 'getPlayerRanking: tipo liga_points (1.º jogador, vindo da BD)', typeof lp0, lp0);
+  }
+  console.log(DIAG, 'getPlayerRanking: resposta Supabase (players .in id)', { count: players?.length ?? 0, idsRequested: ids.length });
 
   const readNum = (raw: number | string | null | undefined): number => {
     if (raw == null || raw === '') return 0;
@@ -677,12 +840,14 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     })
     .sort((a, b) => b.total_points - a.total_points);
 
+  console.log(DIAG, 'getPlayerRanking: resultado final (linhas devolvidas ao ecrã)', { count: out.length, category });
   return out;
   } catch (e) {
     const err = e as { status?: number; code?: string };
     if (err?.status !== 404 && err?.code !== '404' && err?.code !== 'PGRST116') {
       console.error(`${LOG_PREFIX} getPlayerRanking exceção:`, e);
     }
+    console.log(DIAG, 'getPlayerRanking: exceção — []', e);
     return [];
   }
 }
@@ -771,7 +936,61 @@ export async function getSeasonStats(
     .select('id, game_date, starts_at, phase')
     .eq('team_id', teamId);
 
-  if (gamesAllError || !allTeamGames?.length) return { rows: [], totalGamesInPeriod: 0 };
+  console.log(DIAG, 'getSeasonStats: resposta Supabase (games, sem filtros cliente)', {
+    teamId,
+    category,
+    dateWindow: { startDate: startDate?.toISOString?.() ?? startDate, endDate: endDate?.toISOString?.() ?? endDate },
+    rowCount: allTeamGames?.length ?? 0,
+    error: gamesAllError ?? null,
+    sample: (allTeamGames ?? []).slice(0, 2),
+  });
+
+  if (gamesAllError) {
+    console.log(DIAG, 'getSeasonStats: abort — erro na query games', gamesAllError);
+    return { rows: [], totalGamesInPeriod: 0 };
+  }
+
+  /** Sem jogos na equipa: ainda mostrar plantel (disp/conv a zeros) para não parecer "sem equipa". */
+  if (!allTeamGames?.length) {
+    let playersOnly = await fetchPlayersByTeamOrPairs(teamId, [], 'season');
+    if (playersOnly.length === 0) {
+      const { data: allP } = await supabase
+        .from('players')
+        .select('id, name, liga_points')
+        .eq('is_active', true)
+        .neq('email', GESTOR_HIDE_EMAIL)
+        .limit(400);
+      playersOnly = (allP ?? []) as PlayerRowForDashboard[];
+    }
+    const readLigaOnly = (row: { liga_points?: number | string | null }): number => {
+      const raw = row.liga_points;
+      if (raw == null || raw === '') return 0;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    };
+    const rows: SeasonStatRow[] = playersOnly.map((pl) => ({
+      player_id: pl.id,
+      name: pl.name ?? '—',
+      disponibilidade: 0,
+      convocatorias: 0,
+      taxa_escolha: 0,
+      pontos_liga: readLigaOnly(pl as { liga_points?: number | string | null }),
+      wins: 0,
+      losses: 0,
+      eficacia: 0,
+      highlight_rodar: false,
+      disp_pct: 0,
+    }));
+    const outEarly = {
+      rows: rows.sort((a, b) => b.disponibilidade - a.disponibilidade),
+      totalGamesInPeriod: 0,
+    };
+    console.log(DIAG, 'getSeasonStats: ramo sem jogos na equipa — resultado final', {
+      rows: outEarly.rows.length,
+      totalGamesInPeriod: outEarly.totalGamesInPeriod,
+    });
+    return outEarly;
+  }
 
   const gamesWithDate = allTeamGames
     .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category))
@@ -780,11 +999,25 @@ export async function getSeasonStats(
       date: getGameDate(g as { game_date?: string; starts_at?: string }),
     }));
 
+  const nullParsedDates = gamesWithDate.filter((g) => g.date == null).length;
+  console.log(DIAG, 'getSeasonStats: antes filtro de datas (época / último mês)', {
+    category,
+    afterCategoryFilter: gamesWithDate.length,
+    gamesWithNoUsableDate: nullParsedDates,
+    dateWindow: { startDate: startDate?.toISOString?.() ?? startDate, endDate: endDate?.toISOString?.() ?? endDate },
+    nota: 'Jogos sem game_date/starts_at válidos são excluídos do intervalo (isInDateRange falha com date null).',
+  });
+
   const allGameIdsFiltered = gamesWithDate
     .filter((g) => isInDateRange(g.date, startDate, endDate))
     .map((g) => g.id);
 
   const totalGamesInPeriod = allGameIdsFiltered.length;
+
+  console.log(DIAG, 'getSeasonStats: após filtro de datas', {
+    allGameIdsFilteredCount: allGameIdsFiltered.length,
+    totalGamesInPeriod,
+  });
 
   const { data: finalGamesRaw, error: finalError } = await supabase
     .from('games')
@@ -808,12 +1041,14 @@ export async function getSeasonStats(
   const allGameIds = gamesWithDate.map((g) => g.id);
   const finalGameIds = finalGamesWithDate.map((g) => g.id);
 
-  const [availsRes, pairsFinalRes, resultsFinalRes, playersRes] = await Promise.all([
-    supabase
-      .from('availabilities')
-      .select('game_id, player_id')
-      .in('game_id', allGameIds)
-      .eq('status', AVAILABILITY_CONFIRMED),
+  const [availsRes, pairsFinalRes, resultsFinalRes] = await Promise.all([
+    allGameIds.length
+      ? supabase
+          .from('availabilities')
+          .select('game_id, player_id')
+          .in('game_id', allGameIds)
+          .eq('status', AVAILABILITY_CONFIRMED)
+      : Promise.resolve({ data: [] as { game_id: string; player_id: string }[], error: null }),
     finalGameIds.length
       ? supabase
           .from('pairs')
@@ -826,16 +1061,29 @@ export async function getSeasonStats(
           .select('game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora')
           .in('game_id', finalGameIds)
       : Promise.resolve({ data: [] as ResultRow[], error: null }),
-    supabase
-      .from('players')
-      .select('id, name, liga_points')
-      .eq('team_id', teamId)
-      .neq('email', GESTOR_HIDE_EMAIL),
   ]);
 
-  if (availsRes.error || playersRes.error) return { rows: [], totalGamesInPeriod: 0 };
-  const avails = availsRes.data ?? [];
-  const players = playersRes.data ?? [];
+  if (availsRes.error) {
+    console.error(`${LOG_PREFIX} getSeasonStats availabilities:`, availsRes.error);
+  }
+  const avails = availsRes.error ? [] : (availsRes.data ?? []);
+  const allTeamGameIds = (allTeamGames ?? []).map((g) => (g as { id: string }).id);
+  let players = await fetchPlayersByTeamOrPairs(teamId, allTeamGameIds, 'season');
+  if (players[0]) {
+    const lp = (players[0] as { liga_points?: unknown }).liga_points;
+    console.log(DIAG, 'getSeasonStats: tipo de liga_points (1.º jogador, vindo da BD)', typeof lp, lp);
+  }
+
+  if (players.length === 0 && (allTeamGames?.length ?? 0) > 0) {
+    console.warn(`${LOG_PREFIX} getSeasonStats: sem plantel por team_id/pares; a usar jogadores ativos (modo clube único)`);
+    const { data: allP } = await supabase
+      .from('players')
+      .select('id, name, liga_points')
+      .eq('is_active', true)
+      .neq('email', GESTOR_HIDE_EMAIL)
+      .limit(400);
+    players = (allP ?? []) as PlayerRowForDashboard[];
+  }
   const pairsFinal = (pairsFinalRes as { data?: { id: string; game_id: string; player1_id: string; player2_id: string }[] }).data ?? [];
   const resultsFinal = (resultsFinalRes as { data?: ResultRow[] }).data ?? [];
 
@@ -891,6 +1139,13 @@ export async function getSeasonStats(
     return Number.isFinite(n) && n >= 0 ? n : 0;
   };
 
+  console.log(DIAG, 'getSeasonStats: contagens pós-queries auxiliares', {
+    avails: avails.length,
+    pairsFinal: pairsFinal.length,
+    resultsFinal: resultsFinal.length,
+    playersForRows: players.length,
+  });
+
   const rows: SeasonStatRow[] = players.map((pl) => {
     const disp = disponibilidadeByPlayer.get(pl.id) ?? 0;
     const convSet = convocatoriasByPlayer.get(pl.id);
@@ -919,8 +1174,13 @@ export async function getSeasonStats(
     };
   });
 
+  const sorted = rows.sort((a, b) => b.disponibilidade - a.disponibilidade);
+  console.log(DIAG, 'getSeasonStats: resultado final (objeto devolvido ao ecrã)', {
+    rows: sorted.length,
+    totalGamesInPeriod,
+  });
   return {
-    rows: rows.sort((a, b) => b.disponibilidade - a.disponibilidade),
+    rows: sorted,
     totalGamesInPeriod,
   };
   } catch (e) {
@@ -928,6 +1188,7 @@ export async function getSeasonStats(
     if (err?.status !== 404 && err?.code !== '404' && err?.code !== 'PGRST116') {
       console.error(`${LOG_PREFIX} getSeasonStats exceção:`, e);
     }
+    console.log(DIAG, 'getSeasonStats: exceção — devolvendo vazio', e);
     return { rows: [], totalGamesInPeriod: 0 };
   }
 }

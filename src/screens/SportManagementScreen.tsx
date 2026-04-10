@@ -11,7 +11,19 @@ import {
 import { useAuth, RESTRICTED_COORDINATION_MSG, canAction } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { PlayerRoles } from '../domain/constants';
-import { GamesService, AvailabilitiesService, PairsService, PlayersService, ResultsService, getPlayerRanking, getTeamPerformanceStats, getSeasonStats, syncPlayerPoints } from '../services';
+import {
+  GamesService,
+  AvailabilitiesService,
+  PairsService,
+  PlayersService,
+  ResultsService,
+  getPlayerRanking,
+  getTeamPerformanceStats,
+  getSeasonStats,
+  syncPlayerPoints,
+  OFFICIAL_M6_TEAM_ID,
+  resolveDashboardTeamId,
+} from '../services';
 import type { PlayerRankingRow, TeamPerformanceStats, SeasonStatRow, SeasonStatsCategory } from '../services';
 import { supabase } from '../lib/supabase';
 import { invalidateOpenGamesListCaches } from '../lib/openGamesInvalidate';
@@ -63,7 +75,6 @@ const ROUND_ELIMINATORIA: { value: number; label: string }[] = [
  * phase na BD: Liga → Qualificação|Regionais|Nacionais; outros → Torneio|Mix|Treino.
  */
 const OWNER_EMAIL = 'jco.simoes@gmail.com';
-const DEAD_TEAM_ID = '75782791-729c-4863-95c5-927690656a81';
 const isOwnerEmail = (email: string | null | undefined) =>
   (email ?? '').trim().toLowerCase() === OWNER_EMAIL;
 
@@ -71,6 +82,23 @@ const isOwnerEmail = (email: string | null | undefined) =>
 function isTerminalGameStatus(status: string | null | undefined): boolean {
   const s = String(status ?? '').trim().toLowerCase();
   return s === 'concluido' || s === 'final' || s === 'completed';
+}
+
+/** Filtra a consola por `[DashboardDiag]` para ver o pipeline Performance / Gestão Técnica. */
+const DASH_DIAG = '[DashboardDiag]';
+
+/**
+ * UUID da equipa para queries do dashboard: explícito → estado React → `team_id` do perfil → equipa M6 oficial.
+ * Sem isto, `dashboardTeamId` pode ficar indefinido até `resolveDashboardTeamId` terminar e o `useEffect`
+ * nunca chama `loadDashboard` — ecrã "Sem dados" com `teamStats === null` e sem loading.
+ */
+function effectiveDashboardTeamIdForQueries(
+  explicit: string | undefined,
+  dashboardState: string | undefined,
+  profileTeamId: string | undefined,
+): string {
+  const t = (s: string | undefined) => (typeof s === 'string' && s.trim() !== '' ? s.trim() : '');
+  return t(explicit) || t(dashboardState) || t(profileTeamId) || OFFICIAL_M6_TEAM_ID;
 }
 
 const OPEN_CONVOCATION_STATUSES = new Set([
@@ -122,14 +150,48 @@ function openConvocationCardBadge(
 }
 
 export function SportManagementScreen() {
+  console.log(DASH_DIAG, 'A tentar carregar ecrã de gestão...', { t: new Date().toISOString() });
   const { player, user, canManageSport, role, loading: authLoading, canDo } = useAuth();
-  const isHardcodedAdmin = role === PlayerRoles.admin;
   /** Bypass total para jco.simoes@gmail.com: ignora team_id e role; acesso total ao ecrã e ao botão de criar convocatória. */
   const isOwner = isOwnerEmail(user?.email);
   const canManage = isOwner || role === PlayerRoles.admin || canManageSport;
-  /** Dono ou team_id antigo (75782791...): nunca usar — evita 404. Mostra sempre o ecrã e o botão Criar Jogo. */
-  const rawTeamId = player?.team_id ?? (isHardcodedAdmin ? undefined : undefined);
-  const effectiveTeamId = isOwner || rawTeamId === DEAD_TEAM_ID ? undefined : rawTeamId;
+  /** `team_id` no perfil (trim); vazio = undefined. */
+  const rawTeamId =
+    typeof player?.team_id === 'string' && player.team_id.trim() !== '' ? player.team_id.trim() : undefined;
+  /** Mesmo que `rawTeamId` — usado em cópias/UI onde importa só o perfil. */
+  const effectiveTeamId = rawTeamId;
+  /**
+   * Equipa usada nas queries do dashboard: perfil → resolução na BD (`resolveDashboardTeamId`).
+   */
+  const [dashboardTeamId, setDashboardTeamId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    console.log(DASH_DIAG, 'useEffect resolveDashboardTeamId', { canManage, authLoading, rawTeamId });
+    if (!canManage || authLoading) {
+      if (!canManage) setDashboardTeamId(undefined);
+      console.log(DASH_DIAG, 'resolveDashboardTeamId: em pausa (canManage ou authLoading)', { canManage, authLoading });
+      return;
+    }
+    // Perfil com equipa: usar já este id para o ecrã não ficar à espera só pela Promise.
+    if (rawTeamId) {
+      setDashboardTeamId((prev) => prev ?? rawTeamId);
+    }
+    let cancelled = false;
+    void resolveDashboardTeamId(rawTeamId)
+      .then((id) => {
+        if (!cancelled) {
+          console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído', { resolvedTeamId: id });
+          setDashboardTeamId(id ?? OFFICIAL_M6_TEAM_ID);
+        }
+      })
+      .catch((e) => {
+        console.error(DASH_DIAG, 'resolveDashboardTeamId: falhou — a usar equipa M6 por defeito', e);
+        if (!cancelled) setDashboardTeamId(OFFICIAL_M6_TEAM_ID);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, rawTeamId, authLoading]);
   const { navigate, goBack } = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [gameType, setGameType] = useState<GameType>('Liga');
@@ -235,10 +297,11 @@ export function SportManagementScreen() {
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
 
   const handleRecalcularPontos = async () => {
-    if (recalculatingPoints || !effectiveTeamId) return;
+    if (recalculatingPoints) return;
+    const teamIdForSync = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
     setRecalculatingPoints(true);
     try {
-      const { updated, errors } = await syncPlayerPoints(effectiveTeamId);
+      const { updated, errors } = await syncPlayerPoints(teamIdForSync);
       if (errors.length > 0) {
         showToast(`Atualizados: ${updated}. Erros: ${errors.slice(0, 2).join('; ')}`, 'error');
       } else {
@@ -252,10 +315,16 @@ export function SportManagementScreen() {
     }
   };
 
-  const loadDashboard = async () => {
-    const tid = effectiveTeamId;
+  const loadDashboard = async (explicitTeamId?: string) => {
+    const tid = effectiveDashboardTeamIdForQueries(explicitTeamId, dashboardTeamId, rawTeamId);
+    console.info(
+      `${DASH_DIAG} loadDashboard:entrada tid=${tid} canManage=${String(canManage)} explicit=${explicitTeamId ?? '—'}`,
+    );
     setDashboardLoading(true);
-    if (!tid || !canManageSport) {
+    // Não usar `authLoading` aqui: o useEffect que chama loadDashboard já exige !authLoading;
+    // uma closure obsoleta com authLoading=true anulava teamStats e mostrava "Sem dados".
+    if (!canManage) {
+      console.info(`${DASH_DIAG} loadDashboard:abort sem permissão canManage=false`);
       setRanking([]);
       setTeamStats(null);
       setSeasonStatsEpoca([]);
@@ -275,13 +344,23 @@ export function SportManagementScreen() {
         getSeasonStats(tid),
         getSeasonStats(tid, { startDate: thirtyDaysAgo, endDate: now }),
       ]);
+      console.info(
+        `${DASH_DIAG} loadDashboard:OK ranking=${Array.isArray(rankData) ? rankData.length : '?'} teamPts=${teamData?.totalPoints ?? '?'}`,
+        {
+          tid,
+          seasonEpocaRows: seasonEpoca?.rows?.length,
+          seasonMesRows: seasonMes?.rows?.length,
+        },
+      );
       setRanking(Array.isArray(rankData) ? rankData : []);
       setTeamStats(teamData ?? null);
       setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
       setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
       setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
       setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
-    } catch {
+    } catch (e) {
+      console.error('[Gestão Jogos] loadDashboard', e);
+      showToast('Erro ao carregar Performance / estatísticas. Vê a consola para detalhes.', 'error');
       setRanking([]);
       setTeamStats(null);
       setSeasonStatsEpoca([]);
@@ -309,22 +388,66 @@ export function SportManagementScreen() {
   };
 
   useEffect(() => {
-    if (canManageSport) {
-      loadOpenGames();
-      loadClosedGames();
-      loadDashboard();
-      if (canReeditCompletedResults) {
-        loadCompletedGamesForReedit();
-      } else {
-        setCompletedGamesForReedit([]);
-      }
+    if (!canManage) {
+      setRanking([]);
+      setTeamStats(null);
+      setSeasonStatsEpoca([]);
+      setSeasonStatsMes([]);
+      setTotalGamesEpoca(0);
+      setTotalGamesMes(0);
+      return;
     }
-  }, [canManageSport, canReeditCompletedResults, player?.id, role]);
+    loadOpenGames();
+    loadClosedGames();
+    if (canReeditCompletedResults) {
+      void loadCompletedGamesForReedit();
+    } else {
+      setCompletedGamesForReedit([]);
+    }
+  }, [canManage, canReeditCompletedResults, player?.id, role]);
+
+  useEffect(() => {
+    if (!canManage || authLoading) {
+      console.info(
+        `${DASH_DIAG} loadDashboard:effect em pausa canManage=${String(canManage)} authLoading=${String(authLoading)}`,
+      );
+      return;
+    }
+    const tid = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
+    console.info(`${DASH_DIAG} loadDashboard:effect a chamar serviço tid=${tid} (dashState=${dashboardTeamId ?? 'none'} raw=${rawTeamId ?? 'none'})`);
+    void loadDashboard(tid);
+  }, [canManage, authLoading, dashboardTeamId, rawTeamId]);
+
+  useEffect(() => {
+    console.log(DASH_DIAG, 'SportManagementScreen: estado React (render / useState — o que a tabela vê)', {
+      dashboardTeamId,
+      authLoading,
+      canManage,
+      dashboardLoading,
+      rankingLength: ranking.length,
+      seasonStatsEpocaLength: seasonStatsEpoca.length,
+      seasonStatsMesLength: seasonStatsMes.length,
+      totalGamesEpoca,
+      totalGamesMes,
+      teamStats,
+    });
+  }, [
+    dashboardTeamId,
+    authLoading,
+    canManage,
+    dashboardLoading,
+    ranking,
+    seasonStatsEpoca,
+    seasonStatsMes,
+    totalGamesEpoca,
+    totalGamesMes,
+    teamStats,
+  ]);
 
   /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
   useEffect(() => {
     const category = rankingCategoryFilter || 'Geral';
-    if (category === 'Geral' || !effectiveTeamId) {
+    if (category === 'Geral') {
       setRankingCategoryStats(null);
       setRankingCategoryTotalGames(0);
       setRankingByCategory(null);
@@ -332,16 +455,16 @@ export function SportManagementScreen() {
     }
     let cancelled = false;
     setRankingCategoryLoading(true);
-    const tid = effectiveTeamId;
+    const tid = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
     Promise.all([
       getSeasonStats(tid, { category: category || 'Geral' }),
       getPlayerRanking(tid, { category: category || 'Geral' }),
     ])
       .then(([statsRes, rankingRows]) => {
         if (cancelled) return;
-        setRankingCategoryStats(statsRes.rows);
-        setRankingCategoryTotalGames(statsRes.totalGamesInPeriod);
-        setRankingByCategory(rankingRows);
+        setRankingCategoryStats(Array.isArray(statsRes?.rows) ? statsRes.rows : []);
+        setRankingCategoryTotalGames(statsRes?.totalGamesInPeriod ?? 0);
+        setRankingByCategory(Array.isArray(rankingRows) ? rankingRows : []);
       })
       .catch(() => {
         if (!cancelled) {
@@ -354,7 +477,7 @@ export function SportManagementScreen() {
         if (!cancelled) setRankingCategoryLoading(false);
       });
     return () => { cancelled = true; };
-  }, [rankingCategoryFilter, effectiveTeamId]);
+  }, [rankingCategoryFilter, dashboardTeamId, rawTeamId]);
 
   useEffect(() => {
     if (selectedGameForSwap) {
@@ -1004,7 +1127,8 @@ export function SportManagementScreen() {
         gameDateIso = gameDate ? new Date(gameDate).toISOString() : new Date().toISOString();
       }
 
-      let teamIdForGame: string | null = effectiveTeamId ?? player?.team_id ?? null;
+      let teamIdForGame: string | null =
+        dashboardTeamId ?? rawTeamId ?? (typeof player?.team_id === 'string' ? player.team_id : null) ?? OFFICIAL_M6_TEAM_ID;
       if (!teamIdForGame) {
         const { data: firstTeam, error: teamErr } = await supabase
           .from('teams')
@@ -1066,21 +1190,6 @@ export function SportManagementScreen() {
     }
   };
 
-  if (!canManage) {
-    return (
-      <Layout>
-        <Header title="Gestão de Jogos" onBack={goBack} />
-        <div className="max-w-screen-sm mx-auto px-4 pt-4">
-          <RestrictedAccessModal
-            isOpen
-            message={RESTRICTED_MESSAGE_SPORT}
-            onClose={goBack}
-          />
-        </div>
-      </Layout>
-    );
-  }
-
   const totalTeamGames = teamStats ? teamStats.wins + teamStats.losses + teamStats.noShows : 0;
   /** Ranking a mostrar: Geral = ranking do dashboard; Liga/Treinos = rankingByCategory. Fallback: array vazio para não crashar. */
   const displayRanking = rankingCategoryFilter === 'Geral' ? (Array.isArray(ranking) ? ranking : []) : (rankingByCategory ?? []);
@@ -1106,6 +1215,22 @@ export function SportManagementScreen() {
       };
     });
   }, [displayRanking, statsForRanking, totalEventsForRanking]);
+
+  if (!canManage) {
+    console.log(DASH_DIAG, 'Render: acesso negado (canManage=false) — modal restrito', { role, canManageSport });
+    return (
+      <Layout>
+        <Header title="Gestão de Jogos" onBack={goBack} />
+        <div className="max-w-screen-sm mx-auto px-4 pt-4">
+          <RestrictedAccessModal
+            isOpen
+            message={RESTRICTED_MESSAGE_SPORT}
+            onClose={goBack}
+          />
+        </div>
+      </Layout>
+    );
+  }
 
   /** Cor da % disponibilidade: Verde >80%, Amarelo 50–80%, Vermelho <50% */
   const dispPctColor = (pct: number) =>
@@ -1403,13 +1528,16 @@ export function SportManagementScreen() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes).length === 0 ? (
+                    {(() => {
+                      const rawSeasonStats = statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes;
+                      const statsRows = Array.isArray(rawSeasonStats) ? rawSeasonStats : [];
+                      return statsRows.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-8 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</td>
                       </tr>
                     ) : (
                       (() => {
-                        const stats = statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes;
+                        const stats = statsRows;
                         const sorted = [...stats].sort((a, b) => {
                           const key = seasonStatsSortBy;
                           const va = key === 'disponibilidade' ? a.disponibilidade : a.pontos_liga;
@@ -1462,7 +1590,8 @@ export function SportManagementScreen() {
                           );
                         });
                       })()
-                    )}
+                    );
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -1738,7 +1867,7 @@ export function SportManagementScreen() {
               <p className="text-gray-600 font-medium">Sem jogos em aberto ou agendados nesta lista.</p>
               <p className="text-xs text-gray-500 mt-1">
                 Cria um jogo acima para abrir convocatória.
-                {!effectiveTeamId && ' Sem equipa no perfil, associa uma no Painel Admin.'} Se vês jogos no
+                {!rawTeamId && ' Sem equipa no perfil, associa uma no Painel Admin.'} Se vês jogos no
                 Calendário mas não aqui, recarrega a página (a lista pode ter falhado a carregar).
               </p>
             </div>
@@ -2171,9 +2300,7 @@ export function SportManagementScreen() {
           ) : closedGames.length === 0 &&
             (!canReeditCompletedResults || completedGamesForReedit.length === 0) ? (
             <p className="text-sm text-gray-500">
-              {effectiveTeamId
-                ? 'Nenhum jogo disponível para registar ou corrigir resultados.'
-                : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}
+              Nenhum jogo disponível para registar ou corrigir resultados.
             </p>
           ) : (
             <div className="space-y-6">
@@ -2477,7 +2604,7 @@ export function SportManagementScreen() {
           {closedGamesLoading ? (
             <Loading text="A carregar jogos..." />
           ) : closedGames.length === 0 ? (
-            <p className="text-sm text-gray-500">{effectiveTeamId ? 'Nenhum jogo com convocatória fechada.' : 'Sem dados disponíveis. Cria a tua primeira equipa para começar.'}</p>
+            <p className="text-sm text-gray-500">Nenhum jogo com convocatória fechada.</p>
           ) : (
             <div className={GRID_CLASSES + ' mb-4'}>
               {closedGames.map((game: any) => {
