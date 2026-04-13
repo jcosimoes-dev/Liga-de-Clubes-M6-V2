@@ -229,6 +229,12 @@ export function SportManagementScreen() {
   const canReeditCompletedResults = player ? canAction(player, role, 'reedit_completed_results') : false;
 
   const hasRestoredConvocationRef = useRef(false);
+  /** Evita chamadas concorrentes a loadDashboard (guard de referência, não de estado). */
+  const dashboardLoadingRef = useRef(false);
+  /** Evita double-fire do React StrictMode no useEffect de loadDashboard. */
+  const dashboardHasLoadedRef = useRef(false);
+  /** useRef estável para o cancelled flag do efeito rankingCategoryFilter. */
+  const rankingCategoryFilterCancelRef = useRef(false);
   const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
   const TAB_STORAGE_KEY = 'liga-gestao-active-tab';
 
@@ -297,56 +303,60 @@ export function SportManagementScreen() {
   };
 
   const loadDashboard = async (explicitTeamId?: string) => {
-    const tid = explicitTeamId ?? dashboardTeamId;
-    console.info(
-      `${DASH_DIAG} loadDashboard:entrada tid=${tid} canManage=${String(canManage)} explicit=${explicitTeamId ?? '—'}`,
-    );
-
-    // [DataCheck] Diagnóstico directo: todos os jogos na BD, sem nenhum filtro
-    supabase.from('games').select('id, team_id, status, phase').order('updated_at', { ascending: false }).limit(20)
-      .then(({ data, error }) => {
-        console.log('[DataCheck] TODOS os jogos na BD (top 20):', error ? `ERRO: ${error.message}` : (data ?? []).map((g) => `${g.team_id}|${g.status}|${g.phase ?? '-'}`));
-      });
-
-    // tid é sempre garantido pelo useEffect que chama loadDashboard.
-    // Fallback de segurança: nunca deixar tid vazio.
-    const safeTid = tid || OFFICIAL_M6_TEAM_ID;
+    // Bloqueia chamadas concorrentes; a segunda só entra quando a primeira terminar.
+    if (dashboardLoadingRef.current) {
+      console.log('[M6] loadDashboard ignorado — já em curso');
+      return;
+    }
+    const safeTid = (explicitTeamId ?? dashboardTeamId) || OFFICIAL_M6_TEAM_ID;
     console.log('[M6] loadDashboard a correr com team_id:', safeTid);
+
+    dashboardLoadingRef.current = true;
     setDashboardLoading(true);
+
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    try {
-      const [rankData, teamData, seasonEpoca, seasonMes] = await Promise.all([
-        getPlayerRanking(safeTid),
-        getTeamPerformanceStats(safeTid),
-        getSeasonStats(safeTid),
-        getSeasonStats(safeTid, { startDate: thirtyDaysAgo, endDate: now }),
-      ]);
+
+    // Promise.allSettled: mesmo que uma query falhe/seja cancelada, as restantes
+    // retornam e o estado é actualizado com os dados disponíveis.
+    const [rankResult, teamResult, epochResult, monthResult] = await Promise.allSettled([
+      getPlayerRanking(safeTid),
+      getTeamPerformanceStats(safeTid),
+      getSeasonStats(safeTid),
+      getSeasonStats(safeTid, { startDate: thirtyDaysAgo, endDate: now }),
+    ]);
+
+    // Aplica resultados parciais imediatamente — não espera por todos.
+    if (rankResult.status === 'fulfilled') {
+      setRanking(Array.isArray(rankResult.value) ? rankResult.value : []);
+    }
+    if (teamResult.status === 'fulfilled') {
+      setTeamStats(teamResult.value ?? null);
+    }
+    if (epochResult.status === 'fulfilled') {
+      setSeasonStatsEpoca(Array.isArray(epochResult.value?.rows) ? epochResult.value.rows : []);
+      setTotalGamesEpoca(epochResult.value?.totalGamesInPeriod ?? 0);
+    }
+    if (monthResult.status === 'fulfilled') {
+      setSeasonStatsMes(Array.isArray(monthResult.value?.rows) ? monthResult.value.rows : []);
+      setTotalGamesMes(monthResult.value?.totalGamesInPeriod ?? 0);
+    }
+
+    const failed = [rankResult, teamResult, epochResult, monthResult].filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn('[M6] loadDashboard: queries com falha:', failed.map((r) => (r as PromiseRejectedResult).reason));
+    } else {
       console.log('[M6] loadDashboard:OK', {
         teamId: safeTid,
-        ranking: Array.isArray(rankData) ? rankData.length : 0,
-        teamWins: teamData?.wins ?? 0,
-        seasonRows: seasonEpoca?.rows?.length ?? 0,
+        ranking: rankResult.status === 'fulfilled' ? (rankResult.value?.length ?? 0) : 'erro',
+        teamWins: teamResult.status === 'fulfilled' ? (teamResult.value?.wins ?? 0) : 'erro',
+        seasonRows: epochResult.status === 'fulfilled' ? (epochResult.value?.rows?.length ?? 0) : 'erro',
       });
-      setRanking(Array.isArray(rankData) ? rankData : []);
-      setTeamStats(teamData ?? null);
-      setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
-      setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
-      setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
-      setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
-    } catch (e) {
-      console.error('[M6] loadDashboard erro:', e);
-      showToast('Erro ao carregar dados. Vê a consola.', 'error');
-      setRanking([]);
-      setTeamStats(null);
-      setSeasonStatsEpoca([]);
-      setSeasonStatsMes([]);
-      setTotalGamesEpoca(0);
-      setTotalGamesMes(0);
-    } finally {
-      setDashboardLoading(false);
     }
+
+    dashboardLoadingRef.current = false;
+    setDashboardLoading(false);
   };
 
   // Carregar jogos/dashboard só ao entrar na gestão. Não refazer quando player/team_id muda (ex.: sync de outro separador)
@@ -383,41 +393,16 @@ export function SportManagementScreen() {
     }
   }, [canManage, canReeditCompletedResults, player?.id, role]);
 
-  // Só dispara quando dashboardTeamId passa de undefined para um valor real.
-  // dashboardTeamId só é definido quando canManage=true e !authLoading, por isso
-  // não precisamos dessas deps aqui — evita o loop infinito.
+  // Dispara uma única vez quando dashboardTeamId recebe um valor real.
+  // dashboardHasLoadedRef impede o double-fire do React StrictMode.
   useEffect(() => {
-    if (!dashboardTeamId) return;
+    if (!dashboardTeamId || dashboardHasLoadedRef.current) return;
+    dashboardHasLoadedRef.current = true;
     console.log('[M6] loadDashboard disparado para:', dashboardTeamId);
     void loadDashboard(dashboardTeamId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboardTeamId]);
 
-  useEffect(() => {
-    console.log(DASH_DIAG, 'SportManagementScreen: estado React (render / useState — o que a tabela vê)', {
-      dashboardTeamId,
-      authLoading,
-      canManage,
-      dashboardLoading,
-      rankingLength: ranking.length,
-      seasonStatsEpocaLength: seasonStatsEpoca.length,
-      seasonStatsMesLength: seasonStatsMes.length,
-      totalGamesEpoca,
-      totalGamesMes,
-      teamStats,
-    });
-  }, [
-    dashboardTeamId,
-    authLoading,
-    canManage,
-    dashboardLoading,
-    ranking,
-    seasonStatsEpoca,
-    seasonStatsMes,
-    totalGamesEpoca,
-    totalGamesMes,
-    teamStats,
-  ]);
 
   /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
   useEffect(() => {
@@ -428,37 +413,32 @@ export function SportManagementScreen() {
       setRankingByCategory(null);
       return;
     }
-    let cancelled = false;
+    const tid = dashboardTeamId || OFFICIAL_M6_TEAM_ID;
     setRankingCategoryLoading(true);
-    const tid = dashboardTeamId;
-    if (!tid) {
-      setRankingCategoryStats(null);
-      setRankingCategoryTotalGames(0);
-      setRankingByCategory(null);
-      setRankingCategoryLoading(false);
-      return;
-    }
-    Promise.all([
-      getSeasonStats(tid, { category: category || 'Geral' }),
-      getPlayerRanking(tid, { category: category || 'Geral' }),
+    // Usa uma ref estável para o flag de cancel — evita que o cleanup do StrictMode
+    // cancele a query antes de ela terminar.
+    rankingCategoryFilterCancelRef.current = false;
+
+    Promise.allSettled([
+      getSeasonStats(tid, { category }),
+      getPlayerRanking(tid, { category }),
     ])
-      .then(([statsRes, rankingRows]) => {
-        if (cancelled) return;
-        setRankingCategoryStats(Array.isArray(statsRes?.rows) ? statsRes.rows : []);
-        setRankingCategoryTotalGames(statsRes?.totalGamesInPeriod ?? 0);
-        setRankingByCategory(Array.isArray(rankingRows) ? rankingRows : []);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRankingCategoryStats([]);
-          setRankingCategoryTotalGames(0);
-          setRankingByCategory([]);
-        }
+      .then(([statsRes, rankRes]) => {
+        if (rankingCategoryFilterCancelRef.current) return;
+        setRankingCategoryStats(
+          statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.rows) ? statsRes.value.rows : [],
+        );
+        setRankingCategoryTotalGames(
+          statsRes.status === 'fulfilled' ? (statsRes.value?.totalGamesInPeriod ?? 0) : 0,
+        );
+        setRankingByCategory(
+          rankRes.status === 'fulfilled' && Array.isArray(rankRes.value) ? rankRes.value : [],
+        );
       })
       .finally(() => {
-        if (!cancelled) setRankingCategoryLoading(false);
+        if (!rankingCategoryFilterCancelRef.current) setRankingCategoryLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => { rankingCategoryFilterCancelRef.current = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rankingCategoryFilter, dashboardTeamId]);
 
