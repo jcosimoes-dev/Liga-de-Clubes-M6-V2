@@ -541,7 +541,7 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
 
   const { data: allGamesRaw, error } = await supabase
     .from('games')
-    .select('id, status, type, team_points, no_show')
+    .select('id, status, phase, team_points, no_show')
     .eq('team_id', teamId);
 
   if (error) {
@@ -554,23 +554,28 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
   // Log diagnóstico: mostra TODOS os jogos antes de filtrar
   console.log('[M6] getTeamPerformanceStats — jogos brutos na BD:', allGames.map((g) => ({
     id: (g as { id: string }).id,
-    type: (g as { type?: string }).type,
+    phase: (g as { phase?: string }).phase,
     status: (g as { status?: string }).status,
     team_points: (g as { team_points?: number | null }).team_points,
   })));
 
-  // Apenas jogos da Liga (case-insensitive) e com status finalizado
+  // Jogos da Liga: phase é Qualificação, Regionais, Nacionais, Final, Quartos, Meias
+  // (a coluna 'type' não existe na BD — usa-se 'phase')
+  const LIGA_PHASES = new Set(['qualificação', 'qualificacao', 'regionais', 'nacionais', 'final', 'quartos', 'meias']);
   const FINAL_STATUSES = new Set(['finalizado', 'final', 'concluido', 'concluído', 'completed', 'closed']);
+
   const games = allGames.filter((g) => {
-    const type = ((g as { type?: string }).type ?? '').toLowerCase();
+    const phase = ((g as { phase?: string }).phase ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const status = ((g as { status?: string }).status ?? '').toLowerCase();
-    return type === 'liga' && FINAL_STATUSES.has(status);
+    const isLiga = LIGA_PHASES.has(phase);
+    const isFinal = FINAL_STATUSES.has(status);
+    return isLiga && isFinal;
   });
 
   console.log('[M6] getTeamPerformanceStats — após filtro Liga+finalizado:', {
     totalJogos: allGames.length,
     totalLigaFinalizada: games.length,
-    tiposEncontrados: [...new Set(allGames.map((g) => (g as { type?: string }).type))],
+    phasesEncontradas: [...new Set(allGames.map((g) => (g as { phase?: string }).phase))],
     statusesEncontrados: [...new Set(allGames.map((g) => (g as { status?: string }).status))],
   });
 
@@ -680,7 +685,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
 
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
-    .select('id, team_id, status, phase, type, team_points, no_show')
+    .select('id, team_id, status, phase, team_points, no_show')
     .eq('team_id', effectiveTeamId);
 
   if (gamesError) {
@@ -1035,7 +1040,7 @@ export async function getSeasonStats(
 
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
-    .select('id, game_date, starts_at, phase, type, status')
+    .select('id, game_date, starts_at, phase, status')
     .eq('team_id', effectiveTeamId);
 
   console.log('[M6] getSeasonStats — jogos encontrados:', allTeamGames?.length ?? 0);
@@ -1124,7 +1129,7 @@ export async function getSeasonStats(
   // [DataCheck] — sem filtro de status: queremos VER todos os jogos e os seus status exatos
   const { data: finalGamesRaw, error: finalError } = await supabase
     .from('games')
-    .select('id, game_date, starts_at, phase, type, status')
+    .select('id, game_date, starts_at, phase, status')
     .eq('team_id', effectiveTeamId);
 
   console.log('[DataCheck] getSeasonStats: finalGamesRaw (TODOS, sem filtro status)', {
