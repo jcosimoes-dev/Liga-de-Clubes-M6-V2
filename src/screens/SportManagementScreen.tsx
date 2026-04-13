@@ -221,8 +221,6 @@ export function SportManagementScreen() {
   const canReeditCompletedResults = player ? canAction(player, role, 'reedit_completed_results') : false;
 
   const hasRestoredConvocationRef = useRef(false);
-  /** Evita double-fire do React StrictMode no useEffect de loadDashboard. */
-  const dashboardHasLoadedRef = useRef(false);
   const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
   const TAB_STORAGE_KEY = 'liga-gestao-active-tab';
 
@@ -356,14 +354,39 @@ export function SportManagementScreen() {
     }
   }, [canManage, canReeditCompletedResults, player?.id, role]);
 
-  // Carrega o dashboard uma única vez, assim que a autenticação terminar e o utilizador
-  // tiver permissão. dashboardHasLoadedRef impede re-disparos em re-renders subsequentes.
+  // Corre UMA ÚNICA VEZ ao montar o componente. Sem dependências, sem cancels, sem guards.
+  // ID hardcoded directamente — não depende de contexto, estado ou auth.
   useEffect(() => {
-    if (authLoading || !canManage || dashboardHasLoadedRef.current) return;
-    dashboardHasLoadedRef.current = true;
-    void loadDashboard(OFFICIAL_M6_TEAM_ID);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, canManage]);
+    const TEAM_ID = '00000000-0000-0000-0000-000000000001';
+    console.log('[M6] useEffect mount — a carregar dados para team_id:', TEAM_ID);
+    setDashboardLoading(true);
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    Promise.all([
+      getPlayerRanking(TEAM_ID),
+      getTeamPerformanceStats(TEAM_ID),
+      getSeasonStats(TEAM_ID),
+      getSeasonStats(TEAM_ID, { startDate: thirtyDaysAgo, endDate: now }),
+    ])
+      .then(([rankData, teamData, seasonEpoca, seasonMes]) => {
+        console.log('DADOS RECEBIDOS:', { rankData, teamData, seasonEpoca, seasonMes });
+        const players = Array.isArray(rankData) ? rankData : [];
+        if (players.length === 0) {
+          console.log('[CRÍTICO] Supabase devolveu zero jogadores para o ID', TEAM_ID);
+        } else {
+          console.log('[M6] Jogadores no ecrã:', players.length);
+        }
+        setRanking(players);
+        setTeamStats(teamData ?? null);
+        setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
+        setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
+        setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
+        setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
+      })
+      .catch((e) => console.error('[M6] Erro ao carregar dashboard:', e))
+      .finally(() => setDashboardLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   /** Carrega ranking + estatísticas por categoria quando o filtro muda para Liga ou Treinos. */

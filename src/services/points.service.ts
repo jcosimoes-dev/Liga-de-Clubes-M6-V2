@@ -1043,7 +1043,7 @@ export async function getSeasonStats(
   });
 
   if (gamesAllError) {
-    console.log(DIAG, 'getSeasonStats: abort — erro na query games', gamesAllError);
+    console.log(DIAG, 'getSeasonStats: erro na query games', gamesAllError);
     return { rows: [], totalGamesInPeriod: 0 };
   }
 
