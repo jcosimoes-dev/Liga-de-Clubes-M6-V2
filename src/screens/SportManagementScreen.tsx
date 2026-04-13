@@ -171,15 +171,12 @@ export function SportManagementScreen() {
       console.log(DASH_DIAG, 'resolveDashboardTeamId: em pausa (canManage ou authLoading)', { canManage, authLoading });
       return;
     }
-    // Perfil com equipa: usar já este id para o ecrã não ficar à espera só pela Promise.
-    if (rawTeamId) {
-      setDashboardTeamId((prev) => prev ?? rawTeamId);
-    }
     let cancelled = false;
+    // resolveDashboardTeamId verifica se rawTeamId tem jogos; se não, encontra o team correto via BD.
     void resolveDashboardTeamId(rawTeamId)
       .then((id) => {
         if (!cancelled) {
-          console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído', { resolvedTeamId: id });
+          console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído', { resolvedTeamId: id, rawTeamId });
           if (id) setDashboardTeamId(id);
         }
       })
@@ -318,7 +315,7 @@ export function SportManagementScreen() {
   };
 
   const loadDashboard = async (explicitTeamId?: string) => {
-    const tid = effectiveDashboardTeamIdForQueries(explicitTeamId, dashboardTeamId, rawTeamId);
+    const tid = explicitTeamId ?? dashboardTeamId;
     console.info(
       `${DASH_DIAG} loadDashboard:entrada tid=${tid} canManage=${String(canManage)} explicit=${explicitTeamId ?? '—'}`,
     );
@@ -426,10 +423,13 @@ export function SportManagementScreen() {
       );
       return;
     }
-    const tid = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
-    console.info(`${DASH_DIAG} loadDashboard:effect a chamar serviço tid=${tid} (dashState=${dashboardTeamId ?? 'none'} raw=${rawTeamId ?? 'none'})`);
-    void loadDashboard(tid);
-  }, [canManage, authLoading, dashboardTeamId, rawTeamId]);
+    if (!dashboardTeamId) {
+      console.info(`${DASH_DIAG} loadDashboard:effect aguarda dashboardTeamId (resolve em curso)`);
+      return;
+    }
+    console.info(`${DASH_DIAG} loadDashboard:effect a chamar serviço dashboardTeamId=${dashboardTeamId}`);
+    void loadDashboard(dashboardTeamId);
+  }, [canManage, authLoading, dashboardTeamId]);
 
   useEffect(() => {
     console.log(DASH_DIAG, 'SportManagementScreen: estado React (render / useState — o que a tabela vê)', {
@@ -468,7 +468,7 @@ export function SportManagementScreen() {
     }
     let cancelled = false;
     setRankingCategoryLoading(true);
-    const tid = effectiveDashboardTeamIdForQueries(undefined, dashboardTeamId, rawTeamId);
+    const tid = dashboardTeamId;
     if (!tid) {
       setRankingCategoryStats(null);
       setRankingCategoryTotalGames(0);

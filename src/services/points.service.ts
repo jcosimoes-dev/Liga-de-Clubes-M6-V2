@@ -36,13 +36,43 @@ function isDeadOrEmptyTeamId(teamId: string | null | undefined): boolean {
 }
 
 /**
- * Resolve o UUID da equipa para o dashboard: apenas o `team_id` do perfil do utilizador.
- * Não inferir a partir de jogos/jogadores aleatórios nem de constantes — isso misturava dados de teste / outras equipas.
+ * Resolve o UUID da equipa para o dashboard.
+ * 1. Se o `team_id` do perfil existir E tiver jogos → usa-o.
+ * 2. Se o perfil não tiver team_id OU esse team não tiver jogos → vai ao jogo mais recente na BD.
+ * 3. Último recurso: primeira equipa na tabela teams.
+ *
+ * Isto garante que o admin (cujo team_id pode ser uma equipa de bootstrap sem jogos)
+ * não fica sem dados — encontra automaticamente a equipa com atividade real.
  */
 export async function resolveDashboardTeamId(preferredTeamId?: string | null): Promise<string | undefined> {
   const p = typeof preferredTeamId === 'string' ? preferredTeamId.trim() : '';
-  if (p) return p;
-  return undefined;
+
+  if (p) {
+    // Verificar se este team tem jogos antes de o usar
+    const { data: hasGame } = await supabase
+      .from('games')
+      .select('id')
+      .eq('team_id', p)
+      .limit(1)
+      .maybeSingle();
+    if (hasGame?.id) return p;
+    // Team existe mas não tem jogos → continua para encontrar o team com atividade real
+    console.warn(`${LOG_PREFIX} resolveDashboardTeamId: team_id preferido (${p}) não tem jogos, a resolver via BD.`);
+  }
+
+  // Encontrar o team do jogo mais recente (ignora equipas vazias/bootstrap)
+  const { data: fromGame, error: gameErr } = await supabase
+    .from('games')
+    .select('team_id')
+    .not('team_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!gameErr && fromGame?.team_id) return fromGame.team_id;
+
+  // Último recurso: primeira equipa na BD
+  const { data: fromTeams } = await supabase.from('teams').select('id').limit(1).maybeSingle();
+  return fromTeams?.id ?? undefined;
 }
 
 type PlayerRowForDashboard = {
