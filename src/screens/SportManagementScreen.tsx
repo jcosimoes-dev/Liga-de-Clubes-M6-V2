@@ -149,7 +149,6 @@ function openConvocationCardBadge(
 }
 
 export function SportManagementScreen() {
-  console.log(DASH_DIAG, 'A tentar carregar ecrã de gestão...', { t: new Date().toISOString() });
   const { player, user, canManageSport, role, loading: authLoading, canDo } = useAuth();
   /** Bypass total para jco.simoes@gmail.com: ignora team_id e role; acesso total ao ecrã e ao botão de criar convocatória. */
   const isOwner = isOwnerEmail(user?.email);
@@ -406,20 +405,15 @@ export function SportManagementScreen() {
     }
   }, [canManage, canReeditCompletedResults, player?.id, role]);
 
+  // Só dispara quando dashboardTeamId passa de undefined para um valor real.
+  // dashboardTeamId só é definido quando canManage=true e !authLoading, por isso
+  // não precisamos dessas deps aqui — evita o loop infinito.
   useEffect(() => {
-    if (!canManage || authLoading) {
-      console.info(
-        `${DASH_DIAG} loadDashboard:effect em pausa canManage=${String(canManage)} authLoading=${String(authLoading)}`,
-      );
-      return;
-    }
-    if (!dashboardTeamId) {
-      console.info(`${DASH_DIAG} loadDashboard:effect aguarda dashboardTeamId (resolve em curso)`);
-      return;
-    }
-    console.info(`${DASH_DIAG} loadDashboard:effect a chamar serviço dashboardTeamId=${dashboardTeamId}`);
+    if (!dashboardTeamId) return;
+    console.log('[M6] loadDashboard disparado para:', dashboardTeamId);
     void loadDashboard(dashboardTeamId);
-  }, [canManage, authLoading, dashboardTeamId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboardTeamId]);
 
   useEffect(() => {
     console.log(DASH_DIAG, 'SportManagementScreen: estado React (render / useState — o que a tabela vê)', {
@@ -487,7 +481,8 @@ export function SportManagementScreen() {
         if (!cancelled) setRankingCategoryLoading(false);
       });
     return () => { cancelled = true; };
-  }, [rankingCategoryFilter, dashboardTeamId, rawTeamId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankingCategoryFilter, dashboardTeamId]);
 
   useEffect(() => {
     if (selectedGameForSwap) {
