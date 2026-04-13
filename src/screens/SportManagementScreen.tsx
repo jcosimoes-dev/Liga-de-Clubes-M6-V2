@@ -232,6 +232,7 @@ export function SportManagementScreen() {
   const [totalGamesEpoca, setTotalGamesEpoca] = useState(0);
   const [totalGamesMes, setTotalGamesMes] = useState(0);
   const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [rankingSortBy, setRankingSortBy] = useState<'total' | 'liga' | 'federacao' | 'conv' | 'disp'>('total');
   const [rankingSortAsc, setRankingSortAsc] = useState(false);
   /** Filtro de categoria para o ranking: Geral, Liga ou Treinos (pontos, Conv. e % Disp. por categoria). */
@@ -289,6 +290,9 @@ export function SportManagementScreen() {
   };
 
   const loadDashboard = async (teamId: string) => {
+    if (isInitialized) return;
+    setIsInitialized(true);
+
     console.log('[M6] loadDashboard → team_id:', teamId);
     setDashboardLoading(true);
     const now = new Date();
@@ -301,6 +305,7 @@ export function SportManagementScreen() {
         getSeasonStats(teamId),
         getSeasonStats(teamId, { startDate: thirtyDaysAgo, endDate: now }),
       ]);
+      console.log('DADOS RECEBIDOS:', { rankData, teamData, seasonEpoca, seasonMes });
       const players = Array.isArray(rankData) ? rankData : [];
       if (players.length === 0) {
         console.log('[CRÍTICO] Supabase devolveu zero jogadores para o ID', teamId);
@@ -314,7 +319,9 @@ export function SportManagementScreen() {
       setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
       setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error('[M6] loadDashboard erro:', e);
+      alert('Erro na BD: ' + msg);
     } finally {
       setDashboardLoading(false);
     }
@@ -354,38 +361,9 @@ export function SportManagementScreen() {
     }
   }, [canManage, canReeditCompletedResults, player?.id, role]);
 
-  // Corre UMA ÚNICA VEZ ao montar o componente. Sem dependências, sem cancels, sem guards.
-  // ID hardcoded directamente — não depende de contexto, estado ou auth.
+  // Dispara uma única vez ao montar. isInitialized dentro de loadDashboard bloqueia qualquer re-run.
   useEffect(() => {
-    const TEAM_ID = '00000000-0000-0000-0000-000000000001';
-    console.log('[M6] useEffect mount — a carregar dados para team_id:', TEAM_ID);
-    setDashboardLoading(true);
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    Promise.all([
-      getPlayerRanking(TEAM_ID),
-      getTeamPerformanceStats(TEAM_ID),
-      getSeasonStats(TEAM_ID),
-      getSeasonStats(TEAM_ID, { startDate: thirtyDaysAgo, endDate: now }),
-    ])
-      .then(([rankData, teamData, seasonEpoca, seasonMes]) => {
-        console.log('DADOS RECEBIDOS:', { rankData, teamData, seasonEpoca, seasonMes });
-        const players = Array.isArray(rankData) ? rankData : [];
-        if (players.length === 0) {
-          console.log('[CRÍTICO] Supabase devolveu zero jogadores para o ID', TEAM_ID);
-        } else {
-          console.log('[M6] Jogadores no ecrã:', players.length);
-        }
-        setRanking(players);
-        setTeamStats(teamData ?? null);
-        setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
-        setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
-        setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
-        setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
-      })
-      .catch((e) => console.error('[M6] Erro ao carregar dashboard:', e))
-      .finally(() => setDashboardLoading(false));
+    void loadDashboard('00000000-0000-0000-0000-000000000001');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
