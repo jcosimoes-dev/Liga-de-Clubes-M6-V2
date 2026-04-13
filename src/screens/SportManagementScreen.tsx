@@ -159,16 +159,8 @@ export function SportManagementScreen() {
    */
   const rawTeamId = OFFICIAL_M6_TEAM_ID;
   const effectiveTeamId = OFFICIAL_M6_TEAM_ID;
-  const [dashboardTeamId, setDashboardTeamId] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (!canManage || authLoading) {
-      if (!canManage) setDashboardTeamId(undefined);
-      return;
-    }
-    console.log('[M6] dashboardTeamId → forçado para:', OFFICIAL_M6_TEAM_ID);
-    setDashboardTeamId(OFFICIAL_M6_TEAM_ID);
-  }, [canManage, authLoading]);
+  // dashboardTeamId é sempre o ID oficial — sem estado intermédio nem cascata de efeitos.
+  const dashboardTeamId = OFFICIAL_M6_TEAM_ID;
   const { navigate, goBack } = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [gameType, setGameType] = useState<GameType>('Liga');
@@ -229,12 +221,8 @@ export function SportManagementScreen() {
   const canReeditCompletedResults = player ? canAction(player, role, 'reedit_completed_results') : false;
 
   const hasRestoredConvocationRef = useRef(false);
-  /** Evita chamadas concorrentes a loadDashboard (guard de referência, não de estado). */
-  const dashboardLoadingRef = useRef(false);
   /** Evita double-fire do React StrictMode no useEffect de loadDashboard. */
   const dashboardHasLoadedRef = useRef(false);
-  /** useRef estável para o cancelled flag do efeito rankingCategoryFilter. */
-  const rankingCategoryFilterCancelRef = useRef(false);
   const CONVOCATION_STORAGE_KEY = 'liga-convocation-state';
   const TAB_STORAGE_KEY = 'liga-gestao-active-tab';
 
@@ -294,7 +282,7 @@ export function SportManagementScreen() {
       } else {
         showToast(`Pontos recalculados: ${updated} jogador(es).`, 'success');
       }
-      await loadDashboard();
+      await loadDashboard(OFFICIAL_M6_TEAM_ID);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Erro ao recalcular pontos.', 'error');
     } finally {
@@ -302,61 +290,36 @@ export function SportManagementScreen() {
     }
   };
 
-  const loadDashboard = async (explicitTeamId?: string) => {
-    // Bloqueia chamadas concorrentes; a segunda só entra quando a primeira terminar.
-    if (dashboardLoadingRef.current) {
-      console.log('[M6] loadDashboard ignorado — já em curso');
-      return;
-    }
-    const safeTid = (explicitTeamId ?? dashboardTeamId) || OFFICIAL_M6_TEAM_ID;
-    console.log('[M6] loadDashboard a correr com team_id:', safeTid);
-
-    dashboardLoadingRef.current = true;
+  const loadDashboard = async (teamId: string) => {
+    console.log('[M6] loadDashboard → team_id:', teamId);
     setDashboardLoading(true);
-
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    // Promise.allSettled: mesmo que uma query falhe/seja cancelada, as restantes
-    // retornam e o estado é actualizado com os dados disponíveis.
-    const [rankResult, teamResult, epochResult, monthResult] = await Promise.allSettled([
-      getPlayerRanking(safeTid),
-      getTeamPerformanceStats(safeTid),
-      getSeasonStats(safeTid),
-      getSeasonStats(safeTid, { startDate: thirtyDaysAgo, endDate: now }),
-    ]);
-
-    // Aplica resultados parciais imediatamente — não espera por todos.
-    if (rankResult.status === 'fulfilled') {
-      setRanking(Array.isArray(rankResult.value) ? rankResult.value : []);
+    try {
+      const [rankData, teamData, seasonEpoca, seasonMes] = await Promise.all([
+        getPlayerRanking(teamId),
+        getTeamPerformanceStats(teamId),
+        getSeasonStats(teamId),
+        getSeasonStats(teamId, { startDate: thirtyDaysAgo, endDate: now }),
+      ]);
+      const players = Array.isArray(rankData) ? rankData : [];
+      if (players.length === 0) {
+        console.log('[CRÍTICO] Supabase devolveu zero jogadores para o ID', teamId);
+      } else {
+        console.log('[M6] Jogadores carregados:', players.length);
+      }
+      setRanking(players);
+      setTeamStats(teamData ?? null);
+      setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
+      setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
+      setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
+      setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
+    } catch (e) {
+      console.error('[M6] loadDashboard erro:', e);
+    } finally {
+      setDashboardLoading(false);
     }
-    if (teamResult.status === 'fulfilled') {
-      setTeamStats(teamResult.value ?? null);
-    }
-    if (epochResult.status === 'fulfilled') {
-      setSeasonStatsEpoca(Array.isArray(epochResult.value?.rows) ? epochResult.value.rows : []);
-      setTotalGamesEpoca(epochResult.value?.totalGamesInPeriod ?? 0);
-    }
-    if (monthResult.status === 'fulfilled') {
-      setSeasonStatsMes(Array.isArray(monthResult.value?.rows) ? monthResult.value.rows : []);
-      setTotalGamesMes(monthResult.value?.totalGamesInPeriod ?? 0);
-    }
-
-    const failed = [rankResult, teamResult, epochResult, monthResult].filter((r) => r.status === 'rejected');
-    if (failed.length > 0) {
-      console.warn('[M6] loadDashboard: queries com falha:', failed.map((r) => (r as PromiseRejectedResult).reason));
-    } else {
-      console.log('[M6] loadDashboard:OK', {
-        teamId: safeTid,
-        ranking: rankResult.status === 'fulfilled' ? (rankResult.value?.length ?? 0) : 'erro',
-        teamWins: teamResult.status === 'fulfilled' ? (teamResult.value?.wins ?? 0) : 'erro',
-        seasonRows: epochResult.status === 'fulfilled' ? (epochResult.value?.rows?.length ?? 0) : 'erro',
-      });
-    }
-
-    dashboardLoadingRef.current = false;
-    setDashboardLoading(false);
   };
 
   // Carregar jogos/dashboard só ao entrar na gestão. Não refazer quando player/team_id muda (ex.: sync de outro separador)
@@ -393,18 +356,17 @@ export function SportManagementScreen() {
     }
   }, [canManage, canReeditCompletedResults, player?.id, role]);
 
-  // Dispara uma única vez quando dashboardTeamId recebe um valor real.
-  // dashboardHasLoadedRef impede o double-fire do React StrictMode.
+  // Carrega o dashboard uma única vez, assim que a autenticação terminar e o utilizador
+  // tiver permissão. dashboardHasLoadedRef impede re-disparos em re-renders subsequentes.
   useEffect(() => {
-    if (!dashboardTeamId || dashboardHasLoadedRef.current) return;
+    if (authLoading || !canManage || dashboardHasLoadedRef.current) return;
     dashboardHasLoadedRef.current = true;
-    console.log('[M6] loadDashboard disparado para:', dashboardTeamId);
-    void loadDashboard(dashboardTeamId);
+    void loadDashboard(OFFICIAL_M6_TEAM_ID);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboardTeamId]);
+  }, [authLoading, canManage]);
 
 
-  /** Carrega ranking + estatísticas por categoria quando o filtro é Liga ou Treinos. */
+  /** Carrega ranking + estatísticas por categoria quando o filtro muda para Liga ou Treinos. */
   useEffect(() => {
     const category = rankingCategoryFilter || 'Geral';
     if (category === 'Geral') {
@@ -413,34 +375,24 @@ export function SportManagementScreen() {
       setRankingByCategory(null);
       return;
     }
-    const tid = dashboardTeamId || OFFICIAL_M6_TEAM_ID;
     setRankingCategoryLoading(true);
-    // Usa uma ref estável para o flag de cancel — evita que o cleanup do StrictMode
-    // cancele a query antes de ela terminar.
-    rankingCategoryFilterCancelRef.current = false;
-
-    Promise.allSettled([
-      getSeasonStats(tid, { category }),
-      getPlayerRanking(tid, { category }),
+    Promise.all([
+      getSeasonStats(OFFICIAL_M6_TEAM_ID, { category }),
+      getPlayerRanking(OFFICIAL_M6_TEAM_ID, { category }),
     ])
-      .then(([statsRes, rankRes]) => {
-        if (rankingCategoryFilterCancelRef.current) return;
-        setRankingCategoryStats(
-          statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.rows) ? statsRes.value.rows : [],
-        );
-        setRankingCategoryTotalGames(
-          statsRes.status === 'fulfilled' ? (statsRes.value?.totalGamesInPeriod ?? 0) : 0,
-        );
-        setRankingByCategory(
-          rankRes.status === 'fulfilled' && Array.isArray(rankRes.value) ? rankRes.value : [],
-        );
+      .then(([statsRes, rankingRows]) => {
+        setRankingCategoryStats(Array.isArray(statsRes?.rows) ? statsRes.rows : []);
+        setRankingCategoryTotalGames(statsRes?.totalGamesInPeriod ?? 0);
+        setRankingByCategory(Array.isArray(rankingRows) ? rankingRows : []);
       })
-      .finally(() => {
-        if (!rankingCategoryFilterCancelRef.current) setRankingCategoryLoading(false);
-      });
-    return () => { rankingCategoryFilterCancelRef.current = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rankingCategoryFilter, dashboardTeamId]);
+      .catch((e) => {
+        console.error('[M6] rankingCategoryFilter erro:', e);
+        setRankingCategoryStats([]);
+        setRankingCategoryTotalGames(0);
+        setRankingByCategory([]);
+      })
+      .finally(() => setRankingCategoryLoading(false));
+  }, [rankingCategoryFilter]);
 
   useEffect(() => {
     if (selectedGameForSwap) {
@@ -1042,7 +994,7 @@ export function SportManagementScreen() {
       setSelectedGame(null);
       await loadOpenGames();
       await loadClosedGames();
-      await loadDashboard();
+      await loadDashboard(OFFICIAL_M6_TEAM_ID);
       invalidateOpenGamesListCaches();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao fechar convocatória';
@@ -2834,7 +2786,7 @@ export function SportManagementScreen() {
               setGameToDelete(null);
               await loadOpenGames();
               await loadClosedGames();
-              await loadDashboard();
+              await loadDashboard(OFFICIAL_M6_TEAM_ID);
               invalidateOpenGamesListCaches();
               showToast('Convocatória eliminada. A lista e o Ranking foram atualizados.', 'success');
             } catch (e) {
@@ -2861,7 +2813,7 @@ export function SportManagementScreen() {
               if (g) setSelectedGame(g);
             }
             await loadClosedGames();
-            await loadDashboard();
+            await loadDashboard(OFFICIAL_M6_TEAM_ID);
             invalidateOpenGamesListCaches();
             showToast('Jogo atualizado com sucesso', 'success');
           }}
