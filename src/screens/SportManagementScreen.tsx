@@ -308,49 +308,27 @@ export function SportManagementScreen() {
         console.log('[DataCheck] TODOS os jogos na BD (top 20):', error ? `ERRO: ${error.message}` : (data ?? []).map((g) => `${g.team_id}|${g.status}|${g.phase ?? '-'}`));
       });
 
+    // tid é sempre garantido pelo useEffect que chama loadDashboard.
+    // Fallback de segurança: nunca deixar tid vazio.
+    const safeTid = tid || OFFICIAL_M6_TEAM_ID;
+    console.log('[M6] loadDashboard a correr com team_id:', safeTid);
     setDashboardLoading(true);
-    // Não usar `authLoading` aqui: o useEffect que chama loadDashboard já exige !authLoading;
-    // uma closure obsoleta com authLoading=true anulava teamStats e mostrava "Sem dados".
-    if (!canManage) {
-      console.info(`${DASH_DIAG} loadDashboard:abort sem permissão canManage=false`);
-      setRanking([]);
-      setTeamStats(null);
-      setSeasonStatsEpoca([]);
-      setSeasonStatsMes([]);
-      setTotalGamesEpoca(0);
-      setTotalGamesMes(0);
-      setDashboardLoading(false);
-      return;
-    }
-    if (!tid) {
-      console.info(`${DASH_DIAG} loadDashboard:abort sem team_id no perfil`);
-      setRanking([]);
-      setTeamStats(null);
-      setSeasonStatsEpoca([]);
-      setSeasonStatsMes([]);
-      setTotalGamesEpoca(0);
-      setTotalGamesMes(0);
-      setDashboardLoading(false);
-      return;
-    }
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     try {
       const [rankData, teamData, seasonEpoca, seasonMes] = await Promise.all([
-        getPlayerRanking(tid),
-        getTeamPerformanceStats(tid),
-        getSeasonStats(tid),
-        getSeasonStats(tid, { startDate: thirtyDaysAgo, endDate: now }),
+        getPlayerRanking(safeTid),
+        getTeamPerformanceStats(safeTid),
+        getSeasonStats(safeTid),
+        getSeasonStats(safeTid, { startDate: thirtyDaysAgo, endDate: now }),
       ]);
-      console.info(
-        `${DASH_DIAG} loadDashboard:OK ranking=${Array.isArray(rankData) ? rankData.length : '?'} teamPts=${teamData?.totalPoints ?? '?'}`,
-        {
-          tid,
-          seasonEpocaRows: seasonEpoca?.rows?.length,
-          seasonMesRows: seasonMes?.rows?.length,
-        },
-      );
+      console.log('[M6] loadDashboard:OK', {
+        teamId: safeTid,
+        ranking: Array.isArray(rankData) ? rankData.length : 0,
+        teamWins: teamData?.wins ?? 0,
+        seasonRows: seasonEpoca?.rows?.length ?? 0,
+      });
       setRanking(Array.isArray(rankData) ? rankData : []);
       setTeamStats(teamData ?? null);
       setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
@@ -358,8 +336,8 @@ export function SportManagementScreen() {
       setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
       setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
     } catch (e) {
-      console.error('[Gestão Jogos] loadDashboard', e);
-      showToast('Erro ao carregar Performance / estatísticas. Vê a consola para detalhes.', 'error');
+      console.error('[M6] loadDashboard erro:', e);
+      showToast('Erro ao carregar dados. Vê a consola.', 'error');
       setRanking([]);
       setTeamStats(null);
       setSeasonStatsEpoca([]);
@@ -1353,7 +1331,9 @@ export function SportManagementScreen() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 py-4 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</div>
+                <div className="mt-4 py-4 text-center text-gray-400 text-sm">
+                  {dashboardLoading ? 'A carregar...' : 'Sem jogos de Liga registados.'}
+                </div>
               )}
             </div>
           </Card>
@@ -1432,7 +1412,9 @@ export function SportManagementScreen() {
                     <tbody>
                       {rankingWithDisp.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-4 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</td>
+                          <td colSpan={7} className="py-4 text-center text-gray-400 text-sm">
+                            {dashboardLoading ? 'A carregar...' : 'Sem jogadores encontrados para este filtro.'}
+                          </td>
                         </tr>
                       ) : (
                         (() => {
@@ -1538,7 +1520,9 @@ export function SportManagementScreen() {
                       const statsRows = Array.isArray(rawSeasonStats) ? rawSeasonStats : [];
                       return statsRows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-gray-500">Sem dados disponíveis. Cria a tua primeira equipa para começar.</td>
+                        <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                          {dashboardLoading ? 'A carregar...' : 'Sem dados de época disponíveis.'}
+                        </td>
                       </tr>
                     ) : (
                       (() => {
