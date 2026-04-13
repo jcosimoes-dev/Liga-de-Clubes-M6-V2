@@ -155,16 +155,11 @@ export function SportManagementScreen() {
   const isOwner = isOwnerEmail(user?.email);
   const canManage = isOwner || role === PlayerRoles.admin || canManageSport;
   /**
-   * `team_id` do perfil — se null/vazio força OFFICIAL_M6_TEAM_ID.
-   * Todos os dados no Supabase foram migrados para este ID.
+   * Todos os dados foram migrados para OFFICIAL_M6_TEAM_ID.
+   * Ignoramos player.team_id para as queries do dashboard — usamos sempre o ID oficial.
    */
-  const rawTeamId =
-    typeof player?.team_id === 'string' && player.team_id.trim() !== ''
-      ? player.team_id.trim()
-      : OFFICIAL_M6_TEAM_ID;
-  /** Mesmo que `rawTeamId`. */
-  const effectiveTeamId = rawTeamId;
-  /** ID usado nas queries do dashboard — sempre resolvido de forma síncrona. */
+  const rawTeamId = OFFICIAL_M6_TEAM_ID;
+  const effectiveTeamId = OFFICIAL_M6_TEAM_ID;
   const [dashboardTeamId, setDashboardTeamId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -172,12 +167,9 @@ export function SportManagementScreen() {
       if (!canManage) setDashboardTeamId(undefined);
       return;
     }
-    // resolveDashboardTeamId é agora síncrono na prática (sem queries à BD)
-    void resolveDashboardTeamId(rawTeamId).then((id) => {
-      console.log('[M6] dashboardTeamId resolvido →', id);
-      setDashboardTeamId(id);
-    });
-  }, [canManage, rawTeamId, authLoading]);
+    console.log('[M6] dashboardTeamId → forçado para:', OFFICIAL_M6_TEAM_ID);
+    setDashboardTeamId(OFFICIAL_M6_TEAM_ID);
+  }, [canManage, authLoading]);
   const { navigate, goBack } = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [gameType, setGameType] = useState<GameType>('Liga');
