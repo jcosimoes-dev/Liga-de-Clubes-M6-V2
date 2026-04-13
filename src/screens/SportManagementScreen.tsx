@@ -293,38 +293,70 @@ export function SportManagementScreen() {
     if (isInitialized) return;
     setIsInitialized(true);
 
-    console.log('[M6] loadDashboard → team_id:', teamId);
+    console.log('[M6] loadDashboard START — team_id:', teamId);
     setDashboardLoading(true);
+
+    // ── PLAYERS: query directa ao Supabase, sem serviço intermédio ──────────
+    // getPlayerRanking() tem 5+ sub-queries encadeadas que podem falhar a meio
+    // sem lançar erro. Isto vai buscar o plantel directamente.
+    try {
+      const { data: playersRaw, error: pErr } = await supabase
+        .from('players')
+        .select('id, name, liga_points, federation_points, is_active, role, email')
+        .eq('is_active', true)
+        .neq('email', GESTOR_HIDE_EMAIL);
+
+      if (pErr) throw new Error('players: ' + pErr.message);
+
+      console.log('DADOS RECEBIDOS (players directo):', playersRaw);
+
+      const players: PlayerRankingRow[] = (playersRaw ?? [])
+        .filter((p) => p.role !== 'admin')
+        .map((p, i) => ({
+          player_id: p.id as string,
+          name: (p.name as string) ?? '(sem nome)',
+          wins: 0,
+          losses: 0,
+          pontos_liga: Number(p.liga_points ?? 0),
+          federation_points: Number(p.federation_points ?? 0),
+          total_points: Number(p.liga_points ?? 0) + Number(p.federation_points ?? 0),
+          rank: i + 1,
+        }));
+
+      if (players.length === 0) {
+        console.log('[CRÍTICO] Supabase devolveu zero jogadores. Total bruto:', playersRaw?.length ?? 0,
+          '| roles encontrados:', [...new Set((playersRaw ?? []).map((p) => p.role))]);
+      } else {
+        console.log('[M6] Jogadores no ecrã:', players.length);
+      }
+
+      setRanking(players);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[M6] Erro ao carregar jogadores:', e);
+      alert('Erro na BD (players): ' + msg);
+    }
+
+    // ── STATS: usa os serviços normais (não bloqueiam o ranking) ────────────
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     try {
-      const [rankData, teamData, seasonEpoca, seasonMes] = await Promise.all([
-        getPlayerRanking(teamId),
+      const [teamData, seasonEpoca, seasonMes] = await Promise.all([
         getTeamPerformanceStats(teamId),
         getSeasonStats(teamId),
         getSeasonStats(teamId, { startDate: thirtyDaysAgo, endDate: now }),
       ]);
-      console.log('DADOS RECEBIDOS:', { rankData, teamData, seasonEpoca, seasonMes });
-      const players = Array.isArray(rankData) ? rankData : [];
-      if (players.length === 0) {
-        console.log('[CRÍTICO] Supabase devolveu zero jogadores para o ID', teamId);
-      } else {
-        console.log('[M6] Jogadores carregados:', players.length);
-      }
-      setRanking(players);
       setTeamStats(teamData ?? null);
       setSeasonStatsEpoca(Array.isArray(seasonEpoca?.rows) ? seasonEpoca.rows : []);
       setSeasonStatsMes(Array.isArray(seasonMes?.rows) ? seasonMes.rows : []);
       setTotalGamesEpoca(seasonEpoca?.totalGamesInPeriod ?? 0);
       setTotalGamesMes(seasonMes?.totalGamesInPeriod ?? 0);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[M6] loadDashboard erro:', e);
-      alert('Erro na BD: ' + msg);
-    } finally {
-      setDashboardLoading(false);
+      console.error('[M6] Erro ao carregar stats:', e);
     }
+
+    setDashboardLoading(false);
   };
 
   // Carregar jogos/dashboard só ao entrar na gestão. Não refazer quando player/team_id muda (ex.: sync de outro separador)
