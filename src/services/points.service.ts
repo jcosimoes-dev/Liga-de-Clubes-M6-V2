@@ -550,14 +550,28 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
   }
 
   const allGames = allGamesRaw ?? [];
-  // Quadro de Performance: apenas jogos da Liga
-  const games = allGames.filter((g) => (g as { type?: string }).type === 'Liga');
 
-  console.log('[M6] getTeamPerformanceStats — resultado:', {
+  // Log diagnóstico: mostra TODOS os jogos antes de filtrar
+  console.log('[M6] getTeamPerformanceStats — jogos brutos na BD:', allGames.map((g) => ({
+    id: (g as { id: string }).id,
+    type: (g as { type?: string }).type,
+    status: (g as { status?: string }).status,
+    team_points: (g as { team_points?: number | null }).team_points,
+  })));
+
+  // Apenas jogos da Liga (case-insensitive) e com status finalizado
+  const FINAL_STATUSES = new Set(['finalizado', 'final', 'concluido', 'concluído', 'completed', 'closed']);
+  const games = allGames.filter((g) => {
+    const type = ((g as { type?: string }).type ?? '').toLowerCase();
+    const status = ((g as { status?: string }).status ?? '').toLowerCase();
+    return type === 'liga' && FINAL_STATUSES.has(status);
+  });
+
+  console.log('[M6] getTeamPerformanceStats — após filtro Liga+finalizado:', {
     totalJogos: allGames.length,
-    totalLiga: games.length,
+    totalLigaFinalizada: games.length,
     tiposEncontrados: [...new Set(allGames.map((g) => (g as { type?: string }).type))],
-    teamPoints: games.map((g) => (g as { team_points?: number | null }).team_points),
+    statusesEncontrados: [...new Set(allGames.map((g) => (g as { status?: string }).status))],
   });
 
   if (games.length === 0) return EMPTY_TEAM_STATS;
