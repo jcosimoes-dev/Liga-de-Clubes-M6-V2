@@ -653,10 +653,19 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     count: games.length,
   });
 
-  /** Sem jogos finalizados (ou sem fase no filtro): plantel com pontos da BD; evita ranking vazio só com convocatórias abertas. */
+  /**
+   * IDs dos jogos finais (STATUS_FINAL_VALUES) — usados como fonte de jogadores reais.
+   * Quando não há jogos finais, usar `pairFallbackGameIds` (todos os jogos) como último recurso.
+   * NUNCA usar `pairFallbackGameIds` primeiro: inclui convocatórias abertas com jogadores de
+   * teste nos pares, que poluem Liga e Treinos.
+   */
+  const finalGameIds = gamesRawList.map((g) => (g as { id: string }).id);
+  const realPlayerGameIds = finalGameIds.length > 0 ? finalGameIds : pairFallbackGameIds;
+
+  /** Sem jogos finalizados com a categoria pedida: mostrar jogadores dos jogos finais (mesmo conjunto que Geral). */
   if (!games?.length && category !== 'Treino') {
     if (category === 'Liga') {
-      const roster = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+      const roster = await fetchPlayersByTeamOrPairs(teamId, realPlayerGameIds, 'ranking');
       const list = roster.map((p) => ({
         player_id: p.id,
         name: p.name ?? '—',
@@ -669,7 +678,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
       return list.sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
     }
     if (category === 'Geral') {
-      const players = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+      const players = await fetchPlayersByTeamOrPairs(teamId, realPlayerGameIds, 'ranking');
       const readNum = (raw: number | string | null | undefined): number => {
         if (raw == null || raw === '') return 0;
         const n = Number(raw);
@@ -697,7 +706,8 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   }
 
   if (category === 'Treino') {
-    const players = await fetchPlayersByTeamOrPairs(teamId, pairFallbackGameIds, 'ranking');
+    // Usar jogos finais como fonte (mesmos jogadores que Geral), não todos os jogos.
+    const players = await fetchPlayersByTeamOrPairs(teamId, realPlayerGameIds, 'ranking');
     const list = players.map((p) => ({
       player_id: p.id,
       name: p.name ?? '—',
@@ -1042,8 +1052,16 @@ export async function getSeasonStats(
     console.error(`${LOG_PREFIX} getSeasonStats availabilities:`, availsRes.error);
   }
   const avails = availsRes.error ? [] : (availsRes.data ?? []);
-  const allTeamGameIds = (allTeamGames ?? []).map((g) => (g as { id: string }).id);
-  let players = await fetchPlayersByTeamOrPairs(teamId, allTeamGameIds, 'season');
+  /**
+   * Para obter os jogadores reais, usar apenas IDs de jogos finais (STATUS_FINAL_VALUES)
+   * filtrados pela categoria — os mesmos que `getPlayerRanking` Geral usa.
+   * `allTeamGameIds` (todos os jogos) inclui convocatórias abertas com jogadores de teste.
+   */
+  const allFinalGameIds = (finalGamesRaw ?? []).map((g) => (g as { id: string }).id);
+  const realPlayerSourceIds = allFinalGameIds.length > 0
+    ? allFinalGameIds
+    : (allTeamGames ?? []).map((g) => (g as { id: string }).id);
+  let players = await fetchPlayersByTeamOrPairs(teamId, realPlayerSourceIds, 'season');
   if (players[0]) {
     const lp = (players[0] as { liga_points?: unknown }).liga_points;
     console.log(DIAG, 'getSeasonStats: tipo de liga_points (1.º jogador, vindo da BD)', typeof lp, lp);
