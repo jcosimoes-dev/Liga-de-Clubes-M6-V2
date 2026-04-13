@@ -172,16 +172,16 @@ export function SportManagementScreen() {
       return;
     }
     let cancelled = false;
-    // resolveDashboardTeamId verifica se rawTeamId tem jogos; se não, encontra o team correto via BD.
     void resolveDashboardTeamId(rawTeamId)
       .then((id) => {
         if (!cancelled) {
-          console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído', { resolvedTeamId: id, rawTeamId });
-          if (id) setDashboardTeamId(id);
+          console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído →', id);
+          setDashboardTeamId(id);
         }
       })
       .catch((e) => {
-        console.error(DASH_DIAG, 'resolveDashboardTeamId: falhou (sem alterar equipa no estado)', e);
+        console.error(DASH_DIAG, 'resolveDashboardTeamId: erro', e);
+        if (!cancelled) setDashboardTeamId(rawTeamId ?? OFFICIAL_M6_TEAM_ID);
       });
     return () => {
       cancelled = true;
@@ -319,6 +319,13 @@ export function SportManagementScreen() {
     console.info(
       `${DASH_DIAG} loadDashboard:entrada tid=${tid} canManage=${String(canManage)} explicit=${explicitTeamId ?? '—'}`,
     );
+
+    // [DataCheck] Diagnóstico directo: todos os jogos na BD, sem nenhum filtro
+    supabase.from('games').select('id, team_id, status, phase').order('updated_at', { ascending: false }).limit(20)
+      .then(({ data, error }) => {
+        console.log('[DataCheck] TODOS os jogos na BD (top 20):', error ? `ERRO: ${error.message}` : (data ?? []).map((g) => `${g.team_id}|${g.status}|${g.phase ?? '-'}`));
+      });
+
     setDashboardLoading(true);
     // Não usar `authLoading` aqui: o useEffect que chama loadDashboard já exige !authLoading;
     // uma closure obsoleta com authLoading=true anulava teamStats e mostrava "Sem dados".
@@ -1225,8 +1232,8 @@ export function SportManagementScreen() {
     return safeRanking.map((row) => {
       const presencas = dispByPlayer.get(row.player_id) ?? 0;
       const jogos = convByPlayer.get(row.player_id) ?? 0;
-      const rawPct = totalEventsForRanking > 0 ? (presencas / totalEventsForRanking) * 100 : 0;
-      const disponibilidade_pct = totalEventsForRanking > 0 ? Math.min(100, Math.round(rawPct)) : 0;
+      // % Disp = Conv / Total Jogos × 100 (máx 100%)
+      const disponibilidade_pct = totalEventsForRanking > 0 ? Math.min(100, Math.round((jogos / totalEventsForRanking) * 100)) : 0;
       return {
         ...row,
         disponibilidade: presencas,
@@ -1382,7 +1389,7 @@ export function SportManagementScreen() {
                 <h3 className="text-base font-medium text-gray-900">Ranking Individual</h3>
               </div>
               <p className="text-sm text-gray-500 mt-1.5">
-                Liga · Fed. · Total · Conv. = vezes convocado · % Disp. = (marcou disponível / eventos) × 100
+                Liga · Fed. · Total · Conv. = jogos convocado · % Disp. = (Conv. / Total Jogos) × 100
               </p>
               {/* Filtro por categoria: Jogos e % Disp. atualizam por Geral / Liga / Treinos */}
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1438,7 +1445,7 @@ export function SportManagementScreen() {
                         <th
                           className="text-right py-2 px-1 font-semibold text-green-700 cursor-pointer hover:bg-green-50/80 rounded select-none"
                           onClick={() => { setRankingSortBy('disp'); setRankingSortAsc(rankingSortBy === 'disp' ? !rankingSortAsc : false); }}
-                          title="% Disp. = (marcou disponível / total eventos) × 100"
+                          title="% Disp. = (Conv. do jogador / Total Jogos criados) × 100"
                         >
                           % Disp. {rankingSortBy === 'disp' && (rankingSortAsc ? '↑' : '↓')}
                         </th>

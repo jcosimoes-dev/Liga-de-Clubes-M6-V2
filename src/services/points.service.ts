@@ -6,7 +6,8 @@ import { computeLigaPointsForEliminatoriaGame, roundLigaPointsTotal } from '../d
 import { updatePlayerLigaPoints } from './adminAuth';
 import { PlayerRoles } from '../domain/constants';
 
-export { OFFICIAL_M6_TEAM_ID } from '../domain/teamConstants';
+import { OFFICIAL_M6_TEAM_ID } from '../domain/teamConstants';
+export { OFFICIAL_M6_TEAM_ID };
 
 /** Opções do recálculo automático de `liga_points`. */
 export interface SyncPlayerPointsOptions {
@@ -19,12 +20,14 @@ export interface SyncPlayerPointsOptions {
  * por jogo de eliminatória (regras em `domain/ligaPointsEliminatoria.ts`).
  */
 
-/** Status que consideram o jogo final. Incluir 'concluido'/'completed' se a BD ainda não tiver 'final'. */
-/** Inclui `closed` por compatibilidade com estados antigos na BD. */
-const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed', 'closed'] as const;
+/**
+ * Status que consideram o jogo finalizado para efeitos de ranking, pontos e convocatórias.
+ * 'finalizado' é o status usado na BD do projeto; os restantes são aliases de compatibilidade.
+ */
+const STATUS_FINAL_VALUES = ['finalizado', 'final', 'concluido', 'completed', 'closed'] as const;
 
-/** Statuses para o card Performance da Equipa (jogos que contam para V-D-F). */
-const STATUS_TEAM_PERFORMANCE = ['final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
+/** Statuses que contam para o card V-D-F da equipa. Igual a STATUS_FINAL_VALUES + 'convocatoria_fechada'. */
+const STATUS_TEAM_PERFORMANCE = ['finalizado', 'final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
 
 const LOG_PREFIX = '[Points]';
 
@@ -44,35 +47,24 @@ function isDeadOrEmptyTeamId(teamId: string | null | undefined): boolean {
  * Isto garante que o admin (cujo team_id pode ser uma equipa de bootstrap sem jogos)
  * não fica sem dados — encontra automaticamente a equipa com atividade real.
  */
-export async function resolveDashboardTeamId(preferredTeamId?: string | null): Promise<string | undefined> {
+/**
+ * Resolve o UUID da equipa para o dashboard.
+ * Prioridade:
+ *   1. preferredTeamId com jogos → usa-o directamente.
+ *   2. preferredTeamId com jogadores activos (mas sem jogos ainda) → usa-o.
+ *   3. Team do jogo mais recente na BD.
+ *   4. Primeira equipa na tabela teams.
+ *   5. OFFICIAL_M6_TEAM_ID como último recurso absoluto.
+ *
+ * Nunca falha silenciosamente: garante que o dashboard sempre tem um team_id válido.
+ */
+export async function resolveDashboardTeamId(preferredTeamId?: string | null): Promise<string> {
   const p = typeof preferredTeamId === 'string' ? preferredTeamId.trim() : '';
-
-  if (p) {
-    // Verificar se este team tem jogos antes de o usar
-    const { data: hasGame } = await supabase
-      .from('games')
-      .select('id')
-      .eq('team_id', p)
-      .limit(1)
-      .maybeSingle();
-    if (hasGame?.id) return p;
-    // Team existe mas não tem jogos → continua para encontrar o team com atividade real
-    console.warn(`${LOG_PREFIX} resolveDashboardTeamId: team_id preferido (${p}) não tem jogos, a resolver via BD.`);
-  }
-
-  // Encontrar o team do jogo mais recente (ignora equipas vazias/bootstrap)
-  const { data: fromGame, error: gameErr } = await supabase
-    .from('games')
-    .select('team_id')
-    .not('team_id', 'is', null)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!gameErr && fromGame?.team_id) return fromGame.team_id;
-
-  // Último recurso: primeira equipa na BD
-  const { data: fromTeams } = await supabase.from('teams').select('id').limit(1).maybeSingle();
-  return fromTeams?.id ?? undefined;
+  // Usa sempre o ID preferido se válido, caso contrário OFFICIAL_M6_TEAM_ID.
+  // Não existe nenhum fallback para outros team_ids — o ID oficial é a única fonte de verdade.
+  const resolved = p || OFFICIAL_M6_TEAM_ID;
+  console.log(`${LOG_PREFIX} resolveDashboardTeamId: → ${resolved}`);
+  return resolved;
 }
 
 type PlayerRowForDashboard = {
@@ -99,6 +91,14 @@ function isEligibleSportRosterMember(p: { is_active?: boolean | null; role?: str
  * Ao usar pares primeiro evita-se que jogadores de teste com `team_id` correto apareçam
  * antes dos jogadores reais que estão nos pares mas têm outro `team_id` no perfil.
  */
+/**
+ * Devolve o plantel completo para os ecrãs de performance/ranking.
+ * Estratégia: UNIÃO de 3 fontes para nunca perder jogadores:
+ *   1. Pares dos jogos fornecidos (jogadores que jogaram)
+ *   2. Disponibilidades dos jogos fornecidos (jogadores que confirmaram mas não jogaram)
+ *   3. Jogadores com team_id = equipa (membros ativos atribuídos à equipa)
+ * Qualquer jogador ativo da equipa SEMPRE aparece, independentemente do status dos jogos.
+ */
 async function fetchPlayersByTeamOrPairs(
   teamId: string,
   gameIdsForPairFallback: string[],
@@ -109,49 +109,48 @@ async function fetchPlayersByTeamOrPairs(
       ? 'id, name, liga_points, is_active, role'
       : 'id, name, email, federation_points, liga_points, is_active, role';
 
-  // 1. Tentar jogadores via pares (prioridade: jogadores reais que jogaram os jogos)
   let gameIds = gameIdsForPairFallback;
   if (!gameIds.length) {
     const { data: gRows } = await supabase.from('games').select('id').eq('team_id', teamId);
     gameIds = (gRows ?? []).map((g) => g.id);
   }
-  if (gameIds.length > 0) {
-    const { data: pairs, error: e2 } = await supabase
-      .from('pairs')
-      .select('player1_id, player2_id')
-      .in('game_id', gameIds);
-    if (!e2) {
-      const ids = new Set<string>();
-      for (const row of pairs ?? []) {
-        if (row.player1_id) ids.add(row.player1_id);
-        if (row.player2_id) ids.add(row.player2_id);
-      }
-      if (ids.size > 0) {
-        const { data: byPairs, error: e3 } = await supabase
-          .from('players')
-          .select(selectCols)
-          .in('id', [...ids])
-          .neq('email', GESTOR_HIDE_EMAIL);
-        if (!e3) {
-          const pairsList = ((byPairs ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
-          if (pairsList.length > 0) return pairsList;
-        }
-      }
-    }
+
+  // Correr as 3 fontes em paralelo
+  const [pairsRes, availsRes, teamRes] = await Promise.all([
+    gameIds.length
+      ? supabase.from('pairs').select('player1_id, player2_id').in('game_id', gameIds)
+      : Promise.resolve({ data: [] as { player1_id: string | null; player2_id: string | null }[], error: null }),
+    gameIds.length
+      ? supabase.from('availabilities').select('player_id').in('game_id', gameIds).not('player_id', 'is', null)
+      : Promise.resolve({ data: [] as { player_id: string }[], error: null }),
+    supabase.from('players').select('id').eq('team_id', teamId).eq('is_active', true),
+  ]);
+
+  const playerIds = new Set<string>();
+  for (const row of pairsRes.data ?? []) {
+    if (row.player1_id) playerIds.add(row.player1_id);
+    if (row.player2_id) playerIds.add(row.player2_id);
+  }
+  for (const a of availsRes.data ?? []) {
+    if (a.player_id) playerIds.add(a.player_id);
+  }
+  for (const p of teamRes.data ?? []) {
+    if (p.id) playerIds.add(p.id);
   }
 
-  // 2. Fallback: jogadores com team_id = equipa (sem jogos criados ainda)
-  const { data: byTeam, error: e1 } = await supabase
+  if (playerIds.size === 0) return [];
+
+  const { data: byIds, error: eIds } = await supabase
     .from('players')
     .select(selectCols)
-    .eq('team_id', teamId)
-    .eq('is_active', true)
+    .in('id', [...playerIds])
     .neq('email', GESTOR_HIDE_EMAIL);
-  if (e1) {
-    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (team_id):`, e1);
+
+  if (eIds) {
+    console.error(`${LOG_PREFIX} fetchPlayersByTeamOrPairs (byIds):`, eIds);
     return [];
   }
-  return ((byTeam ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
+  return ((byIds ?? []) as PlayerRowForDashboard[]).filter(isEligibleSportRosterMember);
 }
 
 /** Result row from DB (sets per pair) */
@@ -533,33 +532,41 @@ const EMPTY_TEAM_STATS: TeamPerformanceStats = { wins: 0, losses: 0, noShows: 0,
 export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerformanceStats> {
   if (isDeadOrEmptyTeamId(teamId)) return EMPTY_TEAM_STATS;
   try {
-  const { data: games, error } = await supabase
+  const { data: allGamesRaw, error } = await supabase
     .from('games')
-    .select('id, status, team_points, no_show')
-    .eq('team_id', teamId)
-    .in('status', [...STATUS_TEAM_PERFORMANCE]);
+    .select('id, status, type, team_points, no_show')
+    .eq('team_id', teamId);
 
-  console.log(DIAG, 'getTeamPerformanceStats: resposta Supabase (games)', {
+  const allGames = allGamesRaw ?? [];
+  // Quadro de Performance filtra APENAS jogos da Liga
+  const games = allGames.filter((g) => (g as { type?: string }).type === 'Liga');
+
+  console.log('[DataCheck] getTeamPerformanceStats', {
     teamId,
-    rowCount: games?.length ?? 0,
+    totalAllGames: allGames.length,
+    totalLigaGames: games.length,
+    typesFound: [...new Set(allGames.map((g) => (g as { type?: string }).type))],
+    teamPointsValues: games.map((g) => (g as { team_points?: number | null }).team_points),
     error: error ?? null,
-    sample: (games ?? []).slice(0, 2),
-    teamPointsTypesSample: (games ?? []).slice(0, 2).map((g) => typeof (g as { team_points?: unknown }).team_points),
   });
 
   if (error) {
     console.error(`${LOG_PREFIX} getTeamPerformanceStats erro:`, error);
     return EMPTY_TEAM_STATS;
   }
-  if (!games) {
-    console.log(`${LOG_PREFIX} getTeamPerformanceStats sem dados (null)`);
+
+  // Se não há jogos de Liga, imprime TODOS os jogos da BD para diagnóstico
+  if (games.length === 0) {
+    supabase.from('games').select('id, team_id, status, type, phase')
+      .order('updated_at', { ascending: false }).limit(30)
+      .then(({ data }) => {
+        console.log('[DataCheck] getTeamPerformanceStats: 0 jogos Liga para team_id=' + teamId + ' — todos os jogos na BD:',
+          (data ?? []).map((g) => `${(g as { team_id?: string }).team_id}|${(g as { type?: string }).type}|${(g as { status?: string }).status}`));
+      });
     return EMPTY_TEAM_STATS;
   }
 
   const list = games;
-  if (list.length === 0) {
-    return EMPTY_TEAM_STATS;
-  }
 
   const gameIdsNeedingResults = list
     .filter((g) => {
@@ -576,6 +583,12 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
       .from('results')
       .select('game_id, pair_id, set1_casa, set1_fora, set2_casa, set2_fora, set3_casa, set3_fora')
       .in('game_id', gameIdsNeedingResults);
+    console.log('[DataCheck] getTeamPerformanceStats → results', {
+      teamId,
+      gamesLookup: gameIdsNeedingResults.length,
+      resultsFound: results?.length ?? 0,
+      error: resError ?? null,
+    });
     if (!resError && results?.length) {
       for (const r of results) {
         const gid = (r as { game_id: string }).game_id;
@@ -648,14 +661,26 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   if (isDeadOrEmptyTeamId(teamId)) return [];
   const category = options?.category || 'Geral';
   try {
+  const effectiveTeamId = teamId;
   const { data: gidRows } = await supabase.from('games').select('id').eq('team_id', teamId);
   const pairFallbackGameIds = (gidRows ?? []).map((r) => r.id);
 
+  console.log('[DataCheck] getPlayerRanking: jogos para team_id=' + teamId, { count: pairFallbackGameIds.length });
+
+  if (!pairFallbackGameIds.length) {
+    // Diagnóstico: mostra todos os jogos na BD para perceber onde foram gravados
+    supabase.from('games').select('id, team_id, status, type, phase')
+      .order('updated_at', { ascending: false }).limit(30)
+      .then(({ data }) => {
+        console.log('[DataCheck] getPlayerRanking: 0 jogos — todos na BD:',
+          (data ?? []).map((g) => `${(g as { team_id?: string }).team_id}|${(g as { status?: string }).status}|${(g as { type?: string }).type}`));
+      });
+  }
+
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
-    .select('id, team_id, status, phase, team_points, no_show')
-    .in('status', [...STATUS_FINAL_VALUES])
-    .eq('team_id', teamId);
+    .select('id, team_id, status, phase, type, team_points, no_show')
+    .eq('team_id', effectiveTeamId);
 
   if (gamesError) {
     const code = (gamesError as { code?: string }).code;
@@ -664,38 +689,32 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   }
   const gamesRawList = Array.isArray(gamesRaw) ? gamesRaw : [];
 
-  console.log(DIAG, 'getPlayerRanking: resposta Supabase (games status final)', {
-    teamId,
+  // [DataCheck] — imprime o status EXATO de cada jogo para diagnóstico
+  console.log('[DataCheck] getPlayerRanking: TODOS os jogos da equipa (sem filtro de status)', {
+    teamId: effectiveTeamId,
     category,
-    rowCount: gamesRawList.length,
-    error: gamesError ?? null,
-    statusFilter: [...STATUS_FINAL_VALUES],
-    sample: gamesRawList.slice(0, 2),
+    totalJogos: gamesRawList.length,
+    statusExatos: gamesRawList.map((g) => ({ id: (g as { id: string }).id, status: (g as { status?: string }).status, phase: (g as { phase?: string }).phase })),
   });
 
   const games =
     !category || category === 'Geral'
       ? gamesRawList
-      : gamesRawList.filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category));
+      : gamesRawList.filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category, (g as { type?: string }).type));
 
   console.log(DIAG, 'getPlayerRanking: após filtro de categoria (Liga/Treino/Geral)', {
     category,
     count: games.length,
   });
 
-  /**
-   * IDs dos jogos finais (STATUS_FINAL_VALUES) — usados como fonte de jogadores reais.
-   * Quando não há jogos finais, usar `pairFallbackGameIds` (todos os jogos) como último recurso.
-   * NUNCA usar `pairFallbackGameIds` primeiro: inclui convocatórias abertas com jogadores de
-   * teste nos pares, que poluem Liga e Treinos.
-   */
-  const finalGameIds = gamesRawList.map((g) => (g as { id: string }).id);
-  const realPlayerGameIds = finalGameIds.length > 0 ? finalGameIds : pairFallbackGameIds;
+  // Para descoberta de jogadores: SEMPRE usar todos os jogos da equipa.
+  // Os jogos finais (gamesRawList) são usados apenas para cálculo de V/D e pontos Liga.
+  const realPlayerGameIds = pairFallbackGameIds;
 
   /** Sem jogos finalizados com a categoria pedida: mostrar jogadores dos jogos finais (mesmo conjunto que Geral). */
   if (!games?.length && category !== 'Treino') {
     if (category === 'Liga') {
-      const roster = await fetchPlayersByTeamOrPairs(teamId, realPlayerGameIds, 'ranking');
+      const roster = await fetchPlayersByTeamOrPairs(effectiveTeamId, realPlayerGameIds, 'ranking');
       const list = roster.map((p) => ({
         player_id: p.id,
         name: p.name ?? '—',
@@ -708,7 +727,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
       return list.sort((a, b) => (b.name ?? '').localeCompare(a.name ?? ''));
     }
     if (category === 'Geral') {
-      const players = await fetchPlayersByTeamOrPairs(teamId, realPlayerGameIds, 'ranking');
+      const players = await fetchPlayersByTeamOrPairs(effectiveTeamId, realPlayerGameIds, 'ranking');
       const readNum = (raw: number | string | null | undefined): number => {
         if (raw == null || raw === '') return 0;
         const n = Number(raw);
@@ -737,7 +756,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
 
   if (category === 'Treino') {
     // Usar jogos finais como fonte (mesmos jogadores que Geral), não todos os jogos.
-    const players = await fetchPlayersByTeamOrPairs(teamId, realPlayerGameIds, 'ranking');
+    const players = await fetchPlayersByTeamOrPairs(effectiveTeamId, realPlayerGameIds, 'ranking');
     const list = players.map((p) => ({
       player_id: p.id,
       name: p.name ?? '—',
@@ -776,7 +795,14 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     resultByPair.set((r as { pair_id: string }).pair_id, r as ResultRow);
   }
 
+  // Inicializar TODOS os jogadores nos pares com 0 V/D — garante que aparecem no ranking mesmo sem resultados.
   const playerStats = new Map<string, { wins: number; losses: number }>();
+  for (const pair of pairsList) {
+    for (const pid of [pair.player1_id, pair.player2_id].filter(Boolean)) {
+      if (pid && !playerStats.has(pid)) playerStats.set(pid, { wins: 0, losses: 0 });
+    }
+  }
+  // Atualizar com resultados reais
   for (const pair of pairsList) {
     const res = resultByPair.get(pair.id);
     if (!res) continue;
@@ -791,11 +817,36 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     }
   }
 
-  // Usar sempre os jogadores encontrados via pares (jogadores reais que jogaram os jogos da categoria).
-  // Não usar .eq('team_id') aqui — isso devolve jogadores de teste que têm o team_id certo no perfil
-  // mas nunca jogaram, enquanto os jogadores reais podem ter outro team_id no perfil.
+  // Jogadores com pares nos jogos finalizados da categoria
   const ids = [...playerStats.keys()];
-  if (ids.length === 0) return [];
+
+  // Se não há pares nos jogos finalizados (ex.: o jogo finalizado não tem pairs na BD),
+  // usar fetchPlayersByTeamOrPairs com TODOS os jogos e devolver a lista com pontos da BD.
+  if (ids.length === 0) {
+    const readNum = (raw: number | string | null | undefined): number => {
+      if (raw == null || raw === '') return 0;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    };
+    const roster = await fetchPlayersByTeamOrPairs(effectiveTeamId, pairFallbackGameIds, 'ranking');
+    const gestorEmailNorm = GESTOR_HIDE_EMAIL.trim().toLowerCase();
+    return roster
+      .filter((p) => ((p as { email?: string }).email ?? '').trim().toLowerCase() !== gestorEmailNorm)
+      .map((p) => {
+        const liga = category === 'Treino' ? 0 : readNum((p as { liga_points?: number | string | null }).liga_points);
+        const fed = category === 'Treino' ? 0 : readNum((p as { federation_points?: number | string | null }).federation_points);
+        return {
+          player_id: p.id,
+          name: p.name ?? '—',
+          wins: 0,
+          losses: 0,
+          pontos_liga: liga,
+          federation_points: fed,
+          total_points: liga + fed,
+        };
+      })
+      .sort((a, b) => b.total_points - a.total_points);
+  }
 
   const eliminatoriaTotals =
     category === 'Liga'
@@ -900,13 +951,31 @@ export interface SeasonStatRow {
 /** Filtro de categoria para ranking/disp: Geral = todos, Liga = Qualificação|Regionais|Nacionais, Treino = Treino */
 export type SeasonStatsCategory = 'Geral' | 'Liga' | 'Treino';
 
-const LIGA_PHASES = ['Qualificação', 'Regionais', 'Nacionais'];
+const LIGA_PHASES = ['Qualificação', 'Regionais', 'Nacionais', 'Final', 'Quartos', 'Meias'];
 
-function gameMatchesCategory(phase: string | null | undefined, category: SeasonStatsCategory | undefined): boolean {
+/**
+ * Verifica se um jogo pertence à categoria pretendida.
+ * Usa a coluna `type` como fonte primária (ex: 'Liga', 'Treino', 'Torneio', 'Mix').
+ * Cai para `phase` apenas quando `type` não está disponível.
+ */
+function gameMatchesCategory(
+  phase: string | null | undefined,
+  category: SeasonStatsCategory | undefined,
+  type?: string | null,
+): boolean {
   if (!category || category === 'Geral') return true;
+
+  // Fonte primária: coluna `type` da BD
+  if (type) {
+    const t = type.trim();
+    if (category === 'Liga') return t === 'Liga';
+    if (category === 'Treino') return t === 'Treino';
+  }
+
+  // Fallback: inferir pelo `phase`
   const p = (phase ?? '').trim();
-  if (category === 'Liga') return LIGA_PHASES.includes(p);
-  if (category === 'Treino') return p === 'Treino';
+  if (category === 'Liga') return LIGA_PHASES.includes(p) || /qualificação|regionais|nacionais|final/i.test(p);
+  if (category === 'Treino') return p === 'Treino' || /treino/i.test(p);
   return true;
 }
 
@@ -930,8 +999,13 @@ function getGameDate(g: { game_date?: string; starts_at?: string }): Date | null
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
-/** Verifica se uma data está no intervalo [startDate, endDate] (inclusive). */
+/**
+ * Verifica se um jogo está no intervalo [startDate, endDate] (inclusive).
+ * Quando não há filtro de datas (modo "época"), inclui TODOS os jogos, mesmo os sem game_date.
+ * Isto garante que "Total jogos criados na época" = todos os jogos, não só os com datas válidas.
+ */
 function isInDateRange(gameDate: Date | null, startDate?: Date, endDate?: Date): boolean {
+  if (!startDate && !endDate) return true; // modo época: inclui jogos sem data
   if (!gameDate) return false;
   if (startDate && gameDate < startDate) return false;
   if (endDate && gameDate > endDate) return false;
@@ -955,18 +1029,26 @@ export async function getSeasonStats(
   const { startDate, endDate, category: optCategory } = options ?? {};
   const category = optCategory || 'Geral';
   try {
+  const effectiveTeamId = teamId;
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
-    .select('id, game_date, starts_at, phase')
+    .select('id, game_date, starts_at, phase, type, status')
     .eq('team_id', teamId);
 
+  // Log DataCheck: mostra o status exato de TODOS os jogos encontrados
+  console.log('[DataCheck] getSeasonStats: jogos encontrados', {
+    teamIdOriginal: teamId,
+    effectiveTeamId,
+    total: allTeamGames?.length ?? 0,
+    statusList: (allTeamGames ?? []).map((g) => ({ id: (g as { id: string }).id, status: (g as { status?: string }).status })),
+  });
+
   console.log(DIAG, 'getSeasonStats: resposta Supabase (games, sem filtros cliente)', {
-    teamId,
+    teamId: effectiveTeamId,
     category,
     dateWindow: { startDate: startDate?.toISOString?.() ?? startDate, endDate: endDate?.toISOString?.() ?? endDate },
     rowCount: allTeamGames?.length ?? 0,
     error: gamesAllError ?? null,
-    sample: (allTeamGames ?? []).slice(0, 2),
   });
 
   if (gamesAllError) {
@@ -976,7 +1058,7 @@ export async function getSeasonStats(
 
   /** Sem jogos na equipa: ainda mostrar plantel (disp/conv a zeros) para não parecer "sem equipa". */
   if (!allTeamGames?.length) {
-    const playersOnly = await fetchPlayersByTeamOrPairs(teamId, [], 'season');
+    const playersOnly = await fetchPlayersByTeamOrPairs(effectiveTeamId, [], 'season');
     const readLigaOnly = (row: { liga_points?: number | string | null }): number => {
       const raw = row.liga_points;
       if (raw == null || raw === '') return 0;
@@ -1008,7 +1090,7 @@ export async function getSeasonStats(
   }
 
   const gamesWithDate = allTeamGames
-    .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category))
+    .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category, (g as { type?: string }).type))
     .map((g) => ({
       id: g.id,
       date: getGameDate(g as { game_date?: string; starts_at?: string }),
@@ -1034,14 +1116,20 @@ export async function getSeasonStats(
     totalGamesInPeriod,
   });
 
+  // [DataCheck] — sem filtro de status: queremos VER todos os jogos e os seus status exatos
   const { data: finalGamesRaw, error: finalError } = await supabase
     .from('games')
-    .select('id, game_date, starts_at, phase')
-    .eq('team_id', teamId)
-    .in('status', [...STATUS_FINAL_VALUES]);
+    .select('id, game_date, starts_at, phase, type, status')
+    .eq('team_id', effectiveTeamId);
+
+  console.log('[DataCheck] getSeasonStats: finalGamesRaw (TODOS, sem filtro status)', {
+    teamId: effectiveTeamId,
+    total: (finalGamesRaw ?? []).length,
+    statusExatos: (finalGamesRaw ?? []).map((g) => ({ id: (g as { id: string }).id, status: (g as { status?: string }).status, phase: (g as { phase?: string }).phase })),
+  });
 
   const finalGamesWithDate = (finalGamesRaw ?? [])
-    .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category))
+    .filter((g) => gameMatchesCategory((g as { phase?: string }).phase, category, (g as { type?: string }).type))
     .map((g) => ({
       id: g.id,
       date: getGameDate(g as { game_date?: string; starts_at?: string }),
@@ -1056,7 +1144,13 @@ export async function getSeasonStats(
   const allGameIds = gamesWithDate.map((g) => g.id);
   const finalGameIds = finalGamesWithDate.map((g) => g.id);
 
-  const [availsRes, pairsFinalRes, resultsFinalRes] = await Promise.all([
+  /**
+   * Queries paralelas:
+   *  - availsRes: disponibilidades confirmadas (para o campo 'disponibilidade' — check verde)
+   *  - pairsAllRes: pares em TODOS os jogos da categoria (fonte de 'convocatórias' e jogadores)
+   *  - resultsFinalRes: resultados apenas dos jogos finalizados (para V/D e eficácia)
+   */
+  const [availsRes, pairsAllRes, resultsFinalRes] = await Promise.all([
     allGameIds.length
       ? supabase
           .from('availabilities')
@@ -1064,11 +1158,11 @@ export async function getSeasonStats(
           .in('game_id', allGameIds)
           .eq('status', AVAILABILITY_CONFIRMED)
       : Promise.resolve({ data: [] as { game_id: string; player_id: string }[], error: null }),
-    finalGameIds.length
+    allGameIds.length
       ? supabase
           .from('pairs')
           .select('id, game_id, player1_id, player2_id')
-          .in('game_id', finalGameIds)
+          .in('game_id', allGameIds)
       : Promise.resolve({ data: [] as { id: string; game_id: string; player1_id: string; player2_id: string }[], error: null }),
     finalGameIds.length
       ? supabase
@@ -1082,23 +1176,18 @@ export async function getSeasonStats(
     console.error(`${LOG_PREFIX} getSeasonStats availabilities:`, availsRes.error);
   }
   const avails = availsRes.error ? [] : (availsRes.data ?? []);
-  /**
-   * Para obter os jogadores reais, usar apenas IDs de jogos finais (STATUS_FINAL_VALUES)
-   * filtrados pela categoria — os mesmos que `getPlayerRanking` Geral usa.
-   * `allTeamGameIds` (todos os jogos) inclui convocatórias abertas com jogadores de teste.
-   */
-  const allFinalGameIds = (finalGamesRaw ?? []).map((g) => (g as { id: string }).id);
-  const realPlayerSourceIds = allFinalGameIds.length > 0
-    ? allFinalGameIds
-    : (allTeamGames ?? []).map((g) => (g as { id: string }).id);
-  let players = await fetchPlayersByTeamOrPairs(teamId, realPlayerSourceIds, 'season');
-  if (players[0]) {
-    const lp = (players[0] as { liga_points?: unknown }).liga_points;
-    console.log(DIAG, 'getSeasonStats: tipo de liga_points (1.º jogador, vindo da BD)', typeof lp, lp);
-  }
 
-  const pairsFinal = (pairsFinalRes as { data?: { id: string; game_id: string; player1_id: string; player2_id: string }[] }).data ?? [];
+  /**
+   * Fonte de jogadores: usa effectiveTeamId (que pode ser o fallback) para encontrar
+   * jogadores via pares, disponibilidades ou team_id directo.
+   */
+  let players = await fetchPlayersByTeamOrPairs(effectiveTeamId, allGameIds, 'season');
+
+  const pairsAll = (pairsAllRes as { data?: { id: string; game_id: string; player1_id: string; player2_id: string }[] }).data ?? [];
   const resultsFinal = (resultsFinalRes as { data?: ResultRow[] }).data ?? [];
+
+  // pairsFinal = apenas os pares de jogos finalizados (para V/D)
+  const pairsFinal = pairsAll.filter((p) => finalGameIdsFiltered.has(p.game_id));
 
   const allGameIdsFilteredSet = new Set(allGameIdsFiltered);
 
@@ -1110,18 +1199,20 @@ export async function getSeasonStats(
     }
   }
 
+  /**
+   * Convocatórias = jogos (do período e categoria) onde o jogador estava num par.
+   * Usa Set<game_id> para deduplicar (se um jogador estiver em 2 pares no mesmo jogo, conta 1x).
+   * Inclui TODOS os jogos da categoria, não só os finalizados — garante que jogadores
+   * com resultados atribuídos nunca tenham Conv = 0.
+   */
   const convocatoriasByPlayer = new Map<string, Set<string>>();
-  for (const p of pairsFinal) {
-    if (!finalGameIdsFiltered.has(p.game_id)) continue;
-    const gid = p.game_id;
+  for (const p of pairsAll) {
+    if (!allGameIdsFilteredSet.has(p.game_id)) continue;
     for (const pid of [p.player1_id, p.player2_id].filter(Boolean)) {
       if (pid) {
         let set = convocatoriasByPlayer.get(pid);
-        if (!set) {
-          set = new Set();
-          convocatoriasByPlayer.set(pid, set);
-        }
-        set.add(gid);
+        if (!set) { set = new Set(); convocatoriasByPlayer.set(pid, set); }
+        set.add(p.game_id);
       }
     }
   }
@@ -1134,7 +1225,6 @@ export async function getSeasonStats(
   const winsByPlayer = new Map<string, number>();
   const lossesByPlayer = new Map<string, number>();
   for (const p of pairsFinal) {
-    if (!finalGameIdsFiltered.has(p.game_id)) continue;
     const res = resultByPair.get(p.id);
     if (!res) continue;
     const won = isPairWin(res);
@@ -1154,24 +1244,30 @@ export async function getSeasonStats(
 
   console.log(DIAG, 'getSeasonStats: contagens pós-queries auxiliares', {
     avails: avails.length,
+    pairsAll: pairsAll.length,
     pairsFinal: pairsFinal.length,
     resultsFinal: resultsFinal.length,
     playersForRows: players.length,
+    totalGamesInPeriod,
   });
 
   const rows: SeasonStatRow[] = players.map((pl) => {
     const disp = disponibilidadeByPlayer.get(pl.id) ?? 0;
     const convSet = convocatoriasByPlayer.get(pl.id);
     const conv = convSet ? convSet.size : 0;
+    // Taxa de escolha: conv/disp (só quando marcou disponível)
     const taxa = disp > 0 ? Math.round((conv / disp) * 100) : 0;
     const wins = winsByPlayer.get(pl.id) ?? 0;
     const losses = lossesByPlayer.get(pl.id) ?? 0;
     const jogos = wins + losses;
     const eficacia = jogos > 0 ? Math.round((wins / jogos) * 100) : 0;
     const highlight_rodar = disp >= 2 && (disp > conv || taxa < 50);
-    // % Disp. = (Presenças confirmadas / Total jogos equipa) * 100, máx. 100%, 0% se total = 0
-    const rawPct = totalGamesInPeriod > 0 ? (disp / totalGamesInPeriod) * 100 : 0;
-    const disp_pct = totalGamesInPeriod > 0 ? Math.min(100, Math.round(rawPct)) : 0;
+    /**
+     * % Disp = (Conv do jogador / Total jogos criados na época) × 100, máx. 100%.
+     * Conv = nº de jogos onde o jogador foi convocado (está num par), deduplificado por game_id.
+     * Se conv > totalGamesInPeriod há um erro de dados (ID duplicado); Math.min(100) protege.
+     */
+    const disp_pct = totalGamesInPeriod > 0 ? Math.min(100, Math.round((conv / totalGamesInPeriod) * 100)) : 0;
     return {
       player_id: pl.id,
       name: pl.name ?? '—',
@@ -1187,7 +1283,7 @@ export async function getSeasonStats(
     };
   });
 
-  const sorted = rows.sort((a, b) => b.disponibilidade - a.disponibilidade);
+  const sorted = rows.sort((a, b) => b.convocatorias - a.convocatorias);
   console.log(DIAG, 'getSeasonStats: resultado final (objeto devolvido ao ecrã)', {
     rows: sorted.length,
     totalGamesInPeriod,
