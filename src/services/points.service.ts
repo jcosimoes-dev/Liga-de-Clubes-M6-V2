@@ -58,12 +58,14 @@ function isDeadOrEmptyTeamId(teamId: string | null | undefined): boolean {
  *
  * Nunca falha silenciosamente: garante que o dashboard sempre tem um team_id válido.
  */
+/**
+ * Devolve sempre o ID preferido se válido, caso contrário OFFICIAL_M6_TEAM_ID.
+ * Sem fallbacks, sem queries à BD — o ID oficial é a única fonte de verdade.
+ */
 export async function resolveDashboardTeamId(preferredTeamId?: string | null): Promise<string> {
   const p = typeof preferredTeamId === 'string' ? preferredTeamId.trim() : '';
-  // Usa sempre o ID preferido se válido, caso contrário OFFICIAL_M6_TEAM_ID.
-  // Não existe nenhum fallback para outros team_ids — o ID oficial é a única fonte de verdade.
-  const resolved = p || OFFICIAL_M6_TEAM_ID;
-  console.log(`${LOG_PREFIX} resolveDashboardTeamId: → ${resolved}`);
+  const resolved = (!p || isDeadOrEmptyTeamId(p)) ? OFFICIAL_M6_TEAM_ID : p;
+  console.log('[M6] resolveDashboardTeamId → usando team_id:', resolved);
   return resolved;
 }
 
@@ -109,10 +111,13 @@ async function fetchPlayersByTeamOrPairs(
       ? 'id, name, liga_points, is_active, role'
       : 'id, name, email, federation_points, liga_points, is_active, role';
 
+  console.log('[M6] fetchPlayersByTeamOrPairs — A pesquisar BD com o ID:', teamId, '| gameIds recebidos:', gameIdsForPairFallback.length);
+
   let gameIds = gameIdsForPairFallback;
   if (!gameIds.length) {
     const { data: gRows } = await supabase.from('games').select('id').eq('team_id', teamId);
     gameIds = (gRows ?? []).map((g) => g.id);
+    console.log('[M6] fetchPlayersByTeamOrPairs — jogos buscados da BD:', gameIds.length);
   }
 
   // Correr as 3 fontes em paralelo
@@ -532,39 +537,30 @@ const EMPTY_TEAM_STATS: TeamPerformanceStats = { wins: 0, losses: 0, noShows: 0,
 export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerformanceStats> {
   if (isDeadOrEmptyTeamId(teamId)) return EMPTY_TEAM_STATS;
   try {
+  console.log('[M6] getTeamPerformanceStats — A pesquisar BD com o ID:', teamId);
+
   const { data: allGamesRaw, error } = await supabase
     .from('games')
     .select('id, status, type, team_points, no_show')
     .eq('team_id', teamId);
-
-  const allGames = allGamesRaw ?? [];
-  // Quadro de Performance filtra APENAS jogos da Liga
-  const games = allGames.filter((g) => (g as { type?: string }).type === 'Liga');
-
-  console.log('[DataCheck] getTeamPerformanceStats', {
-    teamId,
-    totalAllGames: allGames.length,
-    totalLigaGames: games.length,
-    typesFound: [...new Set(allGames.map((g) => (g as { type?: string }).type))],
-    teamPointsValues: games.map((g) => (g as { team_points?: number | null }).team_points),
-    error: error ?? null,
-  });
 
   if (error) {
     console.error(`${LOG_PREFIX} getTeamPerformanceStats erro:`, error);
     return EMPTY_TEAM_STATS;
   }
 
-  // Se não há jogos de Liga, imprime TODOS os jogos da BD para diagnóstico
-  if (games.length === 0) {
-    supabase.from('games').select('id, team_id, status, type, phase')
-      .order('updated_at', { ascending: false }).limit(30)
-      .then(({ data }) => {
-        console.log('[DataCheck] getTeamPerformanceStats: 0 jogos Liga para team_id=' + teamId + ' — todos os jogos na BD:',
-          (data ?? []).map((g) => `${(g as { team_id?: string }).team_id}|${(g as { type?: string }).type}|${(g as { status?: string }).status}`));
-      });
-    return EMPTY_TEAM_STATS;
-  }
+  const allGames = allGamesRaw ?? [];
+  // Quadro de Performance: apenas jogos da Liga
+  const games = allGames.filter((g) => (g as { type?: string }).type === 'Liga');
+
+  console.log('[M6] getTeamPerformanceStats — resultado:', {
+    totalJogos: allGames.length,
+    totalLiga: games.length,
+    tiposEncontrados: [...new Set(allGames.map((g) => (g as { type?: string }).type))],
+    teamPoints: games.map((g) => (g as { team_points?: number | null }).team_points),
+  });
+
+  if (games.length === 0) return EMPTY_TEAM_STATS;
 
   const list = games;
 
@@ -662,20 +658,11 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
   const category = options?.category || 'Geral';
   try {
   const effectiveTeamId = teamId;
-  const { data: gidRows } = await supabase.from('games').select('id').eq('team_id', teamId);
+  console.log('[M6] getPlayerRanking — A pesquisar BD com o ID:', effectiveTeamId);
+
+  const { data: gidRows } = await supabase.from('games').select('id').eq('team_id', effectiveTeamId);
   const pairFallbackGameIds = (gidRows ?? []).map((r) => r.id);
-
-  console.log('[DataCheck] getPlayerRanking: jogos para team_id=' + teamId, { count: pairFallbackGameIds.length });
-
-  if (!pairFallbackGameIds.length) {
-    // Diagnóstico: mostra todos os jogos na BD para perceber onde foram gravados
-    supabase.from('games').select('id, team_id, status, type, phase')
-      .order('updated_at', { ascending: false }).limit(30)
-      .then(({ data }) => {
-        console.log('[DataCheck] getPlayerRanking: 0 jogos — todos na BD:',
-          (data ?? []).map((g) => `${(g as { team_id?: string }).team_id}|${(g as { status?: string }).status}|${(g as { type?: string }).type}`));
-      });
-  }
+  console.log('[M6] getPlayerRanking — jogos encontrados:', pairFallbackGameIds.length);
 
   const { data: gamesRaw, error: gamesError } = await supabase
     .from('games')
@@ -1030,10 +1017,14 @@ export async function getSeasonStats(
   const category = optCategory || 'Geral';
   try {
   const effectiveTeamId = teamId;
+  console.log('[M6] getSeasonStats — A pesquisar BD com o ID:', effectiveTeamId, '| categoria:', category);
+
   const { data: allTeamGames, error: gamesAllError } = await supabase
     .from('games')
     .select('id, game_date, starts_at, phase, type, status')
-    .eq('team_id', teamId);
+    .eq('team_id', effectiveTeamId);
+
+  console.log('[M6] getSeasonStats — jogos encontrados:', allTeamGames?.length ?? 0);
 
   // Log DataCheck: mostra o status exato de TODOS os jogos encontrados
   console.log('[DataCheck] getSeasonStats: jogos encontrados', {

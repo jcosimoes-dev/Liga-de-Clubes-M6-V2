@@ -154,38 +154,29 @@ export function SportManagementScreen() {
   /** Bypass total para jco.simoes@gmail.com: ignora team_id e role; acesso total ao ecrã e ao botão de criar convocatória. */
   const isOwner = isOwnerEmail(user?.email);
   const canManage = isOwner || role === PlayerRoles.admin || canManageSport;
-  /** `team_id` no perfil (trim); vazio = undefined. */
-  const rawTeamId =
-    typeof player?.team_id === 'string' && player.team_id.trim() !== '' ? player.team_id.trim() : undefined;
-  /** Mesmo que `rawTeamId` — usado em cópias/UI onde importa só o perfil. */
-  const effectiveTeamId = rawTeamId;
   /**
-   * Equipa usada nas queries do dashboard: perfil → resolução na BD (`resolveDashboardTeamId`).
+   * `team_id` do perfil — se null/vazio força OFFICIAL_M6_TEAM_ID.
+   * Todos os dados no Supabase foram migrados para este ID.
    */
+  const rawTeamId =
+    typeof player?.team_id === 'string' && player.team_id.trim() !== ''
+      ? player.team_id.trim()
+      : OFFICIAL_M6_TEAM_ID;
+  /** Mesmo que `rawTeamId`. */
+  const effectiveTeamId = rawTeamId;
+  /** ID usado nas queries do dashboard — sempre resolvido de forma síncrona. */
   const [dashboardTeamId, setDashboardTeamId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    console.log(DASH_DIAG, 'useEffect resolveDashboardTeamId', { canManage, authLoading, rawTeamId });
     if (!canManage || authLoading) {
       if (!canManage) setDashboardTeamId(undefined);
-      console.log(DASH_DIAG, 'resolveDashboardTeamId: em pausa (canManage ou authLoading)', { canManage, authLoading });
       return;
     }
-    let cancelled = false;
-    void resolveDashboardTeamId(rawTeamId)
-      .then((id) => {
-        if (!cancelled) {
-          console.log(DASH_DIAG, 'resolveDashboardTeamId: concluído →', id);
-          setDashboardTeamId(id);
-        }
-      })
-      .catch((e) => {
-        console.error(DASH_DIAG, 'resolveDashboardTeamId: erro', e);
-        if (!cancelled) setDashboardTeamId(rawTeamId ?? OFFICIAL_M6_TEAM_ID);
-      });
-    return () => {
-      cancelled = true;
-    };
+    // resolveDashboardTeamId é agora síncrono na prática (sem queries à BD)
+    void resolveDashboardTeamId(rawTeamId).then((id) => {
+      console.log('[M6] dashboardTeamId resolvido →', id);
+      setDashboardTeamId(id);
+    });
   }, [canManage, rawTeamId, authLoading]);
   const { navigate, goBack } = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
