@@ -756,37 +756,45 @@ export function SportManagementScreen() {
 
   const loadAvailablePlayers = async (gameId: string) => {
     try {
-      // Passo 1: buscar todos os playerIds com availability confirmada neste jogo
-      const { data: avails, error: availErr } = await supabase
+      // Passo 1: buscar TODAS as disponibilidades deste jogo (sem filtro de status)
+      // para diagnóstico — assim vemos exactamente o que está na BD
+      const { data: allAvails, error: availErr } = await supabase
         .from('availabilities')
         .select('player_id, status')
-        .eq('game_id', gameId)
-        .eq('status', 'confirmed');
+        .eq('game_id', gameId);
 
       if (availErr) throw availErr;
 
-      const playerIds = (avails ?? []).map((a: any) => a.player_id).filter(Boolean);
-      console.log('[Convocatória] gameId:', gameId, '| confirmed na BD:', avails?.length ?? 0, '| playerIds:', playerIds);
+      console.log('[Convocatória] TODAS as disponibilidades para gameId', gameId, ':',
+        (allAvails ?? []).map((a: any) => ({ player_id: a.player_id, status: a.status })));
 
-      if (playerIds.length === 0) {
+      // Apenas os que têm status 'confirmed'
+      const confirmedIds = (allAvails ?? [])
+        .filter((a: any) => a.status === 'confirmed')
+        .map((a: any) => a.player_id)
+        .filter(Boolean);
+
+      console.log('[Convocatória] IDs confirmed:', confirmedIds.length, confirmedIds);
+
+      if (confirmedIds.length === 0) {
         setAvailablePlayers([]);
         return;
       }
 
-      // Passo 2: buscar detalhes dos jogadores
+      // Passo 2: detalhes dos jogadores confirmados
       const { data: playersData, error: pErr } = await supabase
         .from('players')
         .select('id, name, liga_points, federation_points, email, is_active, role')
-        .in('id', playerIds)
+        .in('id', confirmedIds)
         .eq('is_active', true)
         .neq('email', GESTOR_HIDE_EMAIL);
 
       if (pErr) throw pErr;
 
-      console.log('[Convocatória] jogadores carregados:', playersData?.length ?? 0, playersData?.map((p: any) => p.name));
+      console.log('[Convocatória] jogadores confirmados carregados:', playersData?.map((p: any) => p.name));
       setAvailablePlayers(Array.isArray(playersData) ? playersData.filter(Boolean) : []);
     } catch (e) {
-      console.error('[Convocatória] Erro ao carregar jogadores disponíveis:', e);
+      console.error('[Convocatória] Erro:', e);
       showToast('Erro ao carregar jogadores disponíveis', 'error');
       setAvailablePlayers([]);
     }
