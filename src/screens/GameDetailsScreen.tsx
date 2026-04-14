@@ -144,15 +144,28 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           setResults({});
         }
 
-        // Carregar TODOS os jogadores que responderam (qualquer status)
-        await loadAvailPlayers(gameId);
+        // Lista de disponibilidade:
+        // - Convocatória FECHADA → derivar dos jogadores das duplas (quem foi convocado de facto)
+        // - Convocatória ABERTA  → availabilities (quem marcou disponibilidade)
+        if (closed && pairsData.length > 0) {
+          const fromPairs: { id: string; name: string; status: string }[] = [];
+          pairsData.forEach((pair: any) => {
+            if (pair.player1?.id) fromPairs.push({ id: pair.player1.id, name: pair.player1.name ?? '?', status: 'confirmed' });
+            if (pair.player2?.id) fromPairs.push({ id: pair.player2.id, name: pair.player2.name ?? '?', status: 'confirmed' });
+          });
+          // deduplicar (por precaução)
+          const seen = new Set<string>();
+          setAvailPlayers(fromPairs.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; }));
+        } else {
+          await loadAvailPlayers(gameId);
+        }
       } catch (e) {
         console.error('[GameDetailsScreen] Erro ao carregar:', e);
         showToast(getErrorMessage(e), 'error');
         setGame(null);
         setPairs([]);
         setResults({});
-        setConfirmedPlayers([]);
+        setAvailPlayers([]);
       } finally {
         setLoading(false);
       }
