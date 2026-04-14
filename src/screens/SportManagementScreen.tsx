@@ -262,6 +262,10 @@ export function SportManagementScreen() {
   const [seasonStatsSortBy, setSeasonStatsSortBy] = useState<'disponibilidade' | 'pontos_liga'>('disponibilidade');
   const [seasonStatsSortAsc, setSeasonStatsSortAsc] = useState(false);
   const [statsFilter, setStatsFilter] = useState<'epoca' | 'mes'>('epoca');
+  const [tecnicaCategory, setTecnicaCategory] = useState<'Geral' | 'Liga' | 'Treino'>('Geral');
+  const [tecnicaCategoryStats, setTecnicaCategoryStats] = useState<SeasonStatRow[] | null>(null);
+  const [tecnicaCategoryTotalGames, setTecnicaCategoryTotalGames] = useState(0);
+  const [tecnicaCategoryLoading, setTecnicaCategoryLoading] = useState(false);
   const [recalculatingPoints, setRecalculatingPoints] = useState(false);
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
@@ -398,6 +402,23 @@ export function SportManagementScreen() {
     void loadDashboard('00000000-0000-0000-0000-000000000001');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+
+  /** Carrega estatísticas de Gestão Técnica filtradas por Liga ou Treino. */
+  useEffect(() => {
+    if (tecnicaCategory === 'Geral') {
+      setTecnicaCategoryStats(null);
+      setTecnicaCategoryTotalGames(0);
+      return;
+    }
+    setTecnicaCategoryLoading(true);
+    getSeasonStats(OFFICIAL_M6_TEAM_ID, { category: tecnicaCategory })
+      .then((res) => {
+        setTecnicaCategoryStats(Array.isArray(res?.rows) ? res.rows : []);
+        setTecnicaCategoryTotalGames(res?.totalGamesInPeriod ?? 0);
+      })
+      .catch(() => { setTecnicaCategoryStats([]); setTecnicaCategoryTotalGames(0); })
+      .finally(() => setTecnicaCategoryLoading(false));
+  }, [tecnicaCategory]);
 
   /** Carrega ranking + estatísticas por categoria quando o filtro muda para Liga ou Treinos. */
   useEffect(() => {
@@ -1500,6 +1521,27 @@ export function SportManagementScreen() {
             <p className="text-sm text-gray-500 mt-1.5">
               Taxa de Escolha = Convocatórias ÷ Disponibilidade (ex: 1/4 = 25%). Rodar = quem quer jogar e ainda não foi tanto convocado.
             </p>
+            {/* Tabs Liga / Treino / Geral */}
+            <div className="mt-4 flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
+              {(['Geral', 'Liga', 'Treino'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setTecnicaCategory(cat)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    tecnicaCategory === cat
+                      ? cat === 'Liga'
+                        ? 'bg-white shadow text-blue-700'
+                        : cat === 'Treino'
+                        ? 'bg-white shadow text-green-700'
+                        : 'bg-white shadow text-gray-800'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {cat === 'Liga' ? '🏆 Liga' : cat === 'Treino' ? '🎾 Treino' : '📊 Geral'}
+                </button>
+              ))}
+            </div>
             <div className="mt-3 flex flex-wrap gap-3 items-center">
               <span className="text-xs text-gray-500">Filtro:</span>
               <select
@@ -1526,7 +1568,7 @@ export function SportManagementScreen() {
                 Pontos Liga {seasonStatsSortBy === 'pontos_liga' && (seasonStatsSortAsc ? '↑' : '↓')}
               </button>
             </div>
-            {dashboardLoading ? (
+            {(dashboardLoading || tecnicaCategoryLoading) ? (
               <div className="mt-4 py-6 text-center text-gray-500">A carregar...</div>
             ) : (
               <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 overflow-hidden">
@@ -1545,7 +1587,11 @@ export function SportManagementScreen() {
                   </thead>
                   <tbody>
                     {(() => {
-                      const rawSeasonStats = statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes;
+                      // Quando categoria específica seleccionada usa os dados filtrados
+                      const baseStats = tecnicaCategory !== 'Geral' && tecnicaCategoryStats !== null
+                        ? tecnicaCategoryStats
+                        : (statsFilter === 'epoca' ? seasonStatsEpoca : seasonStatsMes);
+                      const rawSeasonStats = baseStats;
                       const statsRows = Array.isArray(rawSeasonStats) ? rawSeasonStats : [];
                       return statsRows.length === 0 ? (
                       <tr>
@@ -1579,7 +1625,7 @@ export function SportManagementScreen() {
                                   <span className="font-medium text-gray-900">{row.name}</span>
                                 </div>
                               </td>
-                              <td className={`py-3 px-4 text-right font-medium tabular-nums ${dispPctColor(row.disp_pct ?? 0)}`} title={row.disp_pct != null ? `${row.disponibilidade} de ${statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
+                              <td className={`py-3 px-4 text-right font-medium tabular-nums ${dispPctColor(row.disp_pct ?? 0)}`} title={row.disp_pct != null ? `${row.disponibilidade} de ${tecnicaCategory !== 'Geral' ? tecnicaCategoryTotalGames : statsFilter === 'epoca' ? totalGamesEpoca : totalGamesMes} jogos (${row.disp_pct}%)` : undefined}>
                                 {row.disp_pct != null ? `${row.disponibilidade} (${row.disp_pct}%)` : row.disponibilidade}
                               </td>
                               <td className="py-3 px-4 text-right text-gray-700 tabular-nums font-medium">{row.convocatorias}</td>
