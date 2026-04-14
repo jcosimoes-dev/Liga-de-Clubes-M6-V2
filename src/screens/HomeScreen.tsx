@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layout } from '../components/layout/Layout';
-import { Card, CategoryCard, Button, Badge, Loading, Header, Toast, ToastType } from '../components/ui';
+import { Card, CategoryCard, Button, Badge, Loading, Header, Toast, ToastType } from '../components/ui'; // Button kept for profile nav
 import { getCategoryFromPhase, CATEGORY_STYLES, GRID_CLASSES } from '../domain/categoryTheme';
 import { useAuth, RESTRICTED_COORDINATION_MSG, RESTRICTED_ADMIN_MSG } from '../contexts/AuthContext';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -272,21 +272,14 @@ export function HomeScreen({ accessDenied, accessDeniedAdmin }: { accessDenied?:
                       {getStatusBadge(game.status)}
                     </div>
                     <div className="p-3 bg-white">
-                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-2">
+                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-1.5">
                         <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
                         <span>{formatDate(game.starts_at)}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+                      <div className="flex items-center gap-2 text-xs text-gray-600">
                         <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
                         <span className="truncate">{game.location}</span>
                       </div>
-                      <Button
-                        size="sm"
-                        className={styles.buttonClasses + ' w-full'}
-                        onClick={() => navigate({ name: 'game', params: { id: game.id }, state: { viewOnly: true } })}
-                      >
-                        Ver
-                      </Button>
                     </div>
                   </div>
                 );
