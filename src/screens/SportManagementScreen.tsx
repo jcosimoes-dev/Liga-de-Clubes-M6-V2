@@ -741,23 +741,24 @@ export function SportManagementScreen() {
 
   const loadAvailablePlayers = async (gameId: string) => {
     try {
-      // Query directa — aceita 'confirmed' e 'confirmo' (formato antigo ainda presente na BD)
+      // Passo 1: buscar todos os playerIds com availability confirmada neste jogo
       const { data: avails, error: availErr } = await supabase
         .from('availabilities')
         .select('player_id, status')
         .eq('game_id', gameId)
-        .in('status', ['confirmed', 'confirmo']);
+        .eq('status', 'confirmed');
 
       if (availErr) throw availErr;
 
       const playerIds = (avails ?? []).map((a: any) => a.player_id).filter(Boolean);
-      console.log('[Convocatória] gameId:', gameId, '| disponibilidades confirmed/confirmo:', avails?.length ?? 0, '| playerIds:', playerIds);
+      console.log('[Convocatória] gameId:', gameId, '| confirmed na BD:', avails?.length ?? 0, '| playerIds:', playerIds);
 
       if (playerIds.length === 0) {
         setAvailablePlayers([]);
         return;
       }
 
+      // Passo 2: buscar detalhes dos jogadores
       const { data: playersData, error: pErr } = await supabase
         .from('players')
         .select('id, name, liga_points, federation_points, email, is_active, role')
