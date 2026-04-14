@@ -623,10 +623,14 @@ export function SportManagementScreen() {
       if (!game) return;
       hasRestoredConvocationRef.current = true;
       setSelectedGame(game);
-      const minP = ['Qualificação', 'Regionais', 'Nacionais'].includes(String(game.phase ?? '')) ? 4 : 2;
-      const slots = Math.max(
-        data.pairs.length,
-        pairSlotsForConvocatory(minP, data.selectedPlayerIds.length)
+      const restoredPhase = String(game.phase ?? '');
+      const restoredIsLiga  = LIGA_PHASES_SET.has(restoredPhase);
+      const restoredIsTreino = restoredPhase === 'Treino';
+      const minP    = (restoredIsLiga || restoredIsTreino) ? 4 : 2;
+      const maxP    = restoredIsLiga ? 3 : 5;
+      const slots = Math.min(
+        maxP,
+        Math.max(data.pairs.length, pairSlotsForConvocatory(minP, data.selectedPlayerIds.length, maxP)),
       );
       const padded =
         data.pairs.length >= slots
@@ -642,19 +646,30 @@ export function SportManagementScreen() {
     } catch (_) {}
   }, [gamesLoading, openGames]);
 
-  /** Liga = phase Qualificação | Regionais | Nacionais → mínimo 4 jogadores; outros → mínimo 2. */
-  const isLigaGame = selectedGame && ['Qualificação', 'Regionais', 'Nacionais'].includes(String(selectedGame.phase ?? ''));
-  const minPlayers = isLigaGame ? 4 : 2;
-  const requiredPairs = Math.floor(minPlayers / 2);
+  /** Identifica o tipo de jogo pelo campo phase. */
+  const LIGA_PHASES_SET = new Set(['Qualificação', 'Regionais', 'Nacionais', 'Final', 'Quartos', 'Meias']);
+  const gamePhase = String(selectedGame?.phase ?? '');
+  const isLigaGame  = selectedGame != null && LIGA_PHASES_SET.has(gamePhase);
+  const isTreinoGame = selectedGame != null && gamePhase === 'Treino';
+
+  /**
+   * Regras de duplas por tipo:
+   *   Liga    → min 2 duplas (4 jogadores), max 3 duplas
+   *   Treino  → min 2 duplas (4 jogadores), max 5 duplas
+   *   Outros  → min 1 dupla  (2 jogadores), max 5 duplas
+   */
+  const minPlayers   = (isLigaGame || isTreinoGame) ? 4 : 2;
+  const maxPairs     = isLigaGame ? 3 : 5;
+  const requiredPairs = Math.ceil(minPlayers / 2);
   useEffect(() => {
     if (!selectedGame) return;
-    const needed = pairSlotsForConvocatory(minPlayers, selectedPlayerIds.size);
+    const needed = pairSlotsForConvocatory(minPlayers, selectedPlayerIds.size, maxPairs);
     setPairs((prev) => {
       if (prev.length === needed) return prev;
       if (prev.length > needed) return prev.slice(0, needed);
       return [...prev, ...emptyPairSlots(needed - prev.length)];
     });
-  }, [selectedGame?.id, selectedGame?.phase, minPlayers, selectedPlayerIds.size]);
+  }, [selectedGame?.id, selectedGame?.phase, minPlayers, maxPairs, selectedPlayerIds.size]);
 
   /** Total de pontos (Liga + FPP) — mesma lógica que Perfil e Equipa */
   const totalPlayerPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
@@ -673,7 +688,7 @@ export function SportManagementScreen() {
     const n = selectedPlayerIds.size;
     if (n < minPlayers || n % 2 !== 0) return;
     if (isLigaGame && n < 4) return;
-    const needed = pairSlotsForConvocatory(minPlayers, n);
+    const needed = pairSlotsForConvocatory(minPlayers, n, maxPairs);
     const ids = Array.from(selectedPlayerIds);
     const selected = ids
       .map((id) => availablePlayers.find((p: any) => p.id === id))
@@ -1874,10 +1889,14 @@ export function SportManagementScreen() {
                         if (raw) {
                           const data = JSON.parse(raw) as { selectedGameId?: string; pairs?: Array<{ player1_id: string; player2_id: string }>; selectedPlayerIds?: string[] };
                           if (data?.selectedGameId === game.id && Array.isArray(data.pairs) && Array.isArray(data.selectedPlayerIds)) {
-                            const minP = ['Qualificação', 'Regionais', 'Nacionais'].includes(String(game.phase ?? '')) ? 4 : 2;
-                            const slots = Math.max(
-                              data.pairs.length,
-                              pairSlotsForConvocatory(minP, data.selectedPlayerIds.length)
+                            const clickPhase = String(game.phase ?? '');
+                            const clickIsLiga = LIGA_PHASES_SET.has(clickPhase);
+                            const clickIsTreino = clickPhase === 'Treino';
+                            const minP = (clickIsLiga || clickIsTreino) ? 4 : 2;
+                            const maxP = clickIsLiga ? 3 : 5;
+                            const slots = Math.min(
+                              maxP,
+                              Math.max(data.pairs.length, pairSlotsForConvocatory(minP, data.selectedPlayerIds.length, maxP)),
                             );
                             const padded =
                               data.pairs.length >= slots
@@ -2017,13 +2036,16 @@ export function SportManagementScreen() {
 
               {availablePlayers.length < minPlayers ? (
                 <p className="text-sm text-amber-700 mb-4">
-                  Apenas {availablePlayers.length} jogador(es) confirmaram presença. {isLigaGame ? 'Liga: são necessários pelo menos 4.' : 'São necessários pelo menos 2.'}
+                  Apenas {availablePlayers.length} jogador(es) confirmaram presença.{' '}
+                  {isLigaGame ? 'Liga: mínimo 4 jogadores (2 duplas).' : isTreinoGame ? 'Treino: mínimo 4 jogadores (2 duplas).' : 'Mínimo 2 jogadores (1 dupla).'}
                 </p>
               ) : (
                 <p className="text-sm text-gray-600 mb-4">
                   {isLigaGame
-                    ? `Seleciona um número par de jogadores (mínimo 4; sem limite máximo — clica para selecionar).`
-                    : `Seleciona um número par de jogadores (mínimo ${minPlayers}; sem limite máximo — clica para selecionar).`}{' '}
+                    ? `Seleciona um número par de jogadores (mínimo 4, máximo 6 — 3 duplas). Clica para selecionar.`
+                    : isTreinoGame
+                      ? `Seleciona um número par de jogadores (mínimo 4, máximo 10 — 5 duplas). Clica para selecionar.`
+                      : `Seleciona um número par de jogadores (mínimo ${minPlayers}). Clica para selecionar.`}{' '}
                   As duplas são calculadas automaticamente por pontos (botão Sugestão de Duplas).
                 </p>
               )}

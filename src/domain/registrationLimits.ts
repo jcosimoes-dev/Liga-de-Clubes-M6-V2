@@ -32,10 +32,15 @@ export function emptyPairSlots(count: number): Array<{ player1_id: string; playe
 
 /**
  * Número de linhas no quadro de duplas na gestão de convocatórias.
- * Sem teto por categoria: cresce com os jogadores selecionados (coordenação gere manualmente).
+ * Respeita o máximo de duplas por tipo de jogo quando fornecido.
  */
-export function pairSlotsForConvocatory(minPlayers: number, selectedPlayerCount: number): number {
+export function pairSlotsForConvocatory(
+  minPlayers: number,
+  selectedPlayerCount: number,
+  maxPairs?: number,
+): number {
   const minSlots = Math.ceil(minPlayers / 2);
   const fromSelection = Math.ceil(selectedPlayerCount / 2);
-  return Math.max(minSlots, fromSelection);
+  const slots = Math.max(minSlots, fromSelection);
+  return maxPairs !== undefined ? Math.min(slots, maxPairs) : slots;
 }
