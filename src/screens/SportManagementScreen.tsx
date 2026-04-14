@@ -731,7 +731,8 @@ export function SportManagementScreen() {
       if (showSpinner) {
         await GamesService.backfillConcluidoFromResults();
       }
-      const games = await GamesService.getOpenGames(true);
+      // includePast=false: jogos com data passada saem daqui e vão para o Histórico
+      const games = await GamesService.getOpenGames(false);
       const list = Array.isArray(games) ? games : [];
       setOpenGames(list);
       return list;
@@ -803,8 +804,19 @@ export function SportManagementScreen() {
   const loadClosedGames = async () => {
     setClosedGamesLoading(true);
     try {
-      const games = await GamesService.getByStatus('convocatoria_fechada');
-      setClosedGames(Array.isArray(games) ? games : []);
+      // Jogos explicitamente fechados
+      const [closedRaw, pastOpenRaw] = await Promise.all([
+        GamesService.getByStatus('convocatoria_fechada'),
+        GamesService.getPastOpenGames(),
+      ]);
+      const closed = Array.isArray(closedRaw) ? closedRaw : [];
+      const pastOpen = Array.isArray(pastOpenRaw) ? pastOpenRaw : [];
+      // Juntar sem duplicados (pastOpen pode incluir jogos que entretanto foram fechados)
+      const closedIds = new Set(closed.map((g: any) => g.id));
+      const merged = [...closed, ...pastOpen.filter((g: any) => !closedIds.has(g.id))];
+      // Ordenar por data decrescente
+      merged.sort((a: any, b: any) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime());
+      setClosedGames(merged);
     } catch (e) {
       showToast('Erro ao carregar jogos fechados', 'error');
       setClosedGames([]);

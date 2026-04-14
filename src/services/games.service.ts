@@ -123,6 +123,30 @@ export const GamesService = {
   },
 
   /**
+   * Jogos com status "aberto" mas cuja data já passou — devem aparecer no Histórico.
+   * Inclui jogos sem resultados registados (ex.: treinos).
+   */
+  async getPastOpenGames(): Promise<Array<Record<string, unknown>>> {
+    const openStatuses = [
+      'draft', 'convocatoria_aberta', 'open', 'agendado', 'scheduled',
+      'pendente', 'pending', 'aberto',
+    ];
+    const cols = 'id, status, opponent, starts_at, end_date, location, phase, round_number';
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('games')
+      .select(cols)
+      .in('status', openStatuses)
+      .lt('starts_at', now)
+      .order('starts_at', { ascending: false });
+    if (error) {
+      console.error('[GamesService.getPastOpenGames] erro:', error.message);
+      return [];
+    }
+    return (data ?? []).map((g) => this._normalizeGame(g as Record<string, unknown>));
+  },
+
+  /**
    * Jogos com linhas em `results` devem estar `concluido` (alinhado com o registo de resultados).
    * Corrige estados antigos na BD quando existe VITE_SUPABASE_SERVICE_ROLE_KEY.
    */
