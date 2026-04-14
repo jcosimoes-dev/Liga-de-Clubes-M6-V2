@@ -12,7 +12,7 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
-import { ArrowLeft, Calendar, Check, CheckCircle, Clock, HelpCircle, MapPin, Users, XCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, Check, Clock, MapPin, Users } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
 import { confirmedPairCountFromPlayers } from '../domain/registrationLimits';
 import { buildGoogleCalendarUrl } from '../lib/shareLinks';
@@ -72,13 +72,17 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
   const [loading, setLoading] = useState(true);
   const [game, setGame] = useState<any>(null);
   const [pairs, setPairs] = useState<any[]>([]);
-  const [confirmedPlayers, setConfirmedPlayers] = useState<any[]>([]);
+  /** Todos os jogadores com qualquer resposta de disponibilidade para este jogo */
+  const [availPlayers, setAvailPlayers] = useState<{ id: string; name: string; status: string }[]>([]);
   const [results, setResults] = useState<Record<string, ResultRow>>({});
-  const [myAvailability, setMyAvailability] = useState<string | null>(null);
   const [savingAvail, setSavingAvail] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
+
+  // Derivado: jogadores que confirmaram (para manter compatibilidade com a secção de duplas fechadas)
+  const confirmedPlayers = availPlayers.filter((p) => p.status === 'confirmed');
+  const myAvailability = availPlayers.find((p) => p.id === String(player?.id ?? ''))?.status ?? null;
 
   useEffect(() => {
     if (!gameId) {
@@ -140,23 +144,8 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           setResults({});
         }
 
-        try {
-          const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
-          setConfirmedPlayers(Array.isArray(players) ? players : []);
-        } catch (ce) {
-          console.warn('[GameDetailsScreen] getConfirmedPlayers:', ce);
-          setConfirmedPlayers([]);
-        }
-
-        // Disponibilidade do jogador actual
-        if (player?.id) {
-          try {
-            const avail = await AvailabilitiesService.getByGameAndPlayer(gameId, String(player.id));
-            setMyAvailability((avail as any)?.status ?? null);
-          } catch {
-            setMyAvailability(null);
-          }
-        }
+        // Carregar TODOS os jogadores que responderam (qualquer status)
+        await loadAvailPlayers(gameId);
       } catch (e) {
         console.error('[GameDetailsScreen] Erro ao carregar:', e);
         showToast(getErrorMessage(e), 'error');
@@ -173,16 +162,49 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
+  const loadAvailPlayers = async (gId: string) => {
+    try {
+      // 1. Todas as disponibilidades do jogo
+      const { data: avails, error: aErr } = await supabase
+        .from('availabilities')
+        .select('player_id, status')
+        .eq('game_id', gId);
+      if (aErr) throw aErr;
+      const rows = avails ?? [];
+      if (rows.length === 0) { setAvailPlayers([]); return; }
+
+      // 2. Detalhes dos jogadores
+      const pids = [...new Set(rows.map((r: any) => r.player_id as string).filter(Boolean))];
+      const { data: playersRaw } = await supabase
+        .from('players')
+        .select('id, name')
+        .in('id', pids);
+      const nameMap: Record<string, string> = {};
+      (playersRaw ?? []).forEach((p: any) => { nameMap[p.id] = p.name ?? '?'; });
+
+      const merged = rows
+        .map((r: any) => ({ id: r.player_id as string, name: nameMap[r.player_id] ?? '?', status: r.status as string }))
+        .filter((r) => r.id && r.name !== '?');
+      // Ordenar: confirmed primeiro, depois por nome
+      merged.sort((a, b) => {
+        if (a.status === 'confirmed' && b.status !== 'confirmed') return -1;
+        if (b.status === 'confirmed' && a.status !== 'confirmed') return 1;
+        return a.name.localeCompare(b.name);
+      });
+      setAvailPlayers(merged);
+    } catch (e) {
+      console.warn('[GameDetailsScreen] loadAvailPlayers:', e);
+      setAvailPlayers([]);
+    }
+  };
+
   const handleAvailability = async (status: 'confirmed' | 'declined' | 'undecided') => {
     if (!player?.id || !gameId) return;
     setSavingAvail(true);
     try {
       await AvailabilitiesService.upsert({ game_id: gameId, player_id: String(player.id), status });
-      setMyAvailability(status);
       showToast(status === 'confirmed' ? 'Presença confirmada!' : status === 'declined' ? 'Ausência registada.' : 'Resposta guardada.', 'success');
-      // Refresh confirmed players list
-      const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
-      setConfirmedPlayers(Array.isArray(players) ? players : []);
+      await loadAvailPlayers(gameId);
     } catch (e) {
       showToast('Erro ao guardar disponibilidade', 'error');
     } finally {
@@ -313,58 +335,6 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </div>
             </Card>
 
-            {/* Confirmação de disponibilidade — apenas para jogos abertos */}
-            {player?.id && game && !isGameClosed(game.status) && new Date(game.starts_at) >= new Date() && (
-              <Card className="border border-blue-100 bg-blue-50/40 rounded-2xl">
-                <h3 className="text-base font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-blue-600" aria-hidden />
-                  A tua disponibilidade
-                </h3>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleAvailability('confirmed')}
-                    disabled={savingAvail}
-                    className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition-all ${
-                      myAvailability === 'confirmed'
-                        ? 'bg-green-50 border-green-500 text-green-700 ring-2 ring-green-200'
-                        : 'bg-white border-gray-200 text-gray-600 hover:border-green-300'
-                    } disabled:opacity-60`}
-                  >
-                    {myAvailability === 'confirmed' ? <Check className="w-5 h-5 mb-1 text-green-600" /> : <CheckCircle className="w-5 h-5 mb-1" />}
-                    <span className="text-xs font-medium">Confirmar</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAvailability('undecided')}
-                    disabled={savingAvail}
-                    className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition-all ${
-                      myAvailability === 'undecided'
-                        ? 'bg-yellow-50 border-yellow-500 text-yellow-700 ring-2 ring-yellow-200'
-                        : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
-                    } disabled:opacity-60`}
-                  >
-                    {myAvailability === 'undecided' ? <Check className="w-5 h-5 mb-1 text-yellow-600" /> : <HelpCircle className="w-5 h-5 mb-1" />}
-                    <span className="text-xs font-medium">Talvez</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAvailability('declined')}
-                    disabled={savingAvail}
-                    className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition-all ${
-                      myAvailability === 'declined'
-                        ? 'bg-red-50 border-red-500 text-red-700 ring-2 ring-red-200'
-                        : 'bg-white border-gray-200 text-gray-600 hover:border-red-300'
-                    } disabled:opacity-60`}
-                  >
-                    {myAvailability === 'declined' ? <Check className="w-5 h-5 mb-1 text-red-600" /> : <XCircle className="w-5 h-5 mb-1" />}
-                    <span className="text-xs font-medium">Não posso</span>
-                  </button>
-                </div>
-                {savingAvail && <p className="text-xs text-gray-500 mt-2 text-center">A guardar...</p>}
-              </Card>
-            )}
-
             {googleCalendarHref ? (
               <div className="mt-6">
                 <p className="text-sm font-medium text-gray-700 mb-2">Adicionar ao calendário</p>
@@ -445,74 +415,77 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
               </Card>
             )}
 
-            {/* Sempre mostrar secção de confirmados (conv. fechada / concluído incl.): lista pode estar vazia por RLS. */}
-            <Card className="bg-gray-50/80 border border-gray-200/80 rounded-2xl">
-              <p className="text-sm font-semibold text-amber-700 mb-2" role="status">
-                {confirmedPlayers.length > 0 ? (
-                  <>
-                    🔥 {confirmedPlayers.length} Jogador{confirmedPlayers.length !== 1 ? 'es' : ''} Confirmado
-                    {confirmedPlayers.length !== 1 ? 's' : ''}
-                    <span className="block mt-1 text-xs font-medium text-gray-600">
-                      {(() => {
-                        const n = confirmedPairCountFromPlayers(confirmedPlayers.length);
-                        return n === 1 ? '1 dupla inscrita' : `${n} duplas inscritas`;
-                      })()}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-gray-700">Confirmados neste jogo</span>
+            {/* Lista de disponibilidade — todos os jogadores que responderam, com checkbox */}
+            {availPlayers.length > 0 && (
+              <Card className="border border-gray-200/80 rounded-2xl">
+                <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-gray-600" aria-hidden />
+                  Disponibilidade
+                </h3>
+                {confirmedPlayers.length > 0 && (
+                  <p className="text-xs text-gray-500 mb-3">
+                    🔥 {confirmedPlayers.length} confirmado{confirmedPlayers.length !== 1 ? 's' : ''} · {(() => { const n = confirmedPairCountFromPlayers(confirmedPlayers.length); return n === 1 ? '1 dupla' : `${n} duplas`; })()}
+                  </p>
                 )}
-              </p>
-              <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                <Users className="w-4 h-4 text-gray-600" aria-hidden />
-                Quem confirmou disponibilidade
-              </h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Jogadores que confirmaram presença nesta jornada (ou duplas fechadas — a lista depende das permissões).
-              </p>
-              {confirmedPlayers.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {confirmedPlayers.map((p: any, idx: number) => {
-                    const name = p.name ?? '—';
-                    const initials =
-                      name
-                        .split(/\s+/)
-                        .map((s: string) => s[0])
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .join('')
-                        .toUpperCase() || '?';
-                    const hue = (idx * 137) % 360;
-                    const bgColor = `hsl(${hue}, 55%, 45%)`;
+                <div className="space-y-2">
+                  {availPlayers.map((p) => {
+                    const isMe = p.id === String(player?.id ?? '');
+                    const isConfirmed = p.status === 'confirmed';
+                    const isDeclined = p.status === 'declined';
+                    const initials = p.name.split(/\s+/).map((s: string) => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
+                    const canToggle = isMe && game && !isGameClosed(game.status) && new Date(game.starts_at) >= new Date();
                     return (
                       <div
                         key={p.id}
-                        className="flex items-center gap-2 p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm min-w-0"
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                          isConfirmed
+                            ? 'bg-green-50 border-green-200'
+                            : isDeclined
+                            ? 'bg-red-50/40 border-red-100 opacity-60'
+                            : 'bg-gray-50 border-gray-100'
+                        } ${canToggle ? 'cursor-pointer hover:shadow-sm' : ''}`}
+                        onClick={() => {
+                          if (!canToggle || savingAvail) return;
+                          handleAvailability(isConfirmed ? 'undecided' : 'confirmed');
+                        }}
                       >
-                        <div
-                          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-                          style={{ backgroundColor: bgColor }}
-                          aria-hidden
-                        >
+                        {/* Checkbox visual */}
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
+                          isConfirmed
+                            ? 'bg-green-500 border-green-500'
+                            : canToggle
+                            ? 'border-gray-300 bg-white hover:border-green-400'
+                            : 'border-gray-200 bg-gray-100'
+                        }`}>
+                          {isConfirmed && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        {/* Avatar */}
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0 ${
+                          isConfirmed ? 'bg-green-600' : isDeclined ? 'bg-red-400' : 'bg-gray-400'
+                        }`}>
                           {initials}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium text-gray-900 text-sm block truncate">{name}</span>
-                          {p.federation_points != null ? (
-                            <span className="text-[10px] text-gray-400">{p.federation_points} pts</span>
-                          ) : null}
-                        </div>
+                        {/* Nome */}
+                        <span className={`font-medium text-sm flex-1 ${isDeclined ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                          {p.name}{isMe ? ' (tu)' : ''}
+                        </span>
+                        {/* Estado */}
+                        <span className={`text-xs font-medium shrink-0 ${
+                          isConfirmed ? 'text-green-700' : isDeclined ? 'text-red-400' : 'text-yellow-600'
+                        }`}>
+                          {isConfirmed ? '✓ Confirmado' : isDeclined ? '✗ Recusou' : '? Talvez'}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500 py-2">
-                  Sem jogadores listados aqui. Se a convocatória estiver fechada, vê as <strong>duplas</strong> acima; a
-                  lista de confirmados pode estar limitada por permissões.
-                </p>
-              )}
-            </Card>
+                {player?.id && game && !isGameClosed(game.status) && new Date(game.starts_at) >= new Date() && (
+                  <p className="text-xs text-gray-400 mt-3 text-center">
+                    Clica no teu nome para confirmar ou cancelar presença
+                  </p>
+                )}
+              </Card>
+            )}
 
             <div className="pt-2">
               <Button variant="outline" fullWidth onClick={handleBack} className="inline-flex items-center justify-center gap-2 py-3">
