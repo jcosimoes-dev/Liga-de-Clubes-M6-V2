@@ -331,8 +331,12 @@ export type SportAction =
  * Bloqueados para capitão: Editar/Apagar Jogo, Anular Convocatória, Substituição de Emergência, Admin.
  */
 export function canAction(player: Player | null, effectiveRole: string, action: SportAction): boolean {
-  if (!player) return false;
   const r = normalizeRole(effectiveRole);
+  // Admin tem acesso a tudo — não bloquear mesmo que o perfil ainda não carregou.
+  if (r === PlayerRoles.admin) {
+    return action !== 'access_admin' ? true : true;
+  }
+  if (!player) return false;
 
   switch (action) {
     case 'edit_other_player':
