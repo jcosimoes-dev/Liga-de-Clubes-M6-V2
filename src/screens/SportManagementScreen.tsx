@@ -741,9 +741,36 @@ export function SportManagementScreen() {
 
   const loadAvailablePlayers = async (gameId: string) => {
     try {
-      const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
-      setAvailablePlayers(Array.isArray(players) ? players.filter(Boolean) : []);
+      // Query directa — aceita 'confirmed' e 'confirmo' (formato antigo ainda presente na BD)
+      const { data: avails, error: availErr } = await supabase
+        .from('availabilities')
+        .select('player_id, status')
+        .eq('game_id', gameId)
+        .in('status', ['confirmed', 'confirmo']);
+
+      if (availErr) throw availErr;
+
+      const playerIds = (avails ?? []).map((a: any) => a.player_id).filter(Boolean);
+      console.log('[Convocatória] gameId:', gameId, '| disponibilidades confirmed/confirmo:', avails?.length ?? 0, '| playerIds:', playerIds);
+
+      if (playerIds.length === 0) {
+        setAvailablePlayers([]);
+        return;
+      }
+
+      const { data: playersData, error: pErr } = await supabase
+        .from('players')
+        .select('id, name, liga_points, federation_points, email, is_active, role')
+        .in('id', playerIds)
+        .eq('is_active', true)
+        .neq('email', GESTOR_HIDE_EMAIL);
+
+      if (pErr) throw pErr;
+
+      console.log('[Convocatória] jogadores carregados:', playersData?.length ?? 0, playersData?.map((p: any) => p.name));
+      setAvailablePlayers(Array.isArray(playersData) ? playersData.filter(Boolean) : []);
     } catch (e) {
+      console.error('[Convocatória] Erro ao carregar jogadores disponíveis:', e);
       showToast('Erro ao carregar jogadores disponíveis', 'error');
       setAvailablePlayers([]);
     }
