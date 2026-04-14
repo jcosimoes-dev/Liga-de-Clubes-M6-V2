@@ -995,15 +995,16 @@ export function SportManagementScreen() {
 
   const filledPairs = pairs.filter((p) => p.player1_id && p.player2_id && p.player1_id !== p.player2_id);
   const playersInPairs = new Set(filledPairs.flatMap((p) => [p.player1_id, p.player2_id]));
-  const allPlayersUsed =
-    selectedPlayerIds.size >= minPlayers &&
-    playersInPairs.size === selectedPlayerIds.size &&
-    [...selectedPlayerIds].every((id) => playersInPairs.has(id));
-  const allPairsValid = filledPairs.length >= requiredPairs && allPlayersUsed;
+  // Cada jogador só pode aparecer numa dupla (sem duplicados entre duplas)
+  const noDuplicatesAcrossPairs = playersInPairs.size === filledPairs.length * 2;
+  // Botão activa quando há duplas suficientes e sem jogadores repetidos entre elas
+  const allPairsValid = filledPairs.length >= requiredPairs && noDuplicatesAcrossPairs;
+  // Mantido por compatibilidade com mensagens de aviso já existentes
+  const allPlayersUsed = allPairsValid;
 
   const handleCloseConvocatory = async () => {
     if (!selectedGame || !allPairsValid) {
-      showToast(`Seleciona pelo menos ${minPlayers} jogadores e define as duplas corretamente.`, 'error');
+      showToast(`Define pelo menos ${requiredPairs} dupla${requiredPairs > 1 ? 's' : ''} completas e sem jogadores repetidos.`, 'error');
       return;
     }
     setSaving(true);
