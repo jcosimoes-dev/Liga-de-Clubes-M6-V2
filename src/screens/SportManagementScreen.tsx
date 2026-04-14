@@ -2628,11 +2628,11 @@ export function SportManagementScreen() {
 
           {closedGamesLoading ? (
             <Loading text="A carregar jogos..." />
-          ) : closedGames.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum jogo com convocatória fechada.</p>
+          ) : closedGames.filter((g: any) => g.status === 'convocatoria_fechada' && new Date(g.starts_at) >= new Date()).length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhum jogo com convocatória fechada e data futura.</p>
           ) : (
             <div className={GRID_CLASSES + ' mb-4'}>
-              {closedGames.map((game: any) => {
+              {closedGames.filter((g: any) => g.status === 'convocatoria_fechada' && new Date(g.starts_at) >= new Date()).map((game: any) => {
                 const cat = getCategoryFromPhase(game.phase);
                 const styles = CATEGORY_STYLES[cat];
                 const isPastDate = new Date(game.starts_at) < new Date();
