@@ -6,6 +6,7 @@ import { confirmedPairCountFromPlayers } from '../domain/registrationLimits';
 import { useNavigation } from '../contexts/NavigationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { GamesService, AvailabilitiesService } from '../services';
+import { supabase } from '../lib/supabase';
 import { Calendar, MapPin, Users, CheckCircle, HelpCircle, XCircle, Clock, Check } from 'lucide-react';
 
 type AvailabilityStatus = 'confirmed' | 'declined' | 'undecided';
@@ -16,6 +17,7 @@ export function CalendarScreen() {
   const [games, setGames] = useState<any[]>([]);
   const [filteredGames, setFilteredGames] = useState<any[]>([]);
   const [availabilities, setAvailabilities] = useState<Record<string, any>>({});
+  const [confirmedPlayersByGame, setConfirmedPlayersByGame] = useState<Record<string, { id: string; name: string }[]>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [phaseFilter, setPhaseFilter] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -58,6 +60,31 @@ export function CalendarScreen() {
         availsMap[key] = avail;
       });
       setAvailabilities(availsMap);
+
+      // Buscar confirmados por jogo (para mostrar nomes nos cards)
+      const { data: confirmedAvails } = await supabase
+        .from('availabilities')
+        .select('game_id, player_id')
+        .eq('status', 'confirmed');
+      const idsByGame: Record<string, string[]> = {};
+      (confirmedAvails ?? []).forEach((a: any) => {
+        if (!idsByGame[a.game_id]) idsByGame[a.game_id] = [];
+        idsByGame[a.game_id].push(a.player_id);
+      });
+      const allPids = [...new Set((confirmedAvails ?? []).map((a: any) => a.player_id as string))];
+      if (allPids.length > 0) {
+        const { data: playersRaw } = await supabase
+          .from('players')
+          .select('id, name')
+          .in('id', allPids);
+        const nameMap: Record<string, string> = {};
+        (playersRaw ?? []).forEach((p: any) => { nameMap[p.id] = p.name ?? '?'; });
+        const byGame: Record<string, { id: string; name: string }[]> = {};
+        Object.entries(idsByGame).forEach(([gId, pids]) => {
+          byGame[gId] = pids.map((pid) => ({ id: pid, name: nameMap[pid] ?? '?' }));
+        });
+        setConfirmedPlayersByGame(byGame);
+      }
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
@@ -224,6 +251,7 @@ export function CalendarScreen() {
   const renderGameCard = (game: any) => {
     const myAvail = getMyAvailability(game.id);
     const confirmedCount = getConfirmedCount(game.id);
+    const confirmedPlayersForGame = confirmedPlayersByGame[game.id] ?? [];
     const daysUntil = getDaysUntilGame(game.starts_at);
     const isUpcoming = daysUntil >= 0;
     const isMultiDay = GamesService.isMultiDay(game);
@@ -345,6 +373,36 @@ export function CalendarScreen() {
                   )}
                   <span className="text-xs font-medium">Recusar</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {confirmedPlayersForGame.length > 0 && (
+            <div className="pt-2 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-gray-600">
+                <Users className="w-3.5 h-3.5" />
+                <span>{confirmedPlayersForGame.length} disponíve{confirmedPlayersForGame.length === 1 ? 'l' : 'is'}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {confirmedPlayersForGame.map((p) => {
+                  const initials = p.name
+                    .split(/\s+/).map((s: string) => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
+                  const isMe = p.id === player?.id;
+                  return (
+                    <span
+                      key={p.id}
+                      title={p.name}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${
+                        isMe
+                          ? 'bg-green-100 border-green-400 text-green-800'
+                          : 'bg-gray-100 border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-gray-400 text-white flex items-center justify-center text-[9px] font-bold shrink-0" style={{ backgroundColor: isMe ? '#16a34a' : undefined }}>{initials}</span>
+                      {p.name.split(' ')[0]}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}

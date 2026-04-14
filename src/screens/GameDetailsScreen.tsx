@@ -9,9 +9,10 @@ import { useParams } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card, Button, Header, Loading, Toast, ToastType, Badge } from '../components/ui';
 import { useNavigation } from '../contexts/NavigationContext';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { GamesService, PairsService, ResultsService, AvailabilitiesService } from '../services';
-import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
+import { ArrowLeft, Calendar, Check, CheckCircle, Clock, HelpCircle, MapPin, Users, XCircle } from 'lucide-react';
 import { getCategoryFromPhase } from '../domain/categoryTheme';
 import { confirmedPairCountFromPlayers } from '../domain/registrationLimits';
 import { buildGoogleCalendarUrl } from '../lib/shareLinks';
@@ -62,6 +63,7 @@ function gameIdFromWindowHash(): string | null {
 
 export function GameDetailsScreen({ id, viewOnly }: Props) {
   const { goBack, navigate } = useNavigation();
+  const { player } = useAuth();
   const { id: idFromPath } = useParams<{ id: string }>();
   const gameId = normalizeGameId(id, idFromPath || gameIdFromWindowHash());
 
@@ -72,6 +74,8 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
   const [pairs, setPairs] = useState<any[]>([]);
   const [confirmedPlayers, setConfirmedPlayers] = useState<any[]>([]);
   const [results, setResults] = useState<Record<string, ResultRow>>({});
+  const [myAvailability, setMyAvailability] = useState<string | null>(null);
+  const [savingAvail, setSavingAvail] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
@@ -143,6 +147,16 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
           console.warn('[GameDetailsScreen] getConfirmedPlayers:', ce);
           setConfirmedPlayers([]);
         }
+
+        // Disponibilidade do jogador actual
+        if (player?.id) {
+          try {
+            const avail = await AvailabilitiesService.getByGameAndPlayer(gameId, String(player.id));
+            setMyAvailability((avail as any)?.status ?? null);
+          } catch {
+            setMyAvailability(null);
+          }
+        }
       } catch (e) {
         console.error('[GameDetailsScreen] Erro ao carregar:', e);
         showToast(getErrorMessage(e), 'error');
@@ -158,6 +172,23 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
+
+  const handleAvailability = async (status: 'confirmed' | 'declined' | 'undecided') => {
+    if (!player?.id || !gameId) return;
+    setSavingAvail(true);
+    try {
+      await AvailabilitiesService.upsert({ game_id: gameId, player_id: String(player.id), status });
+      setMyAvailability(status);
+      showToast(status === 'confirmed' ? 'Presença confirmada!' : status === 'declined' ? 'Ausência registada.' : 'Resposta guardada.', 'success');
+      // Refresh confirmed players list
+      const players = await AvailabilitiesService.getConfirmedPlayers(gameId);
+      setConfirmedPlayers(Array.isArray(players) ? players : []);
+    } catch (e) {
+      showToast('Erro ao guardar disponibilidade', 'error');
+    } finally {
+      setSavingAvail(false);
+    }
+  };
 
   const gameTitle = game ? GamesService.formatOpponentDisplay(game.opponent) || game.opponent || 'Jogo' : 'Jogo';
 
@@ -281,6 +312,58 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                 </div>
               </div>
             </Card>
+
+            {/* Confirmação de disponibilidade — apenas para jogos abertos */}
+            {player?.id && game && !isGameClosed(game.status) && new Date(game.starts_at) >= new Date() && (
+              <Card className="border border-blue-100 bg-blue-50/40 rounded-2xl">
+                <h3 className="text-base font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-blue-600" aria-hidden />
+                  A tua disponibilidade
+                </h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAvailability('confirmed')}
+                    disabled={savingAvail}
+                    className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition-all ${
+                      myAvailability === 'confirmed'
+                        ? 'bg-green-50 border-green-500 text-green-700 ring-2 ring-green-200'
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-green-300'
+                    } disabled:opacity-60`}
+                  >
+                    {myAvailability === 'confirmed' ? <Check className="w-5 h-5 mb-1 text-green-600" /> : <CheckCircle className="w-5 h-5 mb-1" />}
+                    <span className="text-xs font-medium">Confirmar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAvailability('undecided')}
+                    disabled={savingAvail}
+                    className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition-all ${
+                      myAvailability === 'undecided'
+                        ? 'bg-yellow-50 border-yellow-500 text-yellow-700 ring-2 ring-yellow-200'
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
+                    } disabled:opacity-60`}
+                  >
+                    {myAvailability === 'undecided' ? <Check className="w-5 h-5 mb-1 text-yellow-600" /> : <HelpCircle className="w-5 h-5 mb-1" />}
+                    <span className="text-xs font-medium">Talvez</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAvailability('declined')}
+                    disabled={savingAvail}
+                    className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition-all ${
+                      myAvailability === 'declined'
+                        ? 'bg-red-50 border-red-500 text-red-700 ring-2 ring-red-200'
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-red-300'
+                    } disabled:opacity-60`}
+                  >
+                    {myAvailability === 'declined' ? <Check className="w-5 h-5 mb-1 text-red-600" /> : <XCircle className="w-5 h-5 mb-1" />}
+                    <span className="text-xs font-medium">Não posso</span>
+                  </button>
+                </div>
+                {savingAvail && <p className="text-xs text-gray-500 mt-2 text-center">A guardar...</p>}
+              </Card>
+            )}
 
             {googleCalendarHref ? (
               <div className="mt-6">
