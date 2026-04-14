@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Users, Calendar, Trophy, History, LogOut } from "lucide-react";
+import { Home, Users, Calendar, Trophy, History, LogOut, Settings } from "lucide-react";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { PlayerRoles } from "../../domain/constants";
@@ -19,6 +19,8 @@ export function BottomNav() {
   const { route, navigate } = useNavigation();
   const { canManageSport, role, signOut } = useAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const isAdmin = role === PlayerRoles.admin;
 
   const canAccessGestao =
     canManageSport ||
@@ -93,6 +95,19 @@ export function BottomNav() {
             </button>
           );
         })}
+
+        {/* Admin — apenas para o administrador */}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => navigate({ name: "admin" })}
+            aria-label="Admin"
+            className={`${btnBase} ${isActiveRoute(route.name, "admin") ? "text-blue-600" : "text-gray-600"}`}
+          >
+            <Settings className="w-6 h-6 shrink-0" />
+            <span className="text-[10px] mt-0.5 truncate px-0.5">Admin</span>
+          </button>
+        )}
 
         {/* Sair — visível em todos os ecrãs */}
         <button
