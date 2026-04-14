@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Users, Calendar, Trophy, Settings, History, LogOut } from "lucide-react";
+import { Home, Users, Calendar, Trophy, History, LogOut } from "lucide-react";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { PlayerRoles } from "../../domain/constants";
@@ -7,28 +7,65 @@ import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 export type NavTabId = "home" | "team" | "calendar" | "history" | "sport-management" | "admin";
 
-function isActiveRoute(currentRoute: string, tabRoute: string, tabId: NavTabId) {
+function isActiveRoute(currentRoute: string, tabId: NavTabId) {
   if (tabId === "home") return currentRoute === "home" || currentRoute === "game";
-  if (tabId === "history") return currentRoute === "history";
-  return currentRoute === tabRoute;
+  return currentRoute === tabId;
 }
 
 const btnBase =
-  "relative z-10 flex flex-col items-center justify-center h-full min-h-[44px] px-2 transition-colors pointer-events-auto";
+  "relative z-10 flex flex-col items-center justify-center h-full min-h-[44px] px-1 transition-colors pointer-events-auto";
 
 export function BottomNav() {
   const { route, navigate } = useNavigation();
   const { canManageSport, role, signOut } = useAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  /** Ícone Admin só para role 'admin'; coordenador e capitão não veem este ícone. */
-  const showAdminTab = role === PlayerRoles.admin;
-  const showGestaoTab = Boolean(
+  const canAccessGestao =
     canManageSport ||
-      role === PlayerRoles.admin ||
-      role === PlayerRoles.coordenador ||
-      role === PlayerRoles.capitao
-  );
+    role === PlayerRoles.admin ||
+    role === PlayerRoles.coordenador ||
+    role === PlayerRoles.capitao;
+
+  const handleGestao = () => {
+    if (canAccessGestao) {
+      navigate({ name: "sport-management" });
+    } else {
+      navigate({ name: "home", params: { accessDenied: true } });
+    }
+  };
+
+  const navItems = [
+    {
+      id: "home" as NavTabId,
+      label: "Início",
+      icon: <Home className="w-6 h-6 shrink-0" />,
+      onClick: () => navigate({ name: "home" }),
+    },
+    {
+      id: "team" as NavTabId,
+      label: "Equipa",
+      icon: <Users className="w-6 h-6 shrink-0" />,
+      onClick: () => navigate({ name: "team" }),
+    },
+    {
+      id: "calendar" as NavTabId,
+      label: "Calendário",
+      icon: <Calendar className="w-6 h-6 shrink-0" />,
+      onClick: () => navigate({ name: "calendar" }),
+    },
+    {
+      id: "history" as NavTabId,
+      label: "Histórico",
+      icon: <History className="w-6 h-6 shrink-0" />,
+      onClick: () => navigate({ name: "history" }),
+    },
+    {
+      id: "sport-management" as NavTabId,
+      label: "Gestão",
+      icon: <Trophy className="w-6 h-6 shrink-0" />,
+      onClick: handleGestao,
+    },
+  ];
 
   return (
     <nav
@@ -37,73 +74,35 @@ export function BottomNav() {
       aria-label="Menu principal"
     >
       <div className="flex justify-around items-center h-16 w-full max-w-screen-sm mx-auto pointer-events-none">
-        <button
-          type="button"
-          onClick={() => navigate({ name: "home" })}
-          className={`${btnBase} ${isActiveRoute(route.name, "home", "home") ? "text-blue-600" : "text-gray-600"}`}
-        >
-          <Home className="w-6 h-6 shrink-0" />
-          <span className="text-xs mt-0.5 truncate px-0.5">Início</span>
-        </button>
+        {navItems.map(({ id, label, icon, onClick }) => {
+          const active = isActiveRoute(route.name, id);
+          const isLocked = id === "sport-management" && !canAccessGestao;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={onClick}
+              aria-label={label}
+              className={`${btnBase} ${active ? "text-blue-600" : isLocked ? "text-gray-400" : "text-gray-600"}`}
+            >
+              {icon}
+              <span className="text-[10px] mt-0.5 truncate px-0.5">{label}</span>
+              {isLocked && (
+                <span className="absolute top-1 right-1 text-[8px] leading-none">🔒</span>
+              )}
+            </button>
+          );
+        })}
 
-        <button
-          type="button"
-          onClick={() => navigate({ name: "team" })}
-          className={`${btnBase} ${isActiveRoute(route.name, "team", "team") ? "text-blue-600" : "text-gray-600"}`}
-        >
-          <Users className="w-6 h-6 shrink-0" />
-          <span className="text-xs mt-0.5 truncate px-0.5">Equipa</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigate({ name: "calendar" })}
-          className={`${btnBase} ${isActiveRoute(route.name, "calendar", "calendar") ? "text-blue-600" : "text-gray-600"}`}
-        >
-          <Calendar className="w-6 h-6 shrink-0" />
-          <span className="text-xs mt-0.5 truncate px-0.5">Calendário</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigate({ name: "history" })}
-          className={`${btnBase} ${isActiveRoute(route.name, "history", "history") ? "text-blue-600" : "text-gray-600"}`}
-        >
-          <History className="w-6 h-6 shrink-0" />
-          <span className="text-xs mt-0.5 truncate px-0.5">Histórico</span>
-        </button>
-
-        {showGestaoTab && (
-          <button
-            type="button"
-            onClick={() => navigate({ name: "sport-management" })}
-            className={`${btnBase} ${isActiveRoute(route.name, "sport-management", "sport-management") ? "text-blue-600" : "text-gray-600"}`}
-          >
-            <Trophy className="w-6 h-6 shrink-0" />
-            <span className="text-xs mt-0.5 truncate px-0.5">Gestão de Jogos</span>
-          </button>
-        )}
-
-        {showAdminTab && (
-          <button
-            type="button"
-            onClick={() => navigate({ name: "admin" })}
-            className={`${btnBase} ${isActiveRoute(route.name, "admin", "admin") ? "text-blue-600" : "text-gray-600"}`}
-          >
-            <Settings className="w-6 h-6 shrink-0" />
-            <span className="text-xs mt-0.5 truncate px-0.5">Admin</span>
-          </button>
-        )}
-
-        {/* Sair: visível só em ecrãs largos (PC); no telemóvel fica no Header */}
+        {/* Sair — visível em todos os ecrãs */}
         <button
           type="button"
           onClick={() => setShowLogoutConfirm(true)}
-          className={`hidden md:flex ${btnBase} text-gray-600 hover:text-red-600`}
+          className={`${btnBase} text-gray-600 hover:text-red-600`}
           aria-label="Sair da sessão"
         >
           <LogOut className="w-6 h-6 shrink-0" />
-          <span className="text-xs mt-0.5 truncate px-0.5">Sair</span>
+          <span className="text-[10px] mt-0.5 truncate px-0.5">Sair</span>
         </button>
       </div>
 
@@ -114,10 +113,7 @@ export function BottomNav() {
         confirmText="Sair"
         cancelText="Cancelar"
         variant="warning"
-        onConfirm={() => {
-          signOut();
-          // signOut() faz location.href = '/' e recarrega a app; modal fica visível até o reload
-        }}
+        onConfirm={() => { signOut(); }}
         onCancel={() => setShowLogoutConfirm(false)}
       />
     </nav>
