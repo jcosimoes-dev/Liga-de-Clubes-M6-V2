@@ -214,11 +214,17 @@ export function buildWhatsAppDuplaConvocationUrl(
 }
 
 /**
- * Abre o WhatsApp na mesma janela (navegação completa).
- * Não usar `window.open(url, '_blank')` para wa.me — deixa um separador vazio ao voltar com «Atrás» para a convocatória.
+ * Abre o WhatsApp via clique programático num anchor (mais fiável em mobile do que window.location.href).
+ * O `noopener,noreferrer` evita o separador vazio ao voltar.
  */
 export function openWhatsAppUrl(url: string): void {
-  window.location.href = url;
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 /**
