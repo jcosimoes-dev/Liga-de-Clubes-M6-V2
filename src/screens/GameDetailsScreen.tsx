@@ -80,8 +80,8 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
 
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type });
 
-  // Derivado: jogadores que confirmaram (para manter compatibilidade com a secção de duplas fechadas)
-  const confirmedPlayers = availPlayers.filter((p) => p.status === 'confirmed');
+  // Convocados = nas duplas (status 'convocado') ou confirmados em jogo aberto
+  const confirmedPlayers = availPlayers.filter((p) => p.status === 'convocado' || p.status === 'confirmed');
   const myAvailability = availPlayers.find((p) => p.id === String(player?.id ?? ''))?.status ?? null;
 
   useEffect(() => {
@@ -148,14 +148,35 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
         // - Convocatória FECHADA → derivar dos jogadores das duplas (quem foi convocado de facto)
         // - Convocatória ABERTA  → availabilities (quem marcou disponibilidade)
         if (closed && pairsData.length > 0) {
+          // Jogadores das duplas (convocados)
+          const convokedIds = new Set<string>();
           const fromPairs: { id: string; name: string; status: string }[] = [];
           pairsData.forEach((pair: any) => {
-            if (pair.player1?.id) fromPairs.push({ id: pair.player1.id, name: pair.player1.name ?? '?', status: 'confirmed' });
-            if (pair.player2?.id) fromPairs.push({ id: pair.player2.id, name: pair.player2.name ?? '?', status: 'confirmed' });
+            if (pair.player1?.id && !convokedIds.has(pair.player1.id)) {
+              convokedIds.add(pair.player1.id);
+              fromPairs.push({ id: pair.player1.id, name: pair.player1.name ?? '?', status: 'convocado' });
+            }
+            if (pair.player2?.id && !convokedIds.has(pair.player2.id)) {
+              convokedIds.add(pair.player2.id);
+              fromPairs.push({ id: pair.player2.id, name: pair.player2.name ?? '?', status: 'convocado' });
+            }
           });
-          // deduplicar (por precaução)
-          const seen = new Set<string>();
-          setAvailPlayers(fromPairs.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; }));
+          // Jogadores com disponibilidade mas não convocados
+          const { data: avails } = await supabase
+            .from('availabilities')
+            .select('player_id, status')
+            .eq('game_id', gameId)
+            .in('status', ['confirmed', 'undecided']);
+          const extraIds = (avails ?? []).map((a: any) => a.player_id as string).filter((id) => id && !convokedIds.has(id));
+          if (extraIds.length > 0) {
+            const { data: extraPlayers } = await supabase
+              .from('players').select('id, name').in('id', extraIds);
+            (extraPlayers ?? []).forEach((p: any) => {
+              const s = (avails ?? []).find((a: any) => a.player_id === p.id)?.status ?? 'confirmed';
+              fromPairs.push({ id: p.id, name: p.name ?? '?', status: s === 'undecided' ? 'undecided' : 'disponivel' });
+            });
+          }
+          setAvailPlayers(fromPairs);
         } else {
           await loadAvailPlayers(gameId);
         }
@@ -443,51 +464,57 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                 <div className="space-y-2">
                   {availPlayers.map((p) => {
                     const isMe = p.id === String(player?.id ?? '');
+                    const isConvocado = p.status === 'convocado';
                     const isConfirmed = p.status === 'confirmed';
+                    const isDisponivel = p.status === 'disponivel';
                     const isDeclined = p.status === 'declined';
+                    const isUndecided = p.status === 'undecided';
+                    const checkedVisual = isConvocado || isConfirmed || isDisponivel;
                     const initials = p.name.split(/\s+/).map((s: string) => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
                     const canToggle = isMe && game && !isGameClosed(game.status) && new Date(game.starts_at) >= new Date();
+                    const rowBg = isConvocado
+                      ? 'bg-green-50 border-green-200'
+                      : isDisponivel
+                      ? 'bg-blue-50/50 border-blue-100'
+                      : isConfirmed
+                      ? 'bg-green-50 border-green-200'
+                      : isDeclined
+                      ? 'bg-red-50/40 border-red-100 opacity-60'
+                      : 'bg-gray-50 border-gray-100';
+                    const avatarBg = isConvocado ? 'bg-green-600' : isDisponivel ? 'bg-blue-500' : isConfirmed ? 'bg-green-600' : isDeclined ? 'bg-red-400' : 'bg-gray-400';
+                    const label = isConvocado
+                      ? '✓ Convocado'
+                      : isDisponivel
+                      ? '· Disponível'
+                      : isConfirmed
+                      ? '✓ Confirmado'
+                      : isDeclined
+                      ? '✗ Recusou'
+                      : isUndecided
+                      ? '? Talvez'
+                      : '';
+                    const labelColor = isConvocado || isConfirmed ? 'text-green-700' : isDisponivel ? 'text-blue-600' : isDeclined ? 'text-red-400' : 'text-yellow-600';
                     return (
                       <div
                         key={p.id}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
-                          isConfirmed
-                            ? 'bg-green-50 border-green-200'
-                            : isDeclined
-                            ? 'bg-red-50/40 border-red-100 opacity-60'
-                            : 'bg-gray-50 border-gray-100'
-                        } ${canToggle ? 'cursor-pointer hover:shadow-sm' : ''}`}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${rowBg} ${canToggle ? 'cursor-pointer hover:shadow-sm' : ''}`}
                         onClick={() => {
                           if (!canToggle || savingAvail) return;
-                          handleAvailability(isConfirmed ? 'undecided' : 'confirmed');
+                          handleAvailability((isConfirmed || isConvocado) ? 'undecided' : 'confirmed');
                         }}
                       >
-                        {/* Checkbox visual */}
                         <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
-                          isConfirmed
-                            ? 'bg-green-500 border-green-500'
-                            : canToggle
-                            ? 'border-gray-300 bg-white hover:border-green-400'
-                            : 'border-gray-200 bg-gray-100'
+                          checkedVisual ? 'bg-green-500 border-green-500' : canToggle ? 'border-gray-300 bg-white hover:border-green-400' : 'border-gray-200 bg-gray-100'
                         }`}>
-                          {isConfirmed && <Check className="w-3 h-3 text-white" />}
+                          {checkedVisual && <Check className="w-3 h-3 text-white" />}
                         </div>
-                        {/* Avatar */}
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0 ${
-                          isConfirmed ? 'bg-green-600' : isDeclined ? 'bg-red-400' : 'bg-gray-400'
-                        }`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0 ${avatarBg}`}>
                           {initials}
                         </div>
-                        {/* Nome */}
                         <span className={`font-medium text-sm flex-1 ${isDeclined ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                           {p.name}{isMe ? ' (tu)' : ''}
                         </span>
-                        {/* Estado */}
-                        <span className={`text-xs font-medium shrink-0 ${
-                          isConfirmed ? 'text-green-700' : isDeclined ? 'text-red-400' : 'text-yellow-600'
-                        }`}>
-                          {isConfirmed ? '✓ Confirmado' : isDeclined ? '✗ Recusou' : '? Talvez'}
-                        </span>
+                        <span className={`text-xs font-medium shrink-0 ${labelColor}`}>{label}</span>
                       </div>
                     );
                   })}
