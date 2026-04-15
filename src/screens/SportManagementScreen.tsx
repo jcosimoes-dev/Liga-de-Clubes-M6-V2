@@ -1235,7 +1235,7 @@ export function SportManagementScreen() {
     const safeRanking = Array.isArray(displayRanking) ? displayRanking : [];
     const dispByPlayer = new Map(safeStats.map((s) => [s.player_id, s.disponibilidade]));
     const convByPlayer = new Map(safeStats.map((s) => [s.player_id, s.convocatorias]));
-    return safeRanking.map((row) => {
+    const merged = safeRanking.map((row) => {
       const presencas = dispByPlayer.get(row.player_id) ?? 0;
       const jogos = convByPlayer.get(row.player_id) ?? 0;
       // % Disp = Conv / Total Jogos × 100 (máx 100%)
@@ -1247,6 +1247,12 @@ export function SportManagementScreen() {
         jogos,
       };
     });
+    // Ordenar: 1º pontos totais ↓, 2º convocatórias ↓, 3º nome ↑
+    return merged.sort((a, b) =>
+      b.total_points - a.total_points ||
+      b.jogos - a.jogos ||
+      (a.name ?? '').localeCompare(b.name ?? '')
+    );
   }, [displayRanking, statsForRanking, totalEventsForRanking]);
 
   if (!canManage) {

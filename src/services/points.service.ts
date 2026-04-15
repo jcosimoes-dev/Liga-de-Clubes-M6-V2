@@ -947,6 +947,7 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
     });
   }
 
+  // Ordenação primária por pontos; refinada no UI com convocatórias (que só existem lá)
   const sorted = out.sort((a, b) =>
     b.total_points - a.total_points || a.name.localeCompare(b.name)
   );
