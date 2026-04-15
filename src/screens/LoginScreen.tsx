@@ -25,14 +25,6 @@ export function LoginScreen() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
-
-    // ✅ OFFLINE: não tenta autenticar (evita Failed to fetch + refresh token requests)
-    if (!navigator.onLine) {
-      showToast('Sem internet. Liga-te para iniciar sessão.', 'error');
-      setError('Sem internet. Liga-te para iniciar sessão.');
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -80,12 +72,6 @@ export function LoginScreen() {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(e)) {
       showToast('Introduz um email válido (ex: nome@dominio.pt).', 'error');
-      return;
-    }
-
-    // ✅ OFFLINE: não tenta chamar supabase
-    if (!navigator.onLine) {
-      showToast('Sem internet. Liga-te para pedir a reposição da palavra-passe.', 'error');
       return;
     }
 
@@ -137,12 +123,6 @@ export function LoginScreen() {
             <h1 className="text-4xl font-bold text-gray-900 mb-2">🎾 Equipa M6 APC TRABLISA</h1>
             <p className="text-lg text-gray-600">Gestão da equipa e dos jogos</p>
 
-            {/* ✅ Informação suave de offline (sem assustar) */}
-            {!navigator.onLine && (
-              <p className="mt-3 text-sm text-red-600">
-                Estás offline — para entrar tens de ligar a internet.
-              </p>
-            )}
           </div>
 
           <Card>
