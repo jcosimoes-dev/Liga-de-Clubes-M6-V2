@@ -1232,11 +1232,14 @@ export async function getSeasonStats(
 
   const allGameIdsFilteredSet = new Set(allGameIdsFiltered);
 
-  const disponibilidadeByPlayer = new Map<string, number>();
+  // Disponibilidade explícita (jogador clicou "Confirmar" na app)
+  const dispExplicitByPlayer = new Map<string, Set<string>>();
   for (const a of avails) {
     if (!allGameIdsFilteredSet.has(a.game_id)) continue;
     if (a.player_id) {
-      disponibilidadeByPlayer.set(a.player_id, (disponibilidadeByPlayer.get(a.player_id) ?? 0) + 1);
+      let set = dispExplicitByPlayer.get(a.player_id);
+      if (!set) { set = new Set(); dispExplicitByPlayer.set(a.player_id, set); }
+      set.add(a.game_id);
     }
   }
 
@@ -1256,6 +1259,24 @@ export async function getSeasonStats(
         set.add(p.game_id);
       }
     }
+  }
+
+  /**
+   * Disponibilidade final = union(marcações_app, jogos_em_par).
+   * Se o admin colocou um jogador numa dupla sem ele ter marcado disponibilidade,
+   * essa presença conta como disponibilidade (foi convocado → estava disponível).
+   */
+  const disponibilidadeByPlayer = new Map<string, number>();
+  const allPlayerIds = new Set([
+    ...dispExplicitByPlayer.keys(),
+    ...convocatoriasByPlayer.keys(),
+  ]);
+  for (const pid of allPlayerIds) {
+    const explicit = dispExplicitByPlayer.get(pid) ?? new Set<string>();
+    const convGames = convocatoriasByPlayer.get(pid) ?? new Set<string>();
+    // união dos dois conjuntos de game_ids
+    const union = new Set([...explicit, ...convGames]);
+    disponibilidadeByPlayer.set(pid, union.size);
   }
 
   const resultByPair = new Map<string, ResultRow>();
