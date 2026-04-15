@@ -83,7 +83,7 @@ type PlayerRowForDashboard = {
 function isEligibleSportRosterMember(p: { is_active?: boolean | null; role?: string | null }): boolean {
   if (p.is_active !== true) return false;
   const r = (p.role ?? '').trim().toLowerCase();
-  if (r === PlayerRoles.admin) return false;
+  if (r === PlayerRoles.admin || r === PlayerRoles.coordenador || r === PlayerRoles.gestor) return false;
   return true;
 }
 
