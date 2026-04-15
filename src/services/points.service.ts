@@ -918,11 +918,41 @@ export async function getPlayerRanking(teamId: string, options?: GetPlayerRankin
         federation_points: federationPoints,
         total_points: totalPoints,
       };
-    })
-    .sort((a, b) => b.total_points - a.total_points);
+    });
 
-  console.log(DIAG, 'getPlayerRanking: resultado final (linhas devolvidas ao ecrã)', { count: out.length, category });
-  return out;
+  // Garantir que TODOS os jogadores activos aparecem, mesmo sem convocatórias.
+  // Excluir admin, coordenador e o gestor oculto.
+  const outIds = new Set(out.map((p) => p.player_id));
+  const { data: allPlayersRaw } = await supabase
+    .from('players')
+    .select('id, name, email, liga_points, federation_points, is_active, role')
+    .eq('is_active', true);
+  const excludedRoles = new Set(['admin', 'coordenador', 'gestor']);
+  const gestorEmailNorm2 = GESTOR_HIDE_EMAIL.trim().toLowerCase();
+  for (const p of allPlayersRaw ?? []) {
+    const pRole = ((p as { role?: string }).role ?? '').toLowerCase();
+    const pEmail = ((p as { email?: string }).email ?? '').trim().toLowerCase();
+    if (excludedRoles.has(pRole) || pEmail === gestorEmailNorm2) continue;
+    if (outIds.has(p.id as string)) continue;
+    const ligaPoints = category === 'Treino' ? 0 : readNum((p as { liga_points?: number | string | null }).liga_points);
+    const federationPoints = category === 'Treino' ? 0 : readNum((p as { federation_points?: number | string | null }).federation_points);
+    out.push({
+      player_id: p.id as string,
+      name: (p.name as string) ?? '—',
+      wins: 0,
+      losses: 0,
+      pontos_liga: ligaPoints,
+      federation_points: federationPoints,
+      total_points: ligaPoints + federationPoints,
+    });
+  }
+
+  const sorted = out.sort((a, b) =>
+    b.total_points - a.total_points || a.name.localeCompare(b.name)
+  );
+
+  console.log(DIAG, 'getPlayerRanking: resultado final (linhas devolvidas ao ecrã)', { count: sorted.length, category });
+  return sorted;
   } catch (e) {
     const err = e as { status?: number; code?: string };
     if (err?.status !== 404 && err?.code !== '404' && err?.code !== 'PGRST116') {
