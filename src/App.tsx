@@ -28,6 +28,7 @@ import { Loading } from './components/ui/Loading';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import { useEffect, useState } from "react";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useNavigate, useLocation } from "react-router-dom";
 
 /** Apenas login/register/reset-password (para quando !user; nunca montar game/home). */
@@ -57,22 +58,12 @@ function AppContent() {
   const { session, loading, user, profileLoadError } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const isOffline = !useOnlineStatus();
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   useEffect(() => {
     if (user?.id && !getHasSeenWelcome()) setShowWelcomeModal(true);
   }, [user?.id]);
-
-  useEffect(() => {
-    const update = () => setIsOffline(!navigator.onLine);
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, []);
 
   // Ao abrir a App a partir do link do WhatsApp (?from=whatsapp), limpar o parâmetro da URL para não afetar outros separadores.
   useEffect(() => {
