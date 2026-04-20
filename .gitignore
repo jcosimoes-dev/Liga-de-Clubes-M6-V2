@@ -1,2 +1,6 @@
 node_modules
 Liga-clubes-M6/
+
+# Ficheiros de ambiente locais — nunca commitar (contêm chaves secretas)
+.env.local
+.env.*.local
