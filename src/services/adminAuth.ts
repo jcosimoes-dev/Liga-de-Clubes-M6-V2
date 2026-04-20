@@ -7,27 +7,9 @@ import { createClient } from '@supabase/supabase-js';
  * num backend (Edge Function ou API) para não expor a chave. Para ferramentas internas ou
  * protótipos, define VITE_SUPABASE_SERVICE_ROLE_KEY no .env.local (nunca faças commit desta chave).
  */
-function readAdminEnv(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_SERVICE_ROLE_KEY'): string | undefined {
-  try {
-    const im = import.meta as unknown as { env?: Record<string, string | undefined> };
-    const v = im.env?.[key];
-    if (typeof v === 'string' && v.trim() !== '') return v;
-  } catch {
-    /* empty */
-  }
-  if (typeof process !== 'undefined' && process.env) {
-    if (key === 'VITE_SUPABASE_URL') {
-      return process.env.VITE_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim() || undefined;
-    }
-    return (
-      process.env.VITE_SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || undefined
-    );
-  }
-  return undefined;
-}
-
-const supabaseUrl = readAdminEnv('VITE_SUPABASE_URL');
-const serviceRoleKey = readAdminEnv('VITE_SUPABASE_SERVICE_ROLE_KEY');
+// Acesso estático — Vite substitui import.meta.env.VITE_* no build apenas com referências literais
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? '').trim() || undefined;
+const serviceRoleKey = (import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY ?? '').trim() || undefined;
 
 function getAdminClient() {
   if (!supabaseUrl || !serviceRoleKey) {
