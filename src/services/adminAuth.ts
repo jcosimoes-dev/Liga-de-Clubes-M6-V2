@@ -32,7 +32,7 @@ const serviceRoleKey = readAdminEnv('VITE_SUPABASE_SERVICE_ROLE_KEY');
 function getAdminClient() {
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error(
-      'Falta VITE_SUPABASE_URL ou VITE_SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_*). Adiciona no .env.local (a service role key só deve ser usada em contexto seguro).'
+      'Operação admin não disponível: VITE_SUPABASE_SERVICE_ROLE_KEY não configurada. Contacta o administrador da app.'
     );
   }
   return createClient(supabaseUrl, serviceRoleKey, {
