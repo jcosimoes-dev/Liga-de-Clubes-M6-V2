@@ -130,7 +130,6 @@ export default async function handler(
     to: [payload.to],
     subject,
     html,
-    idempotencyKey: `convocation-${payload.to}-${Date.now()}`,
   });
 
   if (error) {
