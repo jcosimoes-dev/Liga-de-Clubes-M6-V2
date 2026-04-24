@@ -17,7 +17,7 @@ export function CalendarScreen() {
   const [games, setGames] = useState<any[]>([]);
   const [filteredGames, setFilteredGames] = useState<any[]>([]);
   const [availabilities, setAvailabilities] = useState<Record<string, any>>({});
-  const [confirmedPlayersByGame, setConfirmedPlayersByGame] = useState<Record<string, { id: string; name: string }[]>>({});
+  const [confirmedPlayersByGame, setConfirmedPlayersByGame] = useState<Record<string, { id: string; name: string; status: 'confirmed' | 'undecided' }[]>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [phaseFilter, setPhaseFilter] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -61,17 +61,17 @@ export function CalendarScreen() {
       });
       setAvailabilities(availsMap);
 
-      // Buscar confirmados por jogo (para mostrar nomes nos cards)
-      const { data: confirmedAvails } = await supabase
+      // Buscar confirmados + talvez por jogo (para mostrar nomes nos cards com cores)
+      const { data: relevantAvails } = await supabase
         .from('availabilities')
-        .select('game_id, player_id')
-        .eq('status', 'confirmed');
-      const idsByGame: Record<string, string[]> = {};
-      (confirmedAvails ?? []).forEach((a: any) => {
-        if (!idsByGame[a.game_id]) idsByGame[a.game_id] = [];
-        idsByGame[a.game_id].push(a.player_id);
+        .select('game_id, player_id, status')
+        .in('status', ['confirmed', 'undecided']);
+      const entrysByGame: Record<string, { pid: string; status: 'confirmed' | 'undecided' }[]> = {};
+      (relevantAvails ?? []).forEach((a: any) => {
+        if (!entrysByGame[a.game_id]) entrysByGame[a.game_id] = [];
+        entrysByGame[a.game_id].push({ pid: a.player_id, status: a.status });
       });
-      const allPids = [...new Set((confirmedAvails ?? []).map((a: any) => a.player_id as string))];
+      const allPids = [...new Set((relevantAvails ?? []).map((a: any) => a.player_id as string))];
       if (allPids.length > 0) {
         const { data: playersRaw } = await supabase
           .from('players')
@@ -79,9 +79,15 @@ export function CalendarScreen() {
           .in('id', allPids);
         const nameMap: Record<string, string> = {};
         (playersRaw ?? []).forEach((p: any) => { nameMap[p.id] = p.name ?? '?'; });
-        const byGame: Record<string, { id: string; name: string }[]> = {};
-        Object.entries(idsByGame).forEach(([gId, pids]) => {
-          byGame[gId] = pids.map((pid) => ({ id: pid, name: nameMap[pid] ?? '?' }));
+        const byGame: Record<string, { id: string; name: string; status: 'confirmed' | 'undecided' }[]> = {};
+        Object.entries(entrysByGame).forEach(([gId, entries]) => {
+          // confirmados primeiro, depois talvez; dentro de cada grupo por nome
+          byGame[gId] = entries
+            .map(({ pid, status }) => ({ id: pid, name: nameMap[pid] ?? '?', status }))
+            .sort((a, b) => {
+              if (a.status !== b.status) return a.status === 'confirmed' ? -1 : 1;
+              return a.name.localeCompare(b.name);
+            });
         });
         setConfirmedPlayersByGame(byGame);
       }
@@ -379,26 +385,41 @@ export function CalendarScreen() {
 
           {confirmedPlayersForGame.length > 0 && (
             <div className="pt-2 border-t border-gray-100">
-              <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-gray-600">
-                <Users className="w-3.5 h-3.5" />
-                <span>{confirmedPlayersForGame.length} disponíve{confirmedPlayersForGame.length === 1 ? 'l' : 'is'}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-1 text-xs font-semibold text-gray-600">
+                  <Users className="w-3.5 h-3.5" />
+                  <span>
+                    {confirmedPlayersForGame.filter(p => p.status === 'confirmed').length > 0 && (
+                      <span className="text-green-700">{confirmedPlayersForGame.filter(p => p.status === 'confirmed').length} ✓</span>
+                    )}
+                    {confirmedPlayersForGame.filter(p => p.status === 'confirmed').length > 0 && confirmedPlayersForGame.filter(p => p.status === 'undecided').length > 0 && ' · '}
+                    {confirmedPlayersForGame.filter(p => p.status === 'undecided').length > 0 && (
+                      <span className="text-yellow-600">{confirmedPlayersForGame.filter(p => p.status === 'undecided').length} ?</span>
+                    )}
+                  </span>
+                </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {confirmedPlayersForGame.map((p) => {
                   const initials = p.name
                     .split(/\s+/).map((s: string) => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
-                  const isMe = p.id === player?.id;
+                  const isConfirmed = p.status === 'confirmed';
                   return (
                     <span
                       key={p.id}
-                      title={p.name}
+                      title={`${p.name} — ${isConfirmed ? 'Confirmado' : 'Talvez'}`}
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${
-                        isMe
-                          ? 'bg-green-100 border-green-400 text-green-800'
-                          : 'bg-gray-100 border-gray-200 text-gray-700'
+                        isConfirmed
+                          ? 'bg-green-50 border-green-300 text-green-800'
+                          : 'bg-yellow-50 border-yellow-300 text-yellow-800'
                       }`}
                     >
-                      <span className="w-4 h-4 rounded-full bg-gray-400 text-white flex items-center justify-center text-[9px] font-bold shrink-0" style={{ backgroundColor: isMe ? '#16a34a' : undefined }}>{initials}</span>
+                      <span
+                        className="w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-bold shrink-0"
+                        style={{ backgroundColor: isConfirmed ? '#16a34a' : '#ca8a04' }}
+                      >
+                        {initials}
+                      </span>
                       {p.name.split(' ')[0]}
                     </span>
                   );
