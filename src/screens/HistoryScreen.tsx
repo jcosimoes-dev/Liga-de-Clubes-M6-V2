@@ -57,9 +57,16 @@ export function HistoryScreen() {
       setLoading(true);
       const allGames = await GamesService.getAll();
 
-      const completedGames = allGames.filter((game) =>
-        ['concluido', 'completed', 'final'].includes(game.status)
-      );
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      // Show completed games + any game whose date has already passed
+      const completedGames = allGames.filter((game) => {
+        if (['concluido', 'completed', 'final', 'closed'].includes(game.status)) return true;
+        const end = (game as any).end_date ? new Date((game as any).end_date) : new Date(game.starts_at);
+        end.setHours(23, 59, 59, 999);
+        return end < todayStart;
+      });
 
       const gamesWithResults = await Promise.all(
         completedGames.map(async (game) => {
@@ -87,12 +94,14 @@ export function HistoryScreen() {
     return games.filter(g => getGameType(g.phase) === typeFilter);
   }, [games, typeFilter]);
 
+  // Stats card always reflects Liga games only (Treino/Torneio/Mix don't count for team statistics)
   const stats = useMemo(() => {
-    const withResult = filteredGames.filter(g => g.result);
+    const ligaGames = games.filter(g => getGameType(g.phase) === 'Liga');
+    const withResult = ligaGames.filter(g => g.result);
     const wins = withResult.filter(g => g.result!.outcome === 'Vitória').length;
     const losses = withResult.filter(g => g.result!.outcome === 'Derrota').length;
     return { wins, losses, total: withResult.length };
-  }, [filteredGames]);
+  }, [games]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -169,7 +178,7 @@ export function HistoryScreen() {
     <Layout>
       <Header title="Histórico" />
       <div className="max-w-screen-lg mx-auto px-4 pt-4 pb-6 space-y-6">
-        <p className="text-sm font-medium text-gray-700 mb-2">Filtrar por game_type</p>
+        <p className="text-sm font-medium text-gray-700 mb-2">Filtrar por tipo</p>
         <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4">
           {typeTabs.map((tab) => {
             const isActive = typeFilter === tab.value;
@@ -194,7 +203,7 @@ export function HistoryScreen() {
           header={
             <div className="flex items-center gap-2">
               <Trophy className="w-5 h-5" />
-              Estatísticas da Época
+              Estatísticas da Época · Liga
             </div>
           }
         >

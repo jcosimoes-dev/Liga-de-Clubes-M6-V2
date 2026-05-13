@@ -44,10 +44,15 @@ export function CalendarScreen() {
   const loadData = async () => {
     try {
       const gamesData = await GamesService.getAll();
-      const notCompleted = gamesData.filter(
-        (game) =>
-          !['concluido', 'completed', 'closed', 'final'].includes(game.status)
-      );
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const notCompleted = gamesData.filter((game) => {
+        if (['concluido', 'completed', 'closed', 'final'].includes(game.status)) return false;
+        // Exclude past-dated games — they belong in Histórico
+        const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
+        end.setHours(23, 59, 59, 999);
+        return end >= todayStart;
+      });
       const sorted = notCompleted.sort(
         (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
       );
@@ -230,18 +235,8 @@ export function CalendarScreen() {
     return <Badge variant={badge.variant}>{badge.label}</Badge>;
   };
 
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const upcomingGames = gamesForList.filter((game) => {
-    const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
-    end.setHours(23, 59, 59, 999);
-    return end >= now;
-  });
-  const pastGames = gamesForList.filter((game) => {
-    const end = game.end_date ? new Date(game.end_date) : new Date(game.starts_at);
-    end.setHours(23, 59, 59, 999);
-    return end < now;
-  });
+  // All games in the calendar list are already future/today (past-dated games go to Histórico)
+  const upcomingGames = gamesForList;
 
   if (loading) {
     return (
@@ -594,39 +589,23 @@ export function CalendarScreen() {
           </div>
         </div>
 
-        {upcomingGames.length > 0 && (
+        {upcomingGames.length > 0 ? (
           <div className="space-y-3">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-blue-600" />
-              Próximos Jogos
-            </h2>
             <div className={GRID_CLASSES}>
               {upcomingGames.map(renderGameCard)}
             </div>
           </div>
-        )}
-
-        {pastGames.length > 0 && (
-          <div className="space-y-3 pt-6">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-gray-500" />
-              Jogos Passados
-            </h2>
-            <div className={GRID_CLASSES}>
-              {pastGames.map(renderGameCard)}
-            </div>
-          </div>
-        )}
-
-        {gamesForList.length === 0 && (
+        ) : (
           <Card>
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600 font-medium">
-                {selectedDate ? 'Sem jogos neste dia' : 'Sem jogos'}
+                {selectedDate ? 'Sem jogos neste dia' : 'Sem jogos agendados'}
               </p>
               <p className="text-sm text-gray-500 mt-1">
-                {selectedDate ? 'Nenhum jogo cai neste dia. Clica noutro dia ou em "Ver todos os dias".' : 'Nenhum jogo corresponde aos filtros'}
+                {selectedDate
+                  ? 'Nenhum jogo cai neste dia. Clica noutro dia ou em "Ver todos os dias".'
+                  : 'Jogos passados estão disponíveis no Histórico'}
               </p>
             </div>
           </Card>
