@@ -21,13 +21,19 @@ export interface SyncPlayerPointsOptions {
  */
 
 /**
- * Status que consideram o jogo finalizado para efeitos de ranking, pontos e convocatórias.
- * 'finalizado' é o status usado na BD do projeto; os restantes são aliases de compatibilidade.
+ * Status finais válidos no enum `game_status` da BD (seguros para filtros `.in('status', ...)`).
+ * NOTA: não incluir aliases históricos inválidos no enum (ex.: "finalizado"), pois rebentam a query.
+ */
+const STATUS_FINAL_QUERY_VALUES = ['final', 'concluido', 'completed', 'closed'] as const;
+
+/**
+ * Status que tratamos como "jogo finalizado" na camada de aplicação (compatibilidade de leitura).
+ * Aqui podem existir aliases históricos porque este conjunto NÃO é enviado para filtros SQL.
  */
 const STATUS_FINAL_VALUES = ['finalizado', 'final', 'concluido', 'completed', 'closed'] as const;
 
 /** Statuses que contam para o card V-D-F da equipa. Igual a STATUS_FINAL_VALUES + 'convocatoria_fechada'. */
-const STATUS_TEAM_PERFORMANCE = ['finalizado', 'final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
+const STATUS_TEAM_PERFORMANCE: readonly string[] = [...STATUS_FINAL_VALUES, 'convocatoria_fechada'];
 
 const LOG_PREFIX = '[Points]';
 
@@ -369,7 +375,7 @@ async function runSyncPlayerPointsCore(
     let query = client
       .from('games')
       .select('id, team_id, status, phase, round_number, team_points, no_show')
-      .in('status', [...STATUS_FINAL_VALUES]);
+      .in('status', [...STATUS_FINAL_QUERY_VALUES]);
     if (teamId) {
       query = query.eq('team_id', teamId);
     }
@@ -562,7 +568,7 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
   // Jogos da Liga: phase é Qualificação, Regionais, Nacionais, Final, Quartos, Meias
   // (a coluna 'type' não existe na BD — usa-se 'phase')
   const LIGA_PHASES = new Set(['qualificação', 'qualificacao', 'regionais', 'nacionais', 'final', 'quartos', 'meias']);
-  const FINAL_STATUSES = new Set(['finalizado', 'final', 'concluido', 'concluído', 'completed', 'closed']);
+  const FINAL_STATUSES = new Set([...STATUS_TEAM_PERFORMANCE, 'concluído']);
 
   const games = allGames.filter((g) => {
     const phase = ((g as { phase?: string }).phase ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
