@@ -22,12 +22,12 @@ export interface SyncPlayerPointsOptions {
 
 /**
  * Status que consideram o jogo finalizado para efeitos de ranking, pontos e convocatórias.
- * 'finalizado' é o status usado na BD do projeto; os restantes são aliases de compatibilidade.
+ * Deve conter apenas valores válidos do enum game_status na BD.
  */
-const STATUS_FINAL_VALUES = ['finalizado', 'final', 'concluido', 'completed', 'closed'] as const;
+const STATUS_FINAL_VALUES = ['final', 'concluido', 'completed', 'closed'] as const;
 
 /** Statuses que contam para o card V-D-F da equipa. Igual a STATUS_FINAL_VALUES + 'convocatoria_fechada'. */
-const STATUS_TEAM_PERFORMANCE = ['finalizado', 'final', 'concluido', 'completed', 'convocatoria_fechada'] as const;
+const STATUS_TEAM_PERFORMANCE = ['final', 'concluido', 'completed', 'closed', 'convocatoria_fechada'] as const;
 
 const LOG_PREFIX = '[Points]';
 
@@ -562,7 +562,7 @@ export async function getTeamPerformanceStats(teamId: string): Promise<TeamPerfo
   // Jogos da Liga: phase é Qualificação, Regionais, Nacionais, Final, Quartos, Meias
   // (a coluna 'type' não existe na BD — usa-se 'phase')
   const LIGA_PHASES = new Set(['qualificação', 'qualificacao', 'regionais', 'nacionais', 'final', 'quartos', 'meias']);
-  const FINAL_STATUSES = new Set(['finalizado', 'final', 'concluido', 'concluído', 'completed', 'closed']);
+  const FINAL_STATUSES = new Set(['final', 'concluido', 'concluído', 'completed', 'closed']);
 
   const games = allGames.filter((g) => {
     const phase = ((g as { phase?: string }).phase ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
