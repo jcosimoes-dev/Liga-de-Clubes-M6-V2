@@ -33,6 +33,7 @@ import {
   buildWhatsAppShareUrl,
   buildWhatsAppConvocationUrl,
   buildWhatsAppDuplaConvocationUrl,
+  buildWhatsAppEmergencySubUrl,
   buildGoogleCalendarUrl,
   getAppGameUrl,
   openWhatsAppUrl,
@@ -196,6 +197,8 @@ export function SportManagementScreen() {
   /** IDs dos jogadores que confirmaram presença neste jogo (para cor verde/vermelho no dropdown). */
   const [confirmedPlayerIdsForGame, setConfirmedPlayerIdsForGame] = useState<Set<string>>(new Set());
   const [swapLoading, setSwapLoading] = useState(false);
+  /** Jogadores que entraram por substituição de emergência — para mostrar botões WhatsApp após guardar. */
+  const [substitutionNotifyPlayers, setSubstitutionNotifyPlayers] = useState<Array<{ id: string; name: string; phone: string | null; duplaLabel: string }>>([]);
   const [closedGamesLoading, setClosedGamesLoading] = useState(false);
   const [gameEditOpponent, setGameEditOpponent] = useState('');
   const [gameEditLocation, setGameEditLocation] = useState('');
@@ -457,7 +460,7 @@ export function SportManagementScreen() {
       (async () => {
         const { data: raw } = await supabase
           .from('players')
-          .select('id, name, federation_points, liga_points, is_active')
+          .select('id, name, federation_points, liga_points, is_active, phone')
           .eq('is_active', true)
           .neq('email', GESTOR_HIDE_EMAIL);
         setRawPlayers(Array.isArray(raw) ? raw : []);
@@ -466,6 +469,7 @@ export function SportManagementScreen() {
       setSavedPairs([]);
       setRawPlayers([]);
       setConfirmedPlayerIdsForGame(new Set());
+      setSubstitutionNotifyPlayers([]);
     }
   }, [selectedGameForSwap?.id]);
 
@@ -538,6 +542,14 @@ export function SportManagementScreen() {
     }
     setSwapLoading(true);
     try {
+      // Calcular jogadores que ENTRAM (novos na substituição) antes de gravar
+      const originalPlayerIds = new Set(
+        savedPairs.flatMap((p: any) => [p.player1_id, p.player2_id]).filter(Boolean)
+      );
+      const substitutedInIds = [...new Set(
+        editablePairsForSwap.flatMap((p) => [p.player1_id, p.player2_id]).filter(Boolean)
+      )].filter((id) => !originalPlayerIds.has(id));
+
       const savedMap = new Map(savedPairs.map((p: any) => [p.id, p]));
       for (const ed of editablePairsForSwap) {
         const saved = savedMap.get(ed.id);
@@ -545,6 +557,24 @@ export function SportManagementScreen() {
           await PairsService.update(ed.id, { player1_id: ed.player1_id, player2_id: ed.player2_id });
         }
       }
+
+      // Montar lista de notificações WhatsApp para os substituídos
+      const rankLabels = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
+      const notifyList = substitutedInIds.map((id) => {
+        const player = rawPlayers.find((pl: any) => pl.id === id);
+        const pairIdx = editablePairsForSwap.findIndex(
+          (ed) => ed.player1_id === id || ed.player2_id === id
+        );
+        const duplaLabel = `${rankLabels[pairIdx] ?? `${pairIdx + 1}ª`} Dupla`;
+        return {
+          id,
+          name: (player as any)?.name ?? 'Jogador',
+          phone: (player as any)?.phone ?? null,
+          duplaLabel,
+        };
+      });
+      setSubstitutionNotifyPlayers(notifyList);
+
       showToast('Substituições guardadas. A ordem das duplas foi atualizada.', 'success');
       await loadSavedPairs(selectedGameForSwap.id);
       await loadClosedGames();
@@ -2910,6 +2940,49 @@ export function SportManagementScreen() {
                     'Gravar Alterações'
                   )}
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {selectedGameForSwap && substitutionNotifyPlayers.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-green-200">
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-green-800">
+                  <span className="text-lg">✅</span>
+                  <h3 className="text-sm font-semibold">Substituições gravadas — notifica os jogadores via WhatsApp</h3>
+                </div>
+                <div className="space-y-2">
+                  {substitutionNotifyPlayers.map((pl) => {
+                    const gameInfo = {
+                      gameType: getCategoryFromPhase(selectedGameForSwap.phase),
+                      opponentOrName: selectedGameForSwap.opponent ?? '—',
+                      startsAt: selectedGameForSwap.starts_at,
+                      location: selectedGameForSwap.location ?? '—',
+                      gameId: selectedGameForSwap.id,
+                    };
+                    const url = buildWhatsAppEmergencySubUrl(gameInfo, pl.name, pl.duplaLabel, pl.phone);
+                    return (
+                      <button
+                        key={pl.id}
+                        type="button"
+                        onClick={() => openWhatsAppUrl(url)}
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-white border border-green-300 hover:bg-green-50 active:bg-green-100 transition-colors text-left"
+                      >
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-semibold text-gray-900 truncate">{pl.name}</span>
+                          <span className="text-xs text-gray-500">{pl.duplaLabel}</span>
+                          {!pl.phone && (
+                            <span className="text-xs text-amber-600 mt-0.5">⚠️ Sem telemóvel registado — abrirá o WhatsApp sem número</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm font-medium">
+                          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" aria-hidden><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.122.554 4.118 1.524 5.854L0 24l6.336-1.498A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.8 9.8 0 01-5.003-1.371l-.36-.213-3.72.879.918-3.619-.234-.372A9.818 9.818 0 012.18 12C2.18 6.573 6.573 2.18 12 2.18S21.818 6.573 21.818 12 17.427 21.818 12 21.818z"/></svg>
+                          <span>Notificar</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

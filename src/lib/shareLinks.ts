@@ -214,6 +214,41 @@ export function buildWhatsAppDuplaConvocationUrl(
 }
 
 /**
+ * Gera o URL do WhatsApp para notificar um jogador de uma substituição de emergência.
+ * Mensagem urgente com info do jogo e da dupla.
+ */
+export function buildWhatsAppEmergencySubUrl(
+  info: GameShareInfo,
+  playerName: string,
+  duplaLabel: string,
+  phone?: string | null
+): string {
+  const d = typeof info.startsAt === 'string' ? new Date(info.startsAt) : info.startsAt;
+  const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+  const appUrl = info.gameId ? getAppGameUrl(info.gameId, true) : getAppBaseUrl(true);
+  const name = String(playerName).trim() || 'Jogador';
+  const dupla = String(duplaLabel).trim() || 'dupla';
+  const opponent = String(info.opponentOrName).trim() || '—';
+  const location = String(info.location).trim() || '—';
+
+  const lines = [
+    `Olá ${name}! 🚨 *Substituição de emergência!*`,
+    '',
+    `Foste convocado(a) para a *${dupla}*:`,
+    `📅 ${dateStr} às ${timeStr}`,
+    `🆚 ${opponent}`,
+    `📍 ${location}`,
+    '',
+    `Confirma a tua presença na App: ${appUrl}`,
+  ];
+  const text = lines.join('\n');
+  const num = formatWhatsAppNumber(phone);
+  const base = num ? `https://wa.me/${num}` : 'https://wa.me';
+  return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+/**
  * Abre o WhatsApp via clique programático num anchor (mais fiável em mobile do que window.location.href).
  * O `noopener,noreferrer` evita o separador vazio ao voltar.
  */
