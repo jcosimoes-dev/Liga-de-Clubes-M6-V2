@@ -7,7 +7,7 @@
  * Equipa ganhou + não escalado          → 3.13
  * Equipa perdeu + dupla ganhou          → 7.81
  * Equipa perdeu + dupla perdeu          → 4.69
- * Equipa perdeu + não escalado          → 0.78
+ * Equipa perdeu + não escalado          → 1.56
  * Falta de comparência da equipa        → 0
  */
 
@@ -26,8 +26,8 @@ export const LIGA_PTS_LOSS_ELIM_PLAYED_WON_PAIR = 7.81;
 /** Perdeu a eliminatória, jogou e a dupla perdeu. */
 export const LIGA_PTS_LOSS_ELIM_PLAYED_LOST_PAIR = 4.69;
 
-/** Perdeu a eliminatória e não foi escalado. */
-export const LIGA_PTS_LOSS_ELIM_NO_PLAY = 0.78;
+/** Perdeu a eliminatória e não foi escalado (só pontos de jornada: 1.56). */
+export const LIGA_PTS_LOSS_ELIM_NO_PLAY = 1.56;
 
 /** Falta de comparência da equipa — 0 pontos. */
 export const LIGA_PTS_NO_SHOW = 0;
