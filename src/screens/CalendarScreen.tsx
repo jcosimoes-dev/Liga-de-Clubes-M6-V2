@@ -7,9 +7,9 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { GamesService, AvailabilitiesService } from '../services';
 import { supabase } from '../lib/supabase';
-import { Calendar, MapPin, Users, CheckCircle, HelpCircle, XCircle, Clock, Check } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle, XCircle, Clock, Check } from 'lucide-react';
 
-type AvailabilityStatus = 'confirmed' | 'declined' | 'undecided';
+type AvailabilityStatus = 'confirmed' | 'declined';
 
 export function CalendarScreen() {
   const { navigate } = useNavigation();
@@ -17,7 +17,7 @@ export function CalendarScreen() {
   const [games, setGames] = useState<any[]>([]);
   const [filteredGames, setFilteredGames] = useState<any[]>([]);
   const [availabilities, setAvailabilities] = useState<Record<string, any>>({});
-  const [confirmedPlayersByGame, setConfirmedPlayersByGame] = useState<Record<string, { id: string; name: string; status: 'confirmed' | 'undecided' }[]>>({});
+  const [confirmedPlayersByGame, setConfirmedPlayersByGame] = useState<Record<string, { id: string; name: string; status: 'confirmed' }[]>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [phaseFilter, setPhaseFilter] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -70,11 +70,11 @@ export function CalendarScreen() {
       const { data: relevantAvails } = await supabase
         .from('availabilities')
         .select('game_id, player_id, status')
-        .in('status', ['confirmed', 'undecided']);
-      const entrysByGame: Record<string, { pid: string; status: 'confirmed' | 'undecided' }[]> = {};
+        .in('status', ['confirmed']);
+      const entrysByGame: Record<string, { pid: string; status: 'confirmed' }[]> = {};
       (relevantAvails ?? []).forEach((a: any) => {
         if (!entrysByGame[a.game_id]) entrysByGame[a.game_id] = [];
-        entrysByGame[a.game_id].push({ pid: a.player_id, status: a.status });
+        entrysByGame[a.game_id].push({ pid: a.player_id, status: 'confirmed' });
       });
       const allPids = [...new Set((relevantAvails ?? []).map((a: any) => a.player_id as string))];
       if (allPids.length > 0) {
@@ -84,7 +84,7 @@ export function CalendarScreen() {
           .in('id', allPids);
         const nameMap: Record<string, string> = {};
         (playersRaw ?? []).forEach((p: any) => { nameMap[p.id] = p.name ?? '?'; });
-        const byGame: Record<string, { id: string; name: string; status: 'confirmed' | 'undecided' }[]> = {};
+        const byGame: Record<string, { id: string; name: string; status: 'confirmed' }[]> = {};
         Object.entries(entrysByGame).forEach(([gId, entries]) => {
           // confirmados primeiro, depois talvez; dentro de cada grupo por nome
           byGame[gId] = entries
@@ -313,7 +313,7 @@ export function CalendarScreen() {
 
           {isUpcoming && ['convocatoria_aberta', 'open'].includes(game.status) && (
             <div className="pt-3 border-t border-gray-200 space-y-2">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={(e) => {
@@ -333,26 +333,6 @@ export function CalendarScreen() {
                     <CheckCircle className="w-5 h-5 mb-1" />
                   )}
                   <span className="text-xs font-medium">Confirmar presença</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAvailability(game.id, 'undecided');
-                  }}
-                  disabled={savingFor === `${game.id}-${player?.id}`}
-                  className={`flex flex-col items-center py-2 px-1 rounded-lg border-2 transition-all ${
-                    myAvail?.status === 'undecided'
-                      ? 'bg-yellow-50 border-yellow-500 text-yellow-700 ring-2 ring-yellow-300'
-                      : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
-                  } disabled:opacity-70`}
-                >
-                  {myAvail?.status === 'undecided' ? (
-                    <Check className="w-5 h-5 mb-1 text-yellow-600" />
-                  ) : (
-                    <HelpCircle className="w-5 h-5 mb-1" />
-                  )}
-                  <span className="text-xs font-medium">Talvez</span>
                 </button>
                 <button
                   type="button"
@@ -384,12 +364,8 @@ export function CalendarScreen() {
                 <div className="flex items-center gap-1 text-xs font-semibold text-gray-600">
                   <Users className="w-3.5 h-3.5" />
                   <span>
-                    {confirmedPlayersForGame.filter(p => p.status === 'confirmed').length > 0 && (
-                      <span className="text-green-700">{confirmedPlayersForGame.filter(p => p.status === 'confirmed').length} ✓</span>
-                    )}
-                    {confirmedPlayersForGame.filter(p => p.status === 'confirmed').length > 0 && confirmedPlayersForGame.filter(p => p.status === 'undecided').length > 0 && ' · '}
-                    {confirmedPlayersForGame.filter(p => p.status === 'undecided').length > 0 && (
-                      <span className="text-yellow-600">{confirmedPlayersForGame.filter(p => p.status === 'undecided').length} ?</span>
+                    {confirmedPlayersForGame.length > 0 && (
+                      <span className="text-green-700">{confirmedPlayersForGame.length} ✓</span>
                     )}
                   </span>
                 </div>
@@ -402,16 +378,12 @@ export function CalendarScreen() {
                   return (
                     <span
                       key={p.id}
-                      title={`${p.name} — ${isConfirmed ? 'Confirmado' : 'Talvez'}`}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${
-                        isConfirmed
-                          ? 'bg-green-50 border-green-300 text-green-800'
-                          : 'bg-yellow-50 border-yellow-300 text-yellow-800'
-                      }`}
+                      title={`${p.name} — Confirmado`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-green-50 border-green-300 text-green-800"
                     >
                       <span
                         className="w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-bold shrink-0"
-                        style={{ backgroundColor: isConfirmed ? '#16a34a' : '#ca8a04' }}
+                        style={{ backgroundColor: '#16a34a' }}
                       >
                         {initials}
                       </span>

@@ -166,7 +166,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
             .from('availabilities')
             .select('player_id, status')
             .eq('game_id', gameId)
-            .in('status', ['confirmed', 'undecided']);
+            .in('status', ['confirmed']);
           const extraIds = (avails ?? []).map((a: any) => a.player_id as string).filter((id) => id && !convokedIds.has(id));
           if (extraIds.length > 0) {
             const { data: extraPlayers } = await supabase
@@ -468,7 +468,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                     const isConfirmed = p.status === 'confirmed';
                     const isDisponivel = p.status === 'disponivel';
                     const isDeclined = p.status === 'declined';
-                    const isUndecided = p.status === 'undecided';
+                    const isUndecided = false;
                     const checkedVisual = isConvocado || isConfirmed || isDisponivel;
                     const initials = p.name.split(/\s+/).map((s: string) => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
                     const canToggle = isMe && game && !isGameClosed(game.status) && new Date(game.starts_at) >= new Date();
@@ -490,8 +490,6 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                       ? '✓ Confirmado'
                       : isDeclined
                       ? '✗ Recusou'
-                      : isUndecided
-                      ? '? Talvez'
                       : '';
                     const labelColor = isConvocado || isConfirmed ? 'text-green-700' : isDisponivel ? 'text-blue-600' : isDeclined ? 'text-red-400' : 'text-yellow-600';
                     return (
@@ -500,7 +498,7 @@ export function GameDetailsScreen({ id, viewOnly }: Props) {
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${rowBg} ${canToggle ? 'cursor-pointer hover:shadow-sm' : ''}`}
                         onClick={() => {
                           if (!canToggle || savingAvail) return;
-                          handleAvailability((isConfirmed || isConvocado) ? 'undecided' : 'confirmed');
+                          handleAvailability((isConfirmed || isConvocado) ? 'declined' : 'confirmed');
                         }}
                       >
                         <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
