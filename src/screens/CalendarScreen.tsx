@@ -37,6 +37,28 @@ export function CalendarScreen() {
     applyFilters();
   }, [games, statusFilter, phaseFilter]);
 
+  /**
+   * True se o dia selecionado deve mostrar o jogo na lista.
+   * - Torneio/Mix: dia entre game_date (starts_at) e end_date (inclusive).
+   * - Liga/Treino: apenas no dia do jogo (starts_at); intervalo ignorado.
+   *
+   * Declared here (before gamesForList) to avoid Temporal Dead Zone errors
+   * when selectedDate is set and this function is called during render.
+   */
+  const gameCoversDate = (game: any, date: Date): boolean => {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const start = new Date(game.starts_at);
+    const gameStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const cat = getCategoryFromPhase(game.phase);
+    if (cat === 'Torneio' || cat === 'Mix') {
+      const gameEnd = game.end_date
+        ? new Date(new Date(game.end_date).getFullYear(), new Date(game.end_date).getMonth(), new Date(game.end_date).getDate())
+        : gameStart;
+      return d >= gameStart && d <= gameEnd;
+    }
+    return d.getTime() === gameStart.getTime();
+  };
+
   const gamesForList = selectedDate
     ? filteredGames.filter((g) => gameCoversDate(g, selectedDate))
     : filteredGames;
@@ -136,25 +158,6 @@ export function CalendarScreen() {
     const start = new Date(startDate).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' });
     const end = new Date(endDate).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' });
     return `${start} – ${end}`;
-  };
-
-  /**
-   * True se o dia selecionado deve mostrar o jogo na lista.
-   * - Torneio/Mix: dia entre game_date (starts_at) e end_date (inclusive).
-   * - Liga/Treino: apenas no dia do jogo (starts_at); intervalo ignorado.
-   */
-  const gameCoversDate = (game: any, date: Date): boolean => {
-    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const start = new Date(game.starts_at);
-    const gameStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-    const cat = getCategoryFromPhase(game.phase);
-    if (cat === 'Torneio' || cat === 'Mix') {
-      const gameEnd = game.end_date
-        ? new Date(new Date(game.end_date).getFullYear(), new Date(game.end_date).getMonth(), new Date(game.end_date).getDate())
-        : gameStart;
-      return d >= gameStart && d <= gameEnd;
-    }
-    return d.getTime() === gameStart.getTime();
   };
 
   const getDaysUntilGame = (gameDate: string): number => {
@@ -374,7 +377,6 @@ export function CalendarScreen() {
                 {confirmedPlayersForGame.map((p) => {
                   const initials = p.name
                     .split(/\s+/).map((s: string) => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
-                  const isConfirmed = p.status === 'confirmed';
                   return (
                     <span
                       key={p.id}
