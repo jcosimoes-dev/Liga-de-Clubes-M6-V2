@@ -324,9 +324,9 @@ export function SportManagementScreen() {
           name: (p.name as string) ?? '(sem nome)',
           wins: 0,
           losses: 0,
-          pontos_liga: Number(p.liga_points ?? 0),
+          pontos_liga: Math.round(Number(p.liga_points ?? 0) * 100) / 100,
           federation_points: Number(p.federation_points ?? 0),
-          total_points: Number(p.liga_points ?? 0) + Number(p.federation_points ?? 0),
+          total_points: Math.round((Number(p.liga_points ?? 0) + Number(p.federation_points ?? 0)) * 100) / 100,
           rank: i + 1,
         }));
 
@@ -502,7 +502,7 @@ export function SportManagementScreen() {
     );
   };
 
-  const totalRawPlayerPoints = (pl: any) => (pl?.liga_points ?? 0) + (pl?.federation_points ?? 0);
+  const totalRawPlayerPoints = (pl: any) => Math.round(((pl?.liga_points ?? 0) + (pl?.federation_points ?? 0)) * 100) / 100;
   const sortedPairsForDisplay = useMemo(() => {
     if (!editablePairsForSwap?.length || !rawPlayers?.length) return [];
     return [...editablePairsForSwap]
@@ -723,7 +723,7 @@ export function SportManagementScreen() {
   }, [selectedGame?.id, selectedGame?.phase, minPlayers, maxPairs, selectedPlayerIds.size]);
 
   /** Total de pontos (Liga + FPP) — mesma lógica que Perfil e Equipa */
-  const totalPlayerPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
+  const totalPlayerPoints = (p: any) => Math.round(((p?.liga_points ?? 0) + (p?.federation_points ?? 0)) * 100) / 100;
 
   /** Jogadores disponíveis ordenados por Total (maior primeiro) para o Coordenador */
   const sortedAvailablePlayers = useMemo(
@@ -1535,9 +1535,9 @@ export function SportManagementScreen() {
                             <tr key={row.player_id} className="border-b border-gray-100 hover:bg-gray-50/50">
                               <td className="py-2 px-1 text-gray-600">{idx + 1}</td>
                               <td className="py-2 px-1 font-medium text-gray-900 truncate max-w-[100px]">{row.name}</td>
-                              <td className="py-2 px-1 text-right text-amber-700">{row.pontos_liga}</td>
+                              <td className="py-2 px-1 text-right text-amber-700">{(Math.round((row.pontos_liga ?? 0) * 100) / 100).toFixed(2)}</td>
                               <td className="py-2 px-1 text-right text-blue-600">{row.federation_points}</td>
-                              <td className="py-2 px-1 text-right font-semibold text-gray-900">{row.total_points}</td>
+                              <td className="py-2 px-1 text-right font-semibold text-gray-900">{(Math.round((row.total_points ?? 0) * 100) / 100).toFixed(2)}</td>
                               <td className="py-2 px-1 text-right text-gray-700">{(row as { jogos?: number }).jogos ?? 0}</td>
                               <td className={`py-2 px-1 text-right font-medium ${dispPctColor((row as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0)}`}>
                                 {(row as { disponibilidade_pct?: number }).disponibilidade_pct ?? 0}%

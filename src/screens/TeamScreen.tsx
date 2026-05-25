@@ -84,7 +84,8 @@ export function TeamScreen() {
   /** Capitão só pode editar o próprio perfil; coordenador/admin podem editar outros. */
   const canEdit = (player: any) => isOwnProfile(player) || canDo('edit_other_player');
 
-  const totalPoints = (p: any) => (p?.liga_points ?? 0) + (p?.federation_points ?? 0);
+  const fmt2 = (v: number) => Math.round(v * 100) / 100;
+  const totalPoints = (p: any) => fmt2((p?.liga_points ?? 0) + (p?.federation_points ?? 0));
   const displayPlayers = useMemo(() => {
     const list = [...players];
     if (isAdmin && sortByPoints === 'total') {
@@ -444,7 +445,7 @@ export function TeamScreen() {
                       onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value, 10) || 0 })}
                     />
                     <p className="text-sm font-semibold text-amber-900 tabular-nums">
-                      Total: {(Number.isFinite(editForm.liga_points) ? editForm.liga_points : 0) + (Number.isFinite(editForm.federation_points) ? editForm.federation_points : 0)}
+                      Total: {fmt2((Number.isFinite(editForm.liga_points) ? editForm.liga_points : 0) + (Number.isFinite(editForm.federation_points) ? editForm.federation_points : 0))}
                     </p>
                   </>
                 )}
@@ -515,7 +516,7 @@ export function TeamScreen() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span className="font-medium text-gray-700">Liga: <span className="font-semibold text-amber-700 tabular-nums">{player.liga_points ?? 0}</span></span>
+                  <span className="font-medium text-gray-700">Liga: <span className="font-semibold text-amber-700 tabular-nums">{fmt2(player.liga_points ?? 0)}</span></span>
                   <span className="font-medium text-gray-700">FPP: <span className="font-semibold text-gray-900 tabular-nums">{player.federation_points ?? 0}</span></span>
                   <span className="font-medium text-gray-700">Total: <span className="font-bold text-amber-900 tabular-nums">{totalPoints(player)}</span></span>
                 </div>
