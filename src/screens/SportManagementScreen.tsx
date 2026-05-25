@@ -855,19 +855,30 @@ export function SportManagementScreen() {
   const loadClosedGames = async () => {
     setClosedGamesLoading(true);
     try {
-      // Jogos explicitamente fechados
-      const [closedRaw, pastOpenRaw] = await Promise.all([
-        GamesService.getByStatus('convocatoria_fechada'),
-        GamesService.getPastOpenGames(),
-      ]);
-      const closed = Array.isArray(closedRaw) ? closedRaw : [];
-      const pastOpen = Array.isArray(pastOpenRaw) ? pastOpenRaw : [];
-      // Juntar sem duplicados (pastOpen pode incluir jogos que entretanto foram fechados)
-      const closedIds = new Set(closed.map((g: any) => g.id));
-      const merged = [...closed, ...pastOpen.filter((g: any) => !closedIds.has(g.id))];
-      // Ordenar por data decrescente
-      merged.sort((a: any, b: any) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime());
-      setClosedGames(merged);
+      // Use getAll() for robust local filtering — avoids missing games where starts_at is
+      // null (stored as game_date in older rows) which caused .lt('starts_at', now) to miss them.
+      const allGames = await GamesService.getAll();
+      const terminalStatuses = new Set(['concluido', 'completed', 'final', 'closed', 'cancelado']);
+      const now = new Date();
+      const nowMs = now.getTime();
+
+      const closedForEntry = allGames.filter((g: any) => {
+        const status = String(g.status ?? '').toLowerCase().trim();
+        if (terminalStatuses.has(status)) return false;
+        // Always include convocatoria_fechada regardless of date
+        if (status === 'convocatoria_fechada') return true;
+        // Include any other non-terminal game whose date has passed
+        const dateStr = g.starts_at || g.game_date;
+        if (!dateStr) return false;
+        return new Date(dateStr).getTime() <= nowMs;
+      });
+
+      closedForEntry.sort((a: any, b: any) => {
+        const da = new Date(a.starts_at || a.game_date || 0).getTime();
+        const db = new Date(b.starts_at || b.game_date || 0).getTime();
+        return db - da;
+      });
+      setClosedGames(closedForEntry);
     } catch (e) {
       showToast('Erro ao carregar jogos fechados', 'error');
       setClosedGames([]);
