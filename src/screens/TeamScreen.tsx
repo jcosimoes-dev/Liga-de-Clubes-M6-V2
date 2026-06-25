@@ -84,8 +84,8 @@ export function TeamScreen() {
   /** Capitão só pode editar o próprio perfil; coordenador/admin podem editar outros. */
   const canEdit = (player: any) => isOwnProfile(player) || canDo('edit_other_player');
 
-  const fmt2 = (v: number) => Math.round(v * 100) / 100;
-  const totalPoints = (p: any) => fmt2((p?.liga_points ?? 0) + (p?.federation_points ?? 0));
+  const fmt3 = (v: number) => Math.round(v * 1000) / 1000;
+  const totalPoints = (p: any) => fmt3((p?.liga_points ?? 0) + (p?.federation_points ?? 0));
   const displayPlayers = useMemo(() => {
     const list = [...players];
     if (isAdmin && sortByPoints === 'total') {
@@ -441,16 +441,21 @@ export function TeamScreen() {
                     <Input
                       label="Pontos Federação (FPP)"
                       type="number"
+                      step="0.001"
                       value={editForm.federation_points}
-                      onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value, 10) || 0 })}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const n = parseFloat(v);
+                        setEditForm({ ...editForm, federation_points: v === '' || Number.isNaN(n) ? 0 : Math.round(n * 1000) / 1000 });
+                      }}
                     />
                     <p className="text-sm font-semibold text-amber-900 tabular-nums">
-                      Total: {fmt2((Number.isFinite(editForm.liga_points) ? editForm.liga_points : 0) + (Number.isFinite(editForm.federation_points) ? editForm.federation_points : 0))}
+                      Total: {fmt3((Number.isFinite(editForm.liga_points) ? editForm.liga_points : 0) + (Number.isFinite(editForm.federation_points) ? editForm.federation_points : 0))}
                     </p>
                   </>
                 )}
                 {!canDo('edit_other_player') && (
-                  <Input label="Pontos de Federação" type="number" value={editForm.federation_points} onChange={(e) => setEditForm({ ...editForm, federation_points: parseInt(e.target.value, 10) || 0 })} />
+                  <Input label="Pontos de Federação" type="number" step="0.001" value={editForm.federation_points} onChange={(e) => { const v = e.target.value; const n = parseFloat(v); setEditForm({ ...editForm, federation_points: v === '' || Number.isNaN(n) ? 0 : Math.round(n * 1000) / 1000 }); }} />
                 )}
                 <Input label="Telemóvel" type="tel" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="912 345 678 ou +351 912 345 678" />
                 <div>
@@ -516,7 +521,7 @@ export function TeamScreen() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span className="font-medium text-gray-700">Liga: <span className="font-semibold text-amber-700 tabular-nums">{fmt2(player.liga_points ?? 0)}</span></span>
+                  <span className="font-medium text-gray-700">Liga: <span className="font-semibold text-amber-700 tabular-nums">{fmt3(player.liga_points ?? 0)}</span></span>
                   <span className="font-medium text-gray-700">FPP: <span className="font-semibold text-gray-900 tabular-nums">{player.federation_points ?? 0}</span></span>
                   <span className="font-medium text-gray-700">Total: <span className="font-bold text-amber-900 tabular-nums">{totalPoints(player)}</span></span>
                 </div>
